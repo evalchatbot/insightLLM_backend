@@ -14,14 +14,18 @@ except Exception:
 class EmbeddingClient:
     def __init__(self, model_name: str):
         if TextEmbedding is None:
-            raise RuntimeError(
-                "fastembed is not installed. Run: pip install fastembed"
-            )
+            raise RuntimeError("fastembed is not installed. Run: pip install fastembed")
         self.model = TextEmbedding(model_name)
 
     def embed(self, texts: List[str]) -> List[List[float]]:
-        # fastembed returns an iterator; convert to list
-        return [vec for vec in self.model.embed(texts)]
+        vectors: List[List[float]] = []
+        for vec in self.model.embed(texts):
+            # vec could be a NumPy array or iterable of np.float32 — normalize to plain floats
+            if hasattr(vec, "tolist"):
+                vectors.append([float(x) for x in vec.tolist()])
+            else:
+                vectors.append([float(x) for x in vec])
+        return vectors
 
 def _normalize_scores(docs: List[Dict], key: str) -> List[Dict]:
     if not docs:

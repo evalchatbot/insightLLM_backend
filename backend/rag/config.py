@@ -24,7 +24,7 @@ class RAGSettings(BaseSettings):
     WEAVIATE_INDEX: str = "Documents"
 
     # Embeddings
-    EMBEDDING_MODEL_NAME: str = "BAAI/bge-base-en-v1.5"
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"
 
     # Reranker + Safety
     ENABLE_RERANKER: bool = False
