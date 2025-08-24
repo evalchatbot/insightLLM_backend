@@ -1,0 +1,169 @@
+# NotebookLM Backend – Detailed Guide
+
+A modular backend for an agentic book chatbot platform, featuring RAG-based chat, MCQ generation, and OCR (stub) agents. Built with FastAPI, Supabase, and LangGraph.
+
+---
+
+## Table of Contents
+- [Features](#features)
+- [Requirements](#requirements)
+- [Environment Variables](#environment-variables)
+- [Supabase Table Setup](#supabase-table-setup)
+- [Local Development](#local-development)
+- [Docker Deployment](#docker-deployment)
+- [API Usage](#api-usage)
+  - [JWT Authentication](#jwt-authentication)
+  - [User & Session](#user--session)
+  - [Chatbot](#chatbot)
+  - [MCQ](#mcq)
+  - [OCR](#ocr)
+  - [Books & Genres](#books--genres)
+- [Troubleshooting](#troubleshooting)
+- [Directory Structure](#directory-structure)
+
+---
+
+## Features
+- Chatbot agent with short-term (LangGraph InMemoryStore) and long-term (Supabase) memory
+- MCQ generation and evaluation, with persistent storage
+- OCR agent (stub for future integration)
+- JWT authentication for all endpoints
+- Modular, scalable, and well-documented codebase
+
+## Requirements
+- Python 3.13+
+- Docker (for containerized deployment)
+- Supabase project (credentials via environment variables)
+
+## Environment Variables
+Set these in a `.env` file or as Docker/container environment variables:
+- `SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_KEY`: Your Supabase service role key
+- `JWT_SECRET_KEY`: Secret key for JWT authentication (choose a strong value)
+
+## Supabase Table Setup
+Create these tables in your Supabase project (see `backend/db/models.py` for field suggestions):
+- `users`, `books`, `chat_messages`, `document_chunks`, `mcq_quizzes`, `mcq_questions`, `mcq_results`, `sessions`, `long_term_memory`
+
+## Local Development
+1. **Clone the repository**
+   ```sh
+   git clone <repo-url>
+   cd notebookLM_backend
+   ```
+2. **Install dependencies**
+   ```sh
+   pip install -r requirements.txt
+   ```
+3. **Configure environment variables**
+   - Create a `.env` file or set env vars in your shell:
+     ```sh
+     export SUPABASE_URL=your_url
+     export SUPABASE_KEY=your_key
+     export JWT_SECRET_KEY=your_secret
+     ```
+4. **Run the app**
+   ```sh
+   uvicorn backend.main:app --reload
+   ```
+5. **Access API docs**
+   - Open [http://localhost:8000/docs](http://localhost:8000/docs) for Swagger UI.
+
+## Docker Deployment
+1. **Build the Docker image**
+   ```sh
+   docker build -t notebooklm-backend .
+   ```
+2. **Run the container**
+   ```sh
+   docker run -d -p 8000:8000 \
+     -e SUPABASE_URL=your_url \
+     -e SUPABASE_KEY=your_key \
+     -e JWT_SECRET_KEY=your_secret \
+     notebooklm-backend
+   ```
+
+---
+
+## API Usage
+All endpoints (except `/user/token`) require a valid JWT Bearer token in the `Authorization` header.
+
+### JWT Authentication
+1. **Obtain a JWT token**
+   - Use the `/user/token` endpoint:
+     ```http
+     POST /user/token
+     Content-Type: application/json
+     {
+       "user_id": "your_user_id"
+     }
+     ```
+   - Response:
+     ```json
+     {
+       "access_token": "<JWT_TOKEN>",
+       "token_type": "bearer"
+     }
+     ```
+2. **Use the token**
+   - Add to all requests:
+     ```http
+     Authorization: Bearer <JWT_TOKEN>
+     ```
+
+### User & Session
+- `POST /user/session/create` – Create a new session
+- `GET /user/session/{id}` – Get session info
+
+### Chatbot
+- `POST /chatbot/ask` – Ask a question (requires `user_id`, `session_id`, `question`, `genre`)
+
+### MCQ
+- `POST /mcq/generate` – Generate MCQs (requires `user_id`, `genre`)
+- `POST /mcq/evaluate` – Evaluate answers (requires `user_id`, `quiz_id`, `answers`)
+
+### OCR
+- `POST /ocr/parse` – Parse image (stub)
+
+### Books & Genres
+- `GET /books/genres` – List genres
+- `GET /books/{genre}` – List books by genre
+
+---
+
+## Troubleshooting
+- **Supabase errors**: Ensure all required tables exist and credentials are correct.
+- **JWT errors**: Check your `JWT_SECRET_KEY` and token validity.
+- **CORS**: FastAPI allows CORS configuration if needed for frontend.
+- **API not reachable**: Ensure port 8000 is open and not blocked by firewall.
+
+## Directory Structure
+```
+backend/
+  agents/
+    chatbot_agent.py
+    mcq_agent.py
+    ocr_agent.py
+  memory/
+    short_term.py
+    long_term.py
+  db/
+    models.py
+    supabase_client.py
+  api/
+    routes/
+      chatbot.py
+      mcq.py
+      ocr.py
+      users.py
+      books.py
+  main.py
+  config.py
+  requirements.txt
+  Dockerfile
+  README_backend.md
+```
+
+---
+
+**For more, see the OpenAPI docs at `/docs` after running the backend!**
