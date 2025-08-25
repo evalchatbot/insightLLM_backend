@@ -33,31 +33,40 @@ class ChatbotAgent:
         self.logger = logging.getLogger(__name__)
 
     async def ask(
-        self,
-        user_id: str,
-        session_id: str,
-        question: str,
-        genre: str,
-        book_ids: List[str] = None
+            self,
+            user_id: str,
+            session_id: str,
+            question: str,
+            genre: str,
+            book_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Process a user question with RAG, memory, and vector search (async).
-        Returns answer, source snippets, and retrieval metadata.
+        Delegates to multi-step RAG by default. Fallback to legacy if disabled.
         """
+        use_multi = os.getenv("USE_MULTI_STEP_RAG", "true").lower() in ("1", "true", "yes", "on")
+
+        if use_multi:
+            res = await self.ask_multi_step(
+                user_id=user_id,
+                session_id=session_id,
+                question=question,
+                genre=genre,
+                book_ids=book_ids,
+                max_iterations=3,
+            )
+            # Ensure the legacy route shape is preserved (context is expected on response)
+            if "context" not in res:
+                res["context"] = self.short_term.get_recent_messages(user_id, session_id)
+            return res
+
+        # ---- Legacy single-shot path (your original code) ----
         self.logger.info(f"Received question from user_id={user_id}, session_id={session_id}, genre={genre}")
         try:
-            # 1. Generate query embedding
             query_embedding = await self.embedding.generate(question)
-            self.logger.debug(f"Generated query embedding: {query_embedding}")
-            # 2. Get book_ids (if not provided, fetch by genre)
             if not book_ids:
                 books_res = self.db.select("books", {"genre": genre})
                 book_ids = [b["id"] for b in books_res.data] if hasattr(books_res, 'data') else []
-                self.logger.info(f"Fetched book_ids by genre: {book_ids}")
-            # 3. Retrieve relevant document chunks (async vector search)
             chunks = await self.db.search_chunks_vector(query_embedding, book_ids, top_k=5)
-            self.logger.info(f"Retrieved {len(chunks)} relevant document chunks")
-            # 4. Add book titles to chunks (optional, can be optimized)
             if chunks:
                 unique_book_ids = list(set(chunk["book_id"] for chunk in chunks))
                 books_data = self.db.select("books", {"id": unique_book_ids})
@@ -67,19 +76,11 @@ class ChatbotAgent:
                     if book:
                         chunk["book_title"] = book["title"]
                         chunk["book_author"] = book["author"]
-            # 5. Create context from chunks
             context_str = create_context_from_chunks(chunks)
-            # 6. Get recent chat context from short-term memory
             context = self.short_term.get_recent_messages(user_id, session_id)
-            self.logger.debug(f"Short-term memory context: {context}")
-            # 7. Compose prompt for LLM
             prompt = self._compose_prompt(question, context, context_str)
-            # 8. Get answer from LLM (GROQ API)
             answer = self._call_llm_groq(prompt)
-            self.logger.info(f"LLM answer: {answer}")
-            # 9. Optionally persist important facts to long-term memory
             self.long_term.save_fact(user_id, session_id, context="chat", fact=answer)
-            # 10. Add user/assistant messages to short-term memory
             self.short_term.add_message(user_id, session_id, {"sender": "user", "message": question})
             self.short_term.add_message(user_id, session_id, {"sender": "assistant", "message": answer})
             return {
@@ -168,7 +169,7 @@ class ChatbotAgent:
             except Exception as e:
                 self.logger.warning(f"[multi-step] failed to fetch books by genre: {e}")
                 book_ids = []
-        selection_filters = {"book_ids": book_ids or []}
+        selection_filters = {"book_ids": book_ids} if (book_ids and len(book_ids) > 0) else None
 
         # 2) Build retriever that wraps your Supabase DB (reuses your RPC)
         adapter = SupabaseVectorStoreAdapter(self.db)  # expects .search_chunks_vector and .supabase
@@ -176,6 +177,8 @@ class ChatbotAgent:
 
         # 3) Async LLM client for planner + synthesizer
         llm = GroqHTTPxLLM(api_key=self.groq_api_key, model=self.llm_model)
+
+        self.logger.info(f"[multi-step] genre={genre} book_ids={book_ids} selection_filters={selection_filters}")
 
         # 4) Run controller
         result = await run_controller(
@@ -186,6 +189,9 @@ class ChatbotAgent:
             retriever=retriever,  # supply explicitly to avoid lazy import differences
             planner=None,  # controller will instantiate planner with llm
         )
+
+
+        context_for_response = history  # return the pre-question chat history for UI parity
 
         answer: str = result.get("answer", "")
         citations: List[Citation] = result.get("citations", [])
@@ -206,9 +212,10 @@ class ChatbotAgent:
 
         return {
             "answer": answer,
-            "sources": sources,  # resolved chunks if available
+            "sources": sources,
+            "context": context_for_response,
             "traces": [t.dict() for t in traces],
-            "metadata": {"iterations": iterations, "book_ids": selection_filters["book_ids"]},
+            "metadata": {"iterations": iterations, "book_ids": book_ids},
         }
 
     async def _resolve_sources_from_citations(self, citations: List[Citation]) -> List[Dict[str, Any]]:
@@ -227,7 +234,7 @@ class ChatbotAgent:
         try:
             rows = (
                        self.db.supabase.table("document_chunks")
-                       .select("*")
+                       .select("id,book_id,content,page_start,page_end,chunk_index,metadata,created_at")
                        .in_("id", chunk_ids)
                        .execute()
                        .data
