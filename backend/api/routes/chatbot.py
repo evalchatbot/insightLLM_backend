@@ -42,6 +42,7 @@ class ChatbotMultiAskResponse(BaseModel):
 async def ask_chatbot(req: ChatbotAskRequest) -> ChatbotAskResponse:
     """Ask a question to the chatbot agent (RAG, memory, vector search, async)."""
     try:
+        print("➡️ Incoming request:", req.dict())
         result = await agent.ask(
             user_id=req.user_id,
             session_id=req.session_id,
@@ -66,7 +67,9 @@ async def ask_chatbot_multistep(req: ChatbotMultiAskRequest) -> ChatbotMultiAskR
             book_ids=req.book_ids,
             max_iterations=req.max_iterations or 3,
         )
+        print("✅ Got result:", result)
         # result already matches the response model keys
         return ChatbotMultiAskResponse(**result)
     except Exception as e:
+        print("❌ Error in ask_chatbot:", e)
         raise HTTPException(status_code=500, detail=str(e))
