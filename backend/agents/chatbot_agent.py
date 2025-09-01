@@ -163,8 +163,40 @@ Answer:"""
             book_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Delegates to multi-step RAG by default. Fallback to legacy if disabled.
+        Smart routing: Generic questions get immediate responses, specific questions use RAG pipeline.
         """
+        # Step 1: Classify the question
+        question_type, confidence = self.question_classifier.classify_question(question)
+        self.logger.info(f"Question classified as {question_type.value} with confidence {confidence:.2f}")
+        
+        # Step 2: Handle generic questions immediately
+        if question_type == QuestionType.GENERIC and confidence >= 0.4:
+            generic_response = self.generic_handler.get_response(question)
+            if generic_response:
+                # Still update memory for continuity
+                self.short_term.add_message(user_id, session_id, {"sender": "user", "message": question})
+                self.short_term.add_message(user_id, session_id, {"sender": "assistant", "message": generic_response})
+                
+                # Check if we should summarize (even for generic responses)
+                if self.short_term.should_summarize(user_id, session_id):
+                    current_messages = self.short_term.get_recent_messages(user_id, session_id)
+                    await self.long_term.save_conversation_summary(user_id, session_id, current_messages)
+                    self.short_term.reset_conversation_count(user_id, session_id)
+                    await self.long_term.cleanup_old_facts(user_id, session_id)
+                
+                return {
+                    "answer": generic_response,
+                    "sources": [],
+                    "context": self.short_term.get_recent_messages(user_id, session_id),
+                    "metadata": {
+                        "question_type": "generic",
+                        "confidence": confidence,
+                        "mode": "direct_response",
+                        "retrieved_chunks": 0
+                    }
+                }
+        
+        # Step 3: For specific content questions, use RAG pipeline
         use_multi = os.getenv("USE_MULTI_STEP_RAG", "true").lower() in ("1", "true", "yes", "on")
         use_adaptive = os.getenv("USE_ADAPTIVE_RAG", "false").lower() in ("1", "true", "yes", "on")
 
@@ -186,6 +218,8 @@ Answer:"""
                 if "context" not in res:
                     res["context"] = self.short_term.get_recent_messages(user_id, session_id)
                 res["metadata"]["mode"] = "adaptive_multi"
+                res["metadata"]["question_type"] = question_type.value
+                res["metadata"]["classification_confidence"] = confidence
                 return res
                 
             except asyncio.TimeoutError:
@@ -200,11 +234,15 @@ Answer:"""
                 # Fallback to fast mode
                 res = await self.ask_fast(user_id, session_id, question, genre, book_ids)
                 res["metadata"]["mode"] = "adaptive_fast_fallback"
+                res["metadata"]["question_type"] = question_type.value
+                res["metadata"]["classification_confidence"] = confidence
                 return res
             except Exception as e:
                 self.logger.error(f"Multi-step RAG failed, falling back to fast mode: {e}")
                 res = await self.ask_fast(user_id, session_id, question, genre, book_ids)
                 res["metadata"]["mode"] = "adaptive_fast_fallback"
+                res["metadata"]["question_type"] = question_type.value
+                res["metadata"]["classification_confidence"] = confidence
                 return res
 
         if use_multi:
@@ -233,6 +271,10 @@ Answer:"""
                 
                 # Add performance info to response
                 res["performance"] = metrics.to_dict()
+                
+                # Add classification metadata
+                res["metadata"]["question_type"] = question_type.value
+                res["metadata"]["classification_confidence"] = confidence
                 
                 # Ensure the legacy route shape is preserved (context is expected on response)
                 if "context" not in res:
@@ -496,3 +538,10 @@ Answer:"""
                 pass
 
         return rows
+    
+    def classify_question_debug(self, question: str) -> Dict[str, Any]:
+        """
+        Debug method to analyze question classification.
+        Useful for testing and tuning the classification system.
+        """
+        return self.question_classifier.get_classification_details(question)
