@@ -11,6 +11,7 @@ from backend.rag.retrieval.hybrid_retriever import HybridRetriever
 from backend.rag.adapters.supabase_store import SupabaseVectorStoreAdapter
 from backend.rag.reasoning.validator import sanitize_snippets, has_sufficient_evidence
 from backend.rag.reasoning.synthesizer import generate_final_answer
+from backend.rag.telemetry.langsmith_tracer import trace_agent_method, LangSmithTracer
 
 # helper: get last user turn
 def _last_user_query(messages: List[Dict]) -> str:
@@ -19,6 +20,7 @@ def _last_user_query(messages: List[Dict]) -> str:
             return str(m.get("content", "")).strip()
     return ""
 
+@trace_agent_method(name="rag_controller", tags=["rag", "controller", "multi_step"])
 async def run_controller(
     messages: List[Dict],
     selection_filters: Optional[Dict] = None,

@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 from backend.db.supabase_client import SupabaseDB
 from backend.config import GROQ_API_KEY, MCQ_LLM_MODEL
+from backend.rag.telemetry.langsmith_tracer import trace_agent_method, trace_llm_call
 import httpx
 
 class MCQAgent:
@@ -17,6 +18,7 @@ class MCQAgent:
         self.llm_model = MCQ_LLM_MODEL
         self.groq_api_key = GROQ_API_KEY
 
+    @trace_agent_method(name="mcq_generate", tags=["mcq", "generation"])
     def generate_mcq(self, user_id: str, genre: str, context: str = "") -> Dict[str, Any]:
         """
         Generate MCQs from genre or chat context, store in Supabase.
@@ -48,6 +50,7 @@ class MCQAgent:
         base += "\nReturn as a JSON list of objects with fields: question, options, correct_answer."
         return base
 
+    @trace_llm_call(name="mcq_groq_call", provider="groq")
     def _call_llm_groq(self, prompt: str) -> List[Dict[str, Any]]:
         """Call the GROQ API to get MCQs from the configured LLM model."""
         if not self.groq_api_key or not self.llm_model:
@@ -78,6 +81,7 @@ class MCQAgent:
         except Exception as e:
             return []
 
+    @trace_agent_method(name="mcq_evaluate", tags=["mcq", "evaluation"])
     def evaluate_mcq(self, user_id: str, quiz_id: str, answers: List[str]) -> Dict[str, Any]:
         """
         Evaluate user answers, store results, and return score/feedback.

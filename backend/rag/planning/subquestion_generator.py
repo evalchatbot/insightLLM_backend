@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Any
 import json
 from dataclasses import dataclass
+from backend.rag.telemetry.langsmith_tracer import trace_agent_method
 
 DEFAULT_MAX_SUBQUESTIONS = 5
 
@@ -89,6 +90,7 @@ class SubquestionGenerator:
         self.max_subquestions = max_subquestions
         self.temperature = temperature
 
+    @trace_agent_method(name="subquestion_planning", tags=["planning", "rag"])
     async def generate(self, user_query: str, context_notes: str = "") -> PlannerOutput:
         prompt = _build_prompt(user_query, context_notes, self.max_subquestions)
 
