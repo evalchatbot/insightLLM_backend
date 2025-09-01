@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Dict, Any
 from backend.rag.memory.context_state import EvidenceSnippet
 from backend.rag.models.schemas import Citation
+from backend.rag.telemetry.langsmith_tracer import trace_agent_method
 
 FINAL_PROMPT = """You are a careful assistant. Using ONLY the EVIDENCE below, answer the USER QUESTION.
 - If evidence is insufficient, say: "Not found in provided sources."
@@ -28,6 +29,7 @@ def _format_evidence(evidence: List[EvidenceSnippet], max_chars_per_snippet: int
         lines.append(f"[E{i}] (doc={s.doc_id} chunk={s.chunk_id} src={s.source})\n{txt}\n")
     return "\n".join(lines)
 
+@trace_agent_method(name="final_answer_synthesis", tags=["synthesis", "rag"])
 async def generate_final_answer(
     llm_client: Any,
     question: str,

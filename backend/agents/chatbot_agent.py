@@ -14,6 +14,7 @@ from backend.rag.reasoning.graph_controller import run_controller
 from backend.rag.adapters.supabase_store import SupabaseVectorStoreAdapter
 from backend.rag.retrieval.hybrid_retriever import HybridRetriever
 from backend.rag.models.schemas import Citation
+from backend.rag.telemetry.langsmith_tracer import trace_agent_method, trace_llm_call, LangSmithTracer
 
 import httpx
 import logging
@@ -32,6 +33,7 @@ class ChatbotAgent:
         self.embedding = FastEmbedEmbedding()
         self.logger = logging.getLogger(__name__)
 
+    @trace_agent_method(name="chatbot_ask", tags=["chatbot", "main_entry"])
     async def ask(
             self,
             user_id: str,
@@ -104,6 +106,7 @@ class ChatbotAgent:
         chat_history = "\n".join([m["message"] for m in chat_context])
         return f"{system_prompt}\nChat History:\n{chat_history}\n\nRelevant Book Context:\n{context_str}\n\nQuestion: {question}\nAnswer:"
 
+    @trace_llm_call(name="chatbot_groq_call", provider="groq")
     def _call_llm_groq(self, prompt: str) -> str:
         """Call the GROQ API to get an answer from the configured LLM model."""
         if not self.groq_api_key or not self.llm_model:
@@ -131,6 +134,7 @@ class ChatbotAgent:
         except Exception as e:
             return f"[GROQ API error: {e}]"
 
+    @trace_agent_method(name="chatbot_multi_step_rag", tags=["chatbot", "multi_step", "rag"])
     async def ask_multi_step(
             self,
             user_id: str,

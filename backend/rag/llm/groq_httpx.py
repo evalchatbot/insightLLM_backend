@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 import httpx
 import asyncio
+from backend.rag.telemetry.langsmith_tracer import trace_llm_call
 
 class GroqHTTPxLLM:
     """
@@ -21,6 +22,7 @@ class GroqHTTPxLLM:
             "Content-Type": "application/json",
         }
 
+    @trace_llm_call(name="groq_generate", provider="groq")
     async def generate(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 900) -> str:
         payload = {
             "model": self.model,

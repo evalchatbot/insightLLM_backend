@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from backend.rag.config import get_rag_settings
 from backend.rag.memory.dedupe import dedupe_docs
 from backend.rag.retrieval.bm25 import rerank_with_bm25
+from backend.rag.telemetry.langsmith_tracer import trace_retrieval
 
 # fastembed for embeddings
 try:
@@ -54,6 +55,7 @@ class HybridRetriever:
         self.top_k = top_k or self.settings.TOP_K
         self.embedder = EmbeddingClient(self.settings.EMBEDDING_MODEL_NAME)
 
+    @trace_retrieval(name="hybrid_retrieve")
     async def retrieve(self, query_text: str, filters: Optional[Dict] = None) -> List[Dict]:
         # 1) Embed query
         [q_emb] = self.embedder.embed([query_text])
