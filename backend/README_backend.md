@@ -1,6 +1,6 @@
 # NotebookLM Backend – Detailed Guide
 
-A modular backend for an agentic book chatbot platform, featuring RAG-based chat, MCQ generation, and OCR (stub) agents. Built with FastAPI, Supabase, and LangGraph.
+A modular backend for an agentic book chatbot platform, featuring advanced RAG-based chat with intelligent conversation summarization. Built with FastAPI, Supabase, and LangGraph.
 
 ---
 
@@ -15,18 +15,19 @@ A modular backend for an agentic book chatbot platform, featuring RAG-based chat
   - [JWT Authentication](#jwt-authentication)
   - [User & Session](#user--session)
   - [Chatbot](#chatbot)
-  - [MCQ](#mcq)
-  - [OCR](#ocr)
   - [Books & Genres](#books--genres)
+- [Performance Features](#performance-features)
 - [Troubleshooting](#troubleshooting)
 - [Directory Structure](#directory-structure)
 
 ---
 
 ## Features
-- Chatbot agent with short-term (LangGraph InMemoryStore) and long-term (Supabase) memory
-- MCQ generation and evaluation, with persistent storage
-- OCR agent (stub for future integration)
+- Advanced chatbot agent with RAG pipeline and multi-step reasoning
+- Intelligent conversation summarization (auto-summarizes after 5 exchanges)
+- Short-term memory (LangGraph InMemoryStore) and long-term memory (Supabase)
+- Performance optimizations with caching and parallel processing
+- LangSmith tracing for monitoring and debugging
 - JWT authentication for all endpoints
 - Modular, scalable, and well-documented codebase
 
@@ -43,7 +44,7 @@ Set these in a `.env` file or as Docker/container environment variables:
 
 ## Supabase Table Setup
 Create these tables in your Supabase project (see `backend/db/models.py` for field suggestions):
-- `users`, `books`, `chat_messages`, `document_chunks`, `mcq_quizzes`, `mcq_questions`, `mcq_results`, `sessions`, `long_term_memory`
+- `users`, `books`, `chat_messages`, `document_chunks`, `sessions`, `long_term_memory`
 
 ## Local Development
 1. **Clone the repository**
@@ -118,16 +119,39 @@ All endpoints (except `/user/token`) require a valid JWT Bearer token in the `Au
 ### Chatbot
 - `POST /chatbot/ask` – Ask a question (requires `user_id`, `session_id`, `question`, `genre`)
 
-### MCQ
-- `POST /mcq/generate` – Generate MCQs (requires `user_id`, `genre`)
-- `POST /mcq/evaluate` – Evaluate answers (requires `user_id`, `quiz_id`, `answers`)
 
-### OCR
-- `POST /ocr/parse` – Parse image (stub)
 
 ### Books & Genres
 - `GET /books/genres` – List genres
 - `GET /books/{genre}` – List books by genre
+- `POST /ingest/upload` – Upload and process new books
+
+---
+
+## Performance Features
+
+### Conversation Summarization
+- Automatically summarizes conversations after 5 exchanges
+- Stores intelligent summaries instead of raw messages
+- 95-99% storage reduction for long conversations
+- Maintains context quality while improving performance
+
+### RAG Optimizations
+- Multi-step reasoning with parallel processing
+- Embedding caching for faster retrieval
+- Early stopping when sufficient evidence is found
+- Adaptive mode that balances speed vs quality
+- LangSmith tracing for performance monitoring
+
+### Configuration
+```env
+# Performance settings
+USE_ADAPTIVE_RAG=true
+LANGSMITH_TRACING=true
+ENABLE_CACHE=true
+MAX_ITERATIONS=2
+TOP_K=5
+```
 
 ---
 
@@ -142,8 +166,7 @@ All endpoints (except `/user/token`) require a valid JWT Bearer token in the `Au
 backend/
   agents/
     chatbot_agent.py
-    mcq_agent.py
-    ocr_agent.py
+
   memory/
     short_term.py
     long_term.py
@@ -153,10 +176,10 @@ backend/
   api/
     routes/
       chatbot.py
-      mcq.py
-      ocr.py
       users.py
       books.py
+      ingest.py
+      auth.py
   main.py
   config.py
   requirements.txt

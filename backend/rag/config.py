@@ -36,10 +36,15 @@ class RAGSettings(BaseSettings):
     CACHE_TTL_S: int = 600
 
     # Budgets
-    MAX_ITERATIONS: int = 4
-    TOP_K: int = 8
+    MAX_ITERATIONS: int = 2  # Reduced from 4 for faster response
+    TOP_K: int = 5  # Reduced from 8 for faster retrieval
     MAX_TOKENS: int = 4096
-    MAX_TIME_S: int = 30
+    MAX_TIME_S: int = 15  # Reduced from 30 for faster timeout
+    
+    # Performance optimizations
+    ENABLE_EARLY_STOPPING: bool = True
+    MIN_EVIDENCE_THRESHOLD: int = 3  # Stop early if we have enough evidence
+    PARALLEL_SUBQUESTION_RETRIEVAL: bool = True
 
     class Config:
         env_prefix = ""  # read directly from process env

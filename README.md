@@ -1,11 +1,13 @@
 # NotebookLM Backend
 
-A modular backend for an agentic book chatbot platform, featuring RAG-based chat, MCQ generation, and OCR (stub) agents. Built with FastAPI, Supabase, and LangGraph.
+A modular backend for an agentic book chatbot platform, featuring advanced RAG-based chat with intelligent conversation summarization. Built with FastAPI, Supabase, and LangGraph.
 
 ## Features
-- Chatbot agent with short-term (LangGraph InMemoryStore) and long-term (Supabase) memory
-- MCQ generation and evaluation, with persistent storage
-- OCR agent (stub for future integration)
+- Advanced chatbot agent with RAG pipeline and multi-step reasoning
+- Intelligent conversation summarization (auto-summarizes after 5 exchanges)
+- Short-term memory (LangGraph InMemoryStore) and long-term memory (Supabase)
+- Performance optimizations with caching and parallel processing
+- LangSmith tracing for monitoring and debugging
 - JWT authentication for all endpoints
 - Modular, scalable, and well-documented codebase
 
@@ -45,16 +47,16 @@ A modular backend for an agentic book chatbot platform, featuring RAG-based chat
 
 ## Supabase Table Requirements
 You must create the following tables in your Supabase project:
-- `users`, `books`, `chat_messages`, `document_chunks`, `mcq_quizzes`, `mcq_questions`, `mcq_results`, `sessions`, `long_term_memory`
+- `users`, `books`, `chat_messages`, `document_chunks`, `sessions`, `long_term_memory`
 - See `backend/db/models.py` for field suggestions.
+- For conversation summarization, add `content_type`, `metadata`, `created_at`, `archived_at` columns to `long_term_memory`
 
 ## Directory Structure
 ```
 backend/
   agents/
     chatbot_agent.py
-    mcq_agent.py
-    ocr_agent.py
+
   memory/
     short_term.py
     long_term.py
@@ -64,10 +66,10 @@ backend/
   api/
     routes/
       chatbot.py
-      mcq.py
-      ocr.py
       users.py
       books.py
+      ingest.py
+      auth.py
   main.py
   config.py
   requirements.txt

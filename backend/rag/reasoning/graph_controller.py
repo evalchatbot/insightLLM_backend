@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Any
 import asyncio
+import time
 from backend.rag.config import get_rag_settings
 from backend.rag.models.schemas import StepTrace
 from backend.rag.memory.context_state import ContextState, EvidenceSnippet
@@ -30,15 +31,17 @@ async def run_controller(
     planner: Optional[SubquestionGenerator] = None,
 ) -> Dict[str, Any]:
     """
-    Orchestrates multi-step RAG:
-    1) Plan sub-questions
-    2) Retrieve evidence per sub-question
-    3) Validate/sanitize evidence
-    4) Optionally plan more when queue runs low
-    5) Synthesize grounded final answer
+    Optimized multi-step RAG controller:
+    1) Plan sub-questions (reduced iterations)
+    2) Parallel retrieval for independent sub-questions
+    3) Early stopping when sufficient evidence is found
+    4) Fast synthesis with timeout protection
     """
     settings = get_rag_settings()
     max_iters = max_iterations or settings.MAX_ITERATIONS
+    start_time = time.time()
+    max_time = settings.MAX_TIME_S
+    
     user_query = _last_user_query(messages)
     if not user_query:
         return {"answer": "No user query found.", "citations": [], "iterations": 0, "traces": [], "budget_used": {}}
@@ -63,32 +66,16 @@ async def run_controller(
     tracker = DependencyTracker()
     traces: List[StepTrace] = []
 
-    # Initial plan
+    # Initial plan - optimize for faster planning
     plan = await planner.generate(user_query=user_query, context_notes=ctx.notes)
     if not plan.subquestions:
         # Fallback: treat the whole query as one sub-question
         plan.subquestions = [user_query]
     tracker.add(plan.subquestions, plan.dependencies)
 
-    for it in range(max_iters):
-        ctx.iteration = it + 1
-
-        # pick next ready sub-question
-        subq = tracker.next_ready()
-        if not subq:
-            # If queue empty, try planning more using context/evidence (simple heuristic)
-            if not tracker.pending():
-                extra_plan = await planner.generate(
-                    user_query=user_query,
-                    context_notes=ctx.notes + "\nAlready explored: " + ", ".join(list(tracker.done))
-                )
-                tracker.add(extra_plan.subquestions, extra_plan.dependencies)
-                subq = tracker.next_ready()
-
-            if not subq:
-                break  # nothing to do
-
-        # Retrieve for this sub-question
+    # Parallel processing for independent subquestions
+    async def process_subquestion(subq: str, iteration: int) -> tuple[str, List[EvidenceSnippet], int]:
+        """Process a single subquestion and return results."""
         docs = await retriever.retrieve(subq, filters=selection_filters)
         evidence_snips = [
             EvidenceSnippet(
@@ -101,45 +88,123 @@ async def run_controller(
             )
             for d in docs
         ]
-
-        # Validate/sanitize
         clean_snips = sanitize_snippets(evidence_snips)
-        if clean_snips:
-            ctx.add_evidence(clean_snips)
+        return subq, clean_snips, iteration
 
-        # (Optional) basic sufficiency check could influence re-plan; keep simple for now
-        tracker.mark_done(subq)
+    for it in range(max_iters):
+        # Check timeout
+        if time.time() - start_time > max_time:
+            break
+            
+        ctx.iteration = it + 1
 
-        # Trace
-        traces.append(StepTrace(
-            iteration=ctx.iteration,
-            subquestions=[subq],
-            retrieved_ids=[f"{s.doc_id}:{s.chunk_id}" for s in clean_snips],
-            notes=f"Retrieved {len(clean_snips)} snippets."
-        ))
+        # Get all ready subquestions for parallel processing
+        ready_subqs = []
+        while True:
+            subq = tracker.next_ready()
+            if not subq:
+                break
+            ready_subqs.append(subq)
+            
+        if not ready_subqs:
+            # If queue empty, try planning more (but limit to avoid infinite loops)
+            if not tracker.pending() and it < max_iters - 1:
+                extra_plan = await planner.generate(
+                    user_query=user_query,
+                    context_notes=ctx.notes + "\nAlready explored: " + ", ".join(list(tracker.done))
+                )
+                if extra_plan.subquestions:
+                    tracker.add(extra_plan.subquestions, extra_plan.dependencies)
+                    continue
+            break  # nothing to do
 
-        # Simple early-stop: if queue empty after answering a couple items and we have solid evidence
-        if not tracker.pending() and has_sufficient_evidence(ctx.accumulated_evidence, min_docs=2):
+        # Process subquestions in parallel if enabled
+        if settings.PARALLEL_SUBQUESTION_RETRIEVAL and len(ready_subqs) > 1:
+            tasks = [process_subquestion(subq, ctx.iteration) for subq in ready_subqs]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for result in results:
+                if isinstance(result, Exception):
+                    continue  # Skip failed retrievals
+                subq, clean_snips, iteration = result
+                if clean_snips:
+                    ctx.add_evidence(clean_snips)
+                tracker.mark_done(subq)
+                
+                # Add trace for this subquestion
+                traces.append(StepTrace(
+                    iteration=iteration,
+                    subquestions=[subq],
+                    retrieved_ids=[f"{s.doc_id}:{s.chunk_id}" for s in clean_snips],
+                    notes=f"Retrieved {len(clean_snips)} snippets (parallel)."
+                ))
+        else:
+            # Sequential processing for single subquestion or when parallel is disabled
+            for subq in ready_subqs:
+                subq_result, clean_snips, iteration = await process_subquestion(subq, ctx.iteration)
+                if clean_snips:
+                    ctx.add_evidence(clean_snips)
+                tracker.mark_done(subq)
+                
+                traces.append(StepTrace(
+                    iteration=iteration,
+                    subquestions=[subq],
+                    retrieved_ids=[f"{s.doc_id}:{s.chunk_id}" for s in clean_snips],
+                    notes=f"Retrieved {len(clean_snips)} snippets."
+                ))
+
+        # Early stopping: check if we have sufficient evidence
+        if (settings.ENABLE_EARLY_STOPPING and 
+            has_sufficient_evidence(ctx.accumulated_evidence, min_docs=settings.MIN_EVIDENCE_THRESHOLD)):
+            break
+            
+        # Also break if no more pending and we have some evidence
+        if not tracker.pending() and len(ctx.accumulated_evidence) > 0:
             break
 
-    # Final synthesis
+    # Final synthesis with timeout protection
+    synthesis_start = time.time()
     if llm_client is None:
         # No LLM to synthesize; return a stub summary of evidence
         answer = "Collected evidence snippets but no LLM provided to synthesize final answer."
         citations = []
     else:
-        gen = await generate_final_answer(
-            llm_client=llm_client,
-            question=user_query,
-            evidence=ctx.accumulated_evidence
-        )
-        answer = gen["answer"]
-        citations = gen["citations"]
+        # Check if we have time left for synthesis
+        time_remaining = max_time - (time.time() - start_time)
+        if time_remaining < 2:  # Need at least 2 seconds for synthesis
+            answer = "Timeout: Insufficient time for final synthesis."
+            citations = []
+        else:
+            try:
+                # Use appropriate token limit for CSS exam format
+                max_tokens = 1024 if time_remaining < 10 else 2048
+                gen = await asyncio.wait_for(
+                    generate_final_answer(
+                        llm_client=llm_client,
+                        question=user_query,
+                        evidence=ctx.accumulated_evidence,
+                        max_tokens=max_tokens
+                    ),
+                    timeout=min(time_remaining - 1, 10)  # Leave 1 second buffer
+                )
+                answer = gen["answer"]
+                citations = gen["citations"]
+            except asyncio.TimeoutError:
+                answer = "Timeout: Final synthesis took too long."
+                citations = []
+            except Exception as e:
+                answer = f"Synthesis error: {str(e)}"
+                citations = []
 
+    total_time = time.time() - start_time
     return {
         "answer": answer,
         "citations": citations,
         "iterations": ctx.iteration,
         "traces": traces,
-        "budget_used": {"iterations": ctx.iteration},
+        "budget_used": {
+            "iterations": ctx.iteration,
+            "total_time_s": round(total_time, 2),
+            "evidence_count": len(ctx.accumulated_evidence)
+        },
     }
