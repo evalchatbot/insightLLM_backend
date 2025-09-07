@@ -167,3 +167,5 @@ backend/
 ---
 
 **For more, see the OpenAPI docs at `/docs` after running the backend!**
+
+python -m uvicorn backend.main:app --reload
