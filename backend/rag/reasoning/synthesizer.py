@@ -5,11 +5,19 @@ from backend.rag.memory.context_state import EvidenceSnippet
 from backend.rag.models.schemas import Citation
 from backend.rag.telemetry.langsmith_tracer import trace_agent_method
 
-FINAL_PROMPT = """You are a careful assistant. Using ONLY the EVIDENCE below, answer the USER QUESTION.
-- If evidence is insufficient, say: "Not found in provided sources."
-- Keep reasoning tight and structured.
-- Do not invent details not present in evidence.
-- Keep it concise but complete.
+FINAL_PROMPT = """You are an expert CSS exam preparation assistant. Using ONLY the EVIDENCE below, answer the USER QUESTION in CSS exam format.
+
+REQUIRED FORMAT:
+1. Introduction (2-3 sentences outlining the topic's significance)
+2. Body (12-20 headings with detailed explanations based on evidence)
+3. Conclusion (2-3 sentences summarizing key points for CSS candidates)
+
+GUIDELINES:
+- Use only information present in the evidence
+- If evidence is insufficient, say: "Insufficient evidence in provided sources."
+- Structure as a model CSS exam answer
+- Include relevant examples and analysis from the evidence
+- Maintain academic tone suitable for civil service examination
 
 USER QUESTION:
 {question}
@@ -18,9 +26,12 @@ EVIDENCE:
 {evidence_block}
 
 INSTRUCTIONS:
-- Synthesize a single coherent answer grounded in the evidence.
-- At the end, add a short "References" list with the evidence IDs you used, e.g., [E1, E3].
-"""
+- Synthesize a comprehensive CSS exam-style answer grounded in the evidence
+- Create 12-20 specific headings that cover different aspects of the topic
+- Each heading should be a one-line summary followed by 2-4 explanatory sentences
+- At the end, add a "References" section with evidence IDs used, e.g., [E1, E3]
+
+Answer in CSS exam format:"""
 
 def _format_evidence(evidence: List[EvidenceSnippet], max_chars_per_snippet: int = 1200) -> str:
     lines = []
@@ -34,8 +45,8 @@ async def generate_final_answer(
     llm_client: Any,
     question: str,
     evidence: List[EvidenceSnippet],
-    temperature: float = 0.2,
-    max_tokens: int = 900
+    temperature: float = 0.4,
+    max_tokens: int = 2048
 ) -> Dict[str, Any]:
     if not evidence:
         return {

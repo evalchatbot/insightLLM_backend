@@ -5,6 +5,7 @@ from backend.rag.config import get_rag_settings
 from backend.rag.memory.dedupe import dedupe_docs
 from backend.rag.retrieval.bm25 import rerank_with_bm25
 from backend.rag.telemetry.langsmith_tracer import trace_retrieval
+from backend.rag.memory.embedding_cache import get_embedding_cache
 
 # fastembed for embeddings
 try:
@@ -17,15 +18,38 @@ class EmbeddingClient:
         if TextEmbedding is None:
             raise RuntimeError("fastembed is not installed. Run: pip install fastembed")
         self.model = TextEmbedding(model_name)
+        self.cache = get_embedding_cache()
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         vectors: List[List[float]] = []
-        for vec in self.model.embed(texts):
-            # vec could be a NumPy array or iterable of np.float32 — normalize to plain floats
-            if hasattr(vec, "tolist"):
-                vectors.append([float(x) for x in vec.tolist()])
+        uncached_texts = []
+        uncached_indices = []
+        
+        # Check cache for each text
+        for i, text in enumerate(texts):
+            cached = self.cache.get(text)
+            if cached is not None:
+                vectors.append(cached)
             else:
-                vectors.append([float(x) for x in vec])
+                vectors.append(None)  # Placeholder
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+        
+        # Generate embeddings for uncached texts
+        if uncached_texts:
+            uncached_vectors = []
+            for vec in self.model.embed(uncached_texts):
+                # vec could be a NumPy array or iterable of np.float32 — normalize to plain floats
+                if hasattr(vec, "tolist"):
+                    uncached_vectors.append([float(x) for x in vec.tolist()])
+                else:
+                    uncached_vectors.append([float(x) for x in vec])
+            
+            # Cache and insert results
+            for i, (text, vector) in enumerate(zip(uncached_texts, uncached_vectors)):
+                self.cache.set(text, vector)
+                vectors[uncached_indices[i]] = vector
+        
         return vectors
 
 def _normalize_scores(docs: List[Dict], key: str) -> List[Dict]:

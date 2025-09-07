@@ -87,29 +87,26 @@ class SubquestionGenerator:
     """
     def __init__(self, llm_client: Any, max_subquestions: int = DEFAULT_MAX_SUBQUESTIONS, temperature: float = 0.1):
         self.llm = llm_client
-        self.max_subquestions = max_subquestions
+        self.max_subquestions = min(max_subquestions, 3)  # Limit for faster planning
         self.temperature = temperature
 
     @trace_agent_method(name="subquestion_planning", tags=["planning", "rag"])
     async def generate(self, user_query: str, context_notes: str = "") -> PlannerOutput:
         prompt = _build_prompt(user_query, context_notes, self.max_subquestions)
 
-        # 1st attempt
-        raw = await self.llm.generate(prompt, temperature=self.temperature, max_tokens=600)
+        # 1st attempt with reduced tokens for faster response
+        raw = await self.llm.generate(prompt, temperature=self.temperature, max_tokens=300)
         data = _safe_json_loads(raw)
 
-        # Retry once if malformed
+        # Retry once if malformed (but with shorter timeout)
         if data is None or "subquestions" not in data:
-            repair_prompt = (
-                f"{prompt}\n\n"
-                "The previous output was not valid JSON. Return STRICT JSON that matches the schema. "
-                "Do not include any extra text."
-            )
-            raw = await self.llm.generate(repair_prompt, temperature=0.0, max_tokens=600)
+            # Simplified repair prompt for faster processing
+            repair_prompt = f"Return JSON with subquestions array for: {user_query[:100]}..."
+            raw = await self.llm.generate(repair_prompt, temperature=0.0, max_tokens=200)
             data = _safe_json_loads(raw)
             if data is None or "subquestions" not in data:
-                # Fall back to empty plan
-                return PlannerOutput(subquestions=[], dependencies=[], notes="")
+                # Fall back to single question for immediate processing
+                return PlannerOutput(subquestions=[user_query], dependencies=[], notes="fallback")
 
         # Sanitize fields
         subqs = data.get("subquestions") or []

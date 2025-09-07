@@ -1,5 +1,5 @@
 """
-Database models for users, books, chat_messages, document_chunks, mcq_quizzes, mcq_questions, mcq_results.
+Database models for users, books, chat_messages, document_chunks.
 """
 from typing import Optional, List
 from pydantic import BaseModel, Field
@@ -40,27 +40,4 @@ class DocumentChunk(BaseModel):
     genre: str
     created_at: Optional[datetime]
 
-class MCQQuiz(BaseModel):
-    """MCQ quiz metadata."""
-    id: str
-    user_id: str
-    genre: str
-    created_at: Optional[datetime]
 
-class MCQQuestion(BaseModel):
-    """MCQ question and answer."""
-    id: str
-    quiz_id: str
-    question: str
-    options: List[str]
-    correct_answer: str
-
-class MCQResult(BaseModel):
-    """Stores user's MCQ answers and evaluation results."""
-    id: str
-    quiz_id: str
-    user_id: str
-    answers: List[str]
-    score: int
-    feedback: Optional[str]
-    attempted_at: datetime

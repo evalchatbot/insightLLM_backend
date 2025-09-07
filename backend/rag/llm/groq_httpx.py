@@ -23,11 +23,11 @@ class GroqHTTPxLLM:
         }
 
     @trace_llm_call(name="groq_generate", provider="groq")
-    async def generate(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 900) -> str:
+    async def generate(self, prompt: str, *, temperature: float = 0.4, max_tokens: int = 2048) -> str:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are a careful, grounded assistant."},
+                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Provide comprehensive, structured answers with Introduction, Body (12-20 headings), and Conclusion format."},
                 {"role": "user", "content": prompt},
             ],
             "temperature": float(temperature),
