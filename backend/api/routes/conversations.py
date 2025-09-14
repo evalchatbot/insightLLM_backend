@@ -2,7 +2,7 @@
 API routes for conversation management (ChatGPT-style conversations).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import logging
 import os
@@ -53,6 +53,14 @@ class NewChatRequest(BaseModel):
     title: Optional[str] = "New Chat"
     genre: Optional[str] = "General"
     book_ids: Optional[List[str]] = None
+
+
+class ConversationMessageRequest(BaseModel):
+    """Request to add a message to a conversation."""
+    sender: str  # 'user' or 'assistant'
+    message: str
+    citations: Optional[List[dict]] = Field(default_factory=list)
+    metadata: Optional[dict] = Field(default_factory=dict)
 
 
 @router.post("/new-chat", response_model=Conversation)
@@ -181,19 +189,17 @@ async def get_user_conversations(
 @router.get("/{conversation_id}", response_model=ConversationMessagesResponse)
 async def get_conversation_with_messages(
     conversation_id: str,
-    user_id: Optional[str] = None,
-    limit: int = Query(100, ge=1, le=200),
-    offset: int = Query(0, ge=0)
+    user_id: Optional[str] = None
 ) -> ConversationMessagesResponse:
-    """Get a conversation with its messages."""
+    """Get a conversation with all its messages."""
     try:
         # Get conversation
         conversation_data = supabase_service.get_conversation_by_id(conversation_id, user_id)
         if not conversation_data:
             raise HTTPException(status_code=404, detail="Conversation not found")
         
-        # Get messages
-        messages_data = supabase_service.get_conversation_messages(conversation_id, limit, offset)
+        # Get all messages (no limit)
+        messages_data = supabase_service.get_conversation_messages(conversation_id, limit=10000, offset=0)
         
         conversation = Conversation(**conversation_data)
         messages = [ConversationMessage(**msg) for msg in messages_data]
@@ -231,6 +237,53 @@ async def get_conversation_messages(
         raise
     except Exception as e:
         logger.error(f"Error getting conversation messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{conversation_id}/messages", response_model=ConversationMessage)
+async def add_conversation_message(
+    conversation_id: str,
+    req: ConversationMessageRequest,
+    user_id: Optional[str] = None
+) -> ConversationMessage:
+    """Add a message to a conversation."""
+    try:
+        logger.info(f"[API] Adding message to conversation: {conversation_id}")
+        
+        # Verify conversation exists and user has access
+        conversation_data = supabase_service.get_conversation_by_id(conversation_id, user_id)
+        if not conversation_data:
+            logger.error(f"[API] Conversation not found: {conversation_id}")
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Validate sender field
+        if req.sender not in ["user", "assistant"]:
+            raise HTTPException(status_code=400, detail="Sender must be 'user' or 'assistant'")
+        
+        # Prepare message data
+        message_data = {
+            "conversation_id": conversation_id,
+            "sender": req.sender,
+            "message": req.message,
+            "citations": req.citations or [],
+            "metadata": req.metadata or {}
+        }
+        
+        logger.info(f"[API] Adding {req.sender} message: {len(req.message)} chars")
+        
+        # Add message to database
+        result = supabase_service.add_conversation_message(message_data)
+        if not result:
+            logger.error(f"[API] Failed to add message to conversation: {conversation_id}")
+            raise HTTPException(status_code=500, detail="Failed to add message")
+        
+        logger.info(f"[API] ✅ Message added successfully: {result['id']}")
+        return ConversationMessage(**result)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API] Error adding conversation message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
