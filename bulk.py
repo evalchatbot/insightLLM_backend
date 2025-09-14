@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # ----- HARD-CODED CONFIG -----
-FOLDER_PATH     = r"C:\Users\khana\Downloads\Political Science Books Batch II\Not done"  # <-- put your folder path here
+FOLDER_PATH     = r"C:\Users\khana\Downloads\International Relations Books"  # <-- put your folder path here
 DEFAULT_GENRE   = "Political-Science"                               # <-- put your genre here
 DEFAULT_AUTHOR  = "Unknown Author"
 EMBED_MODEL     = "BAAI/bge-small-en-v1.5"
