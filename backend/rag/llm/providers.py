@@ -53,7 +53,7 @@ def get_llm() -> BaseLLM:
     provider = (s.LLM_PROVIDER or "groq").lower()
     if provider == "openai":
         if not s.OPENAI_API_KEY:
-            # OpenAI SDK can also read from env; we allow None here
+            # OpenAI SDK can also read from .env; we allow None here
             return OpenAILLM(api_key=s.OPENAI_API_KEY)
         return OpenAILLM(api_key=s.OPENAI_API_KEY)
     elif provider == "groq":

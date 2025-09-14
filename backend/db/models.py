@@ -40,4 +40,41 @@ class DocumentChunk(BaseModel):
     genre: str
     created_at: Optional[datetime]
 
+class Conversation(BaseModel):
+    """Chat conversation session with metadata."""
+    id: str
+    user_id: str
+    title: str
+    genre: Optional[str] = None
+    book_ids: Optional[List[str]] = Field(default_factory=list)
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+    message_count: int = 0
+    is_active: bool = True
 
+class ConversationMessage(BaseModel):
+    """Individual message within a conversation."""
+    id: str
+    conversation_id: str
+    sender: str  # 'user' or 'assistant'
+    message: str
+    citations: Optional[List[dict]] = Field(default_factory=list)
+    metadata: Optional[dict] = Field(default_factory=dict)
+    created_at: Optional[datetime]
+
+class ConversationCreateRequest(BaseModel):
+    """Request model for creating a new conversation."""
+    user_id: str
+    title: str
+    genre: Optional[str] = None
+    book_ids: Optional[List[str]] = Field(default_factory=list)
+
+class ConversationListResponse(BaseModel):
+    """Response model for listing conversations."""
+    conversations: List[Conversation]
+    total: int
+
+class ConversationMessagesResponse(BaseModel):
+    """Response model for conversation messages."""
+    conversation: Conversation
+    messages: List[ConversationMessage]
