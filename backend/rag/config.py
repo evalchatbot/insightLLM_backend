@@ -47,7 +47,7 @@ class RAGSettings(BaseSettings):
     PARALLEL_SUBQUESTION_RETRIEVAL: bool = True
 
     class Config:
-        env_prefix = ""  # read directly from process env
+        env_prefix = ""  # read directly from process .env
 
 @lru_cache
 def get_rag_settings() -> RAGSettings:

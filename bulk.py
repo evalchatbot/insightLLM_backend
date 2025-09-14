@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/.env python3
 """
 Bulk-ingest all PDFs in a folder into Supabase (books + document_chunks).
 
@@ -10,7 +10,7 @@ Hardcoded config at the top:
 - BATCH_SIZE: insert chunk rows in batches
 - SKIP_EXISTING: if True, skip a PDF when a book with same title already exists
 
-Env (.env):
+Env (..env):
   SUPABASE_URL=
   SUPABASE_KEY=
   SUPABASE_SERVICE_ROLE_KEY=
