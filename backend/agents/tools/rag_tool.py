@@ -262,11 +262,21 @@ class RAGTool:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 system_prompt = f.read().strip()
         except Exception:
-            system_prompt = """You are an expert CSS exam preparation assistant. Adapt your response style to the user's question:
-- For comprehensive questions (discuss, explain, analyze): Use full CSS exam format with Introduction, Body (12-20 headings), Conclusion
-- For brief requests (briefly, summarize, in short): Provide 3-7 key points in bullet format
-- For FAQ questions (how to, tips): Use practical, conversational format
-- For definitions (what is, define): Give clear definition + key features + CSS relevance"""
+            system_prompt = """You are an expert CSS exam preparation assistant. Adapt your response style to the user's question and ALWAYS format your response in **Markdown**:
+
+- For comprehensive questions (discuss, explain, analyze): Use full CSS exam format with **Introduction**, **Body** (12-20 headings with ##), **Conclusion**
+- For brief requests (briefly, summarize, in short): Provide 3-7 key points using bullet points (-)
+- For FAQ questions (how to, tips): Use practical format with numbered steps (1., 2., 3.) or bullet points
+- For definitions (what is, define): Use **bold** for key terms and bullet points for features
+
+**Important Markdown Guidelines:**
+- Use ## for main headings, ### for subheadings
+- Use **bold** for important terms and concepts
+- Use *italics* for emphasis
+- Use bullet points (-) or numbered lists (1., 2., 3.) for lists
+- Use > for important quotes or key points
+- Use `code blocks` for any technical terms or examples
+- Use --- for horizontal lines to separate sections if needed"""
         
         # Build context from conversation with better summarization
         chat_history = ""
@@ -300,15 +310,15 @@ class RAGTool:
             elif point_match:
                 num_points = point_match.group(2)
             
-            adaptive_instruction = f"INSTRUCTION: Provide a very brief, focused response with {num_points} key points in bullet format. Keep each point to 1-2 sentences maximum. Be concise and direct."
+            adaptive_instruction = f"INSTRUCTION: Provide a very brief, focused response with {num_points} key points using **Markdown bullet points** (-). Keep each point to 1-2 sentences maximum. Be concise and direct. Use **bold** for key terms."
         elif any(word in question_lower for word in ["how to", "tips", "advice", "guidance", "steps"]):
-            adaptive_instruction = "INSTRUCTION: Provide practical, actionable guidance in a conversational format with clear steps or tips."
+            adaptive_instruction = "INSTRUCTION: Provide practical, actionable guidance in **Markdown** format using numbered steps (1., 2., 3.) or bullet points. Use **bold** for important actions."
         elif any(word in question_lower.split()[:3] for word in ["what", "define", "definition"]):
-            adaptive_instruction = "INSTRUCTION: Provide a clear definition followed by key characteristics and CSS exam relevance."
+            adaptive_instruction = "INSTRUCTION: Provide a clear definition using **Markdown**. Use **bold** for the main term, bullet points (-) for key characteristics, and mention CSS exam relevance."
         elif any(word in question_lower.split()[:3] for word in ["discuss", "explain", "analyze", "evaluate", "examine", "assess"]):
-            adaptive_instruction = "INSTRUCTION: Use the full CSS exam format with Introduction (2-3 sentences), Body (12-20 detailed headings), and Conclusion (2-3 sentences)."
+            adaptive_instruction = "INSTRUCTION: Use the full CSS exam format in **Markdown** with **Introduction** (2-3 sentences), **Body** (12-20 detailed headings using ##), and **Conclusion** (2-3 sentences). Use **bold** for key concepts."
         else:
-            adaptive_instruction = "INSTRUCTION: Analyze the question type and respond appropriately - comprehensive format for detailed topics, brief format for quick requests."
+            adaptive_instruction = "INSTRUCTION: Analyze the question type and respond appropriately in **Markdown** format - comprehensive format with ## headings for detailed topics, brief format with bullet points for quick requests. Always use **bold** for important terms."
         
         return f"""{system_prompt}
 
@@ -339,7 +349,7 @@ Answer:"""
         payload = {
             "model": self.llm_model,
             "messages": [
-                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always provide structured, comprehensive answers suitable for civil service examination preparation."},
+                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always provide structured, comprehensive answers in **Markdown format** suitable for civil service examination preparation. Use proper headings (##), bullet points (-), **bold** text for key terms, and *italics* for emphasis."},
                 {"role": "user", "content": prompt}
             ],
             "max_tokens": max_tokens,

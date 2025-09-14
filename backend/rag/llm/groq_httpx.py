@@ -27,7 +27,7 @@ class GroqHTTPxLLM:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Provide comprehensive, structured answers with Introduction, Body (12-20 headings), and Conclusion format."},
+                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Provide comprehensive, structured answers in **Markdown format**. Use ## for headings, **bold** for key terms, - for bullet points, and proper formatting for Introduction, Body (make relevant headings), and Conclusion sections."},
                 {"role": "user", "content": prompt},
             ],
             "temperature": float(temperature),

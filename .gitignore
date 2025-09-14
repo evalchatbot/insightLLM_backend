@@ -13,7 +13,6 @@ venv/
 
 # Environment variables
 .env
-.env.*
 
 # VSCode and IDEs
 .vscode/
