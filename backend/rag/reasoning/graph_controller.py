@@ -43,6 +43,8 @@ async def run_controller(
     max_time = settings.MAX_TIME_S
     
     user_query = _last_user_query(messages)
+    
+    
     if not user_query:
         return {"answer": "No user query found.", "citations": [], "iterations": 0, "traces": [], "budget_used": {}}
 

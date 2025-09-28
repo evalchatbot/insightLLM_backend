@@ -102,11 +102,9 @@ async def ask_chatbot_multistep(req: ChatbotMultiAskRequest) -> ChatbotMultiAskR
             max_iterations=req.max_iterations or 3,
             conversation_id=req.conversation_id
         )
-        print("✅ Got result:", result)
         # result already matches the response model keys
         return ChatbotMultiAskResponse(**result)
     except Exception as e:
-        print("❌ Error in ask_chatbot:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -10,10 +10,6 @@ async def main():
         genre="Political-Science",
         book_ids=[]  # or provide specific IDs
     )
-    print("ANSWER:\n", res["answer"][:])
-    print("\nSOURCES:", len(res["sources"]))
-    print("ITERATIONS:", res["metadata"].get("iterations"))
-    print("TRACE STEPS:", len(res["metadata"].get("traces", [])))
 
 if __name__ == "__main__":
     asyncio.run(main())
