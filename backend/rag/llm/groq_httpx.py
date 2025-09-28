@@ -24,6 +24,7 @@ class GroqHTTPxLLM:
 
     @trace_llm_call(name="groq_generate", provider="groq")
     async def generate(self, prompt: str, *, temperature: float = 0.4, max_tokens: int = 2048) -> str:
+        
         payload = {
             "model": self.model,
             "messages": [
@@ -33,8 +34,12 @@ class GroqHTTPxLLM:
             "temperature": float(temperature),
             "max_tokens": int(max_tokens),
         }
+        
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(self.url, headers=self.headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
-            return (data["choices"][0]["message"]["content"] or "").strip()
+            response_content = (data["choices"][0]["message"]["content"] or "").strip()
+            
+            
+            return response_content

@@ -197,17 +197,10 @@ class RAGTool:
         """Multi-step RAG with planning and synthesis."""
         start_time = time.time()
         
-        # Prepare conversation messages
-        messages = []
-        if context:
-            for msg in context:
-                role = "assistant" if msg.get("sender") == "assistant" else "user"
-                content = str(msg.get("message", "")).strip()
-                if content:
-                    messages.append({"role": role, "content": content})
+        # Only pass the current user question to RAG controller
+        # The conversation context will be used later for answer synthesis
+        messages = [{"role": "user", "content": question.strip()}]
         
-        # Add current question
-        messages.append({"role": "user", "content": question.strip()})
         
         # Resolve book filters
         if not book_ids:
@@ -225,14 +218,23 @@ class RAGTool:
         retriever = HybridRetriever(adapter)
         llm = GroqHTTPxLLM(api_key=self.groq_api_key, model=self.llm_model)
         
-        # Run multi-step controller
+        # Run multi-step controller with only current query
         result = await run_controller(
-            messages=messages,
+            messages=messages,  # Only contains current user question
             selection_filters=selection_filters,
             max_iterations=max_iterations,
             llm_client=llm,
             retriever=retriever,
         )
+        
+        # Now enhance the final answer with conversation context if available
+        if context and result.get("answer"):
+            result["answer"] = await self._enhance_answer_with_context(
+                answer=result["answer"],
+                current_question=question,
+                conversation_context=context,
+                retrieved_sources=result.get("citations", [])
+            )
         
         # Resolve sources from citations
         sources = await self._resolve_sources_from_citations(result.get("citations", []))
@@ -366,6 +368,56 @@ Question: {question}
 {adaptive_instruction}
 
 Answer:"""
+    
+    async def _enhance_answer_with_context(
+        self,
+        answer: str,
+        current_question: str,
+        conversation_context: List[Dict],
+        retrieved_sources: List[Dict]
+    ) -> str:
+        """
+        Enhance the RAG-generated answer with conversation context for continuity.
+        This happens AFTER retrieval to avoid contaminating the search process.
+        """
+        try:
+            # Build conversation summary for context
+            context_summary = self._build_contextual_summary(conversation_context, current_question)
+            
+            # Only enhance if there's meaningful context and the answer isn't already contextual
+            if not context_summary or len(context_summary.strip()) < 50:
+                return answer
+            
+            # Create enhancement prompt
+            enhancement_prompt = f"""You are enhancing an answer to maintain conversation continuity.
+
+CONVERSATION CONTEXT:
+{context_summary}
+
+CURRENT QUESTION: {current_question}
+
+RAG-GENERATED ANSWER:
+{answer}
+
+TASK: Enhance the answer to acknowledge the conversation context if relevant, but keep the core RAG content intact. Only add contextual connections if they genuinely improve understanding. If the context is not relevant to the current question, return the original answer unchanged.
+
+IMPORTANT: 
+- Do not repeat information already in the answer
+- Only add brief contextual bridges if helpful
+- Maintain the CSS exam answer format
+- Keep the answer length reasonable
+
+ENHANCED ANSWER:"""
+            
+            # Call LLM to enhance the answer with context
+            enhanced_answer = await self._call_llm_async(enhancement_prompt, max_tokens=2048)
+            
+            # Return enhanced answer if valid, otherwise original
+            return enhanced_answer if enhanced_answer and not enhanced_answer.startswith("[") else answer
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to enhance answer with context: {e}")
+            return answer  # Return original answer if enhancement fails
     
     async def _call_llm_async(self, prompt: str, max_tokens: int = 2048) -> str:
         """Async LLM call for answer generation."""
