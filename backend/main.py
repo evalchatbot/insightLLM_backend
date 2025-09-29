@@ -28,7 +28,7 @@ setup_api_logging(app)
 # CORS (set your frontend origin)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://insight-llm-frontend.vercel.app", "http://localhost:5173"],
+    allow_origins=["https://insight-llm-frontend.vercel.app", "http://localhost:5173" , "http://localhost:3000" , "https://insight-llm-frontend-2-0.vercel.app" , "https://insight-llm-frontend-2-0.vercel.app/app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,7 +38,7 @@ app.add_middleware(
 app.include_router(debug)  #
 # Protect all “app” routers by default (leave root public)
 app.include_router(users.router, dependencies=[Depends(get_current_user)])
-app.include_router(chatbot.router, dependencies=[Depends(get_current_user)])
+app.include_router(chatbot.router)  # Removed JWT authentication for Clerk migration
 app.include_router(conversations.router, dependencies=[Depends(get_current_user)])
 app.include_router(books.router, dependencies=[Depends(get_current_user)])
 app.include_router(ingest.router, dependencies=[Depends(get_current_user)])

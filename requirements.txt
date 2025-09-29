@@ -9,10 +9,10 @@ rank-bm25~=0.2.2
 fastembed~=0.7.1
 numpy~=2.3.2
 PyMuPDF==1.26.3
-langchain~=0.3.27
+langchain==0.3.27
 python-dotenv~=1.1.1
 fastapi
 PyPDF2==3.0.1
 uvicorn[standard]
 python-multipart==0.0.20
-langsmith~=0.1.137
+langsmith==0.4.14

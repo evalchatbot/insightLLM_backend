@@ -22,7 +22,10 @@ class OpenAILLM(BaseLLM):
         def _call():
             resp = self.client.chat.completions.create(
                 model="gpt-4o-mini",  # fallback-friendly; change if you prefer
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always format your responses in **Markdown** with proper headings (##), **bold** text for key terms, bullet points (-), and structured formatting."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
@@ -41,7 +44,10 @@ class GroqLLM(BaseLLM):
         def _call():
             resp = self.client.chat.completions.create(
                 model="llama3-8b-8192",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always format your responses in **Markdown** with proper headings (##), **bold** text for key terms, bullet points (-), and structured formatting."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=temperature,
                 max_tokens=max_tokens,
             )

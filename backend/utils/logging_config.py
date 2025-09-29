@@ -48,15 +48,23 @@ class SupabaseRequestFormatter(logging.Formatter):
         return formatted
 
 
-def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None, enable_colors: bool = True):
+def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None, enable_colors: bool = True, logging_enabled: bool = True):
     """
-    Set up comprehensive logging configuration for the entire system.
+    Set up logging configuration with an on/off toggle for memory optimization.
     
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_file: Optional log file path
         enable_colors: Whether to enable colored output in console
+        logging_enabled: Master toggle to enable/disable all logging (saves memory when False)
     """
+    
+    # If logging is disabled, set to CRITICAL level and disable handlers
+    if not logging_enabled:
+        logging.disable(logging.CRITICAL)
+        # Set up minimal null handler to prevent errors
+        logging.basicConfig(level=logging.CRITICAL, handlers=[logging.NullHandler()])
+        return logging.getLogger(__name__)
     
     # Convert string level to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
@@ -286,10 +294,14 @@ def get_logger(name: str = None) -> logging.Logger:
     """Get a configured logger instance."""
     global logger
     if logger is None:
+        # Check if logging is enabled via environment variable
+        logging_enabled = os.getenv("ENABLE_LOGGING", "true").lower() in ("true", "1", "yes", "on")
+        
         logger = setup_logging(
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             log_file=os.getenv("LOG_FILE"),
-            enable_colors=os.getenv("LOG_COLORS", "true").lower() == "true"
+            enable_colors=os.getenv("LOG_COLORS", "true").lower() == "true",
+            logging_enabled=logging_enabled
         )
     
     return logging.getLogger(name or __name__)

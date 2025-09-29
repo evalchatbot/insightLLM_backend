@@ -197,17 +197,10 @@ class RAGTool:
         """Multi-step RAG with planning and synthesis."""
         start_time = time.time()
         
-        # Prepare conversation messages
-        messages = []
-        if context:
-            for msg in context:
-                role = "assistant" if msg.get("sender") == "assistant" else "user"
-                content = str(msg.get("message", "")).strip()
-                if content:
-                    messages.append({"role": role, "content": content})
+        # Only pass the current user question to RAG controller
+        # The conversation context will be used later for answer synthesis
+        messages = [{"role": "user", "content": question.strip()}]
         
-        # Add current question
-        messages.append({"role": "user", "content": question.strip()})
         
         # Resolve book filters
         if not book_ids:
@@ -225,14 +218,23 @@ class RAGTool:
         retriever = HybridRetriever(adapter)
         llm = GroqHTTPxLLM(api_key=self.groq_api_key, model=self.llm_model)
         
-        # Run multi-step controller
+        # Run multi-step controller with only current query
         result = await run_controller(
-            messages=messages,
+            messages=messages,  # Only contains current user question
             selection_filters=selection_filters,
             max_iterations=max_iterations,
             llm_client=llm,
             retriever=retriever,
         )
+        
+        # Now enhance the final answer with conversation context if available
+        if context and result.get("answer"):
+            result["answer"] = await self._enhance_answer_with_context(
+                answer=result["answer"],
+                current_question=question,
+                conversation_context=context,
+                retrieved_sources=result.get("citations", [])
+            )
         
         # Resolve sources from citations
         sources = await self._resolve_sources_from_citations(result.get("citations", []))
@@ -262,11 +264,54 @@ class RAGTool:
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 system_prompt = f.read().strip()
         except Exception:
-            system_prompt = """You are an expert CSS exam preparation assistant. Adapt your response style to the user's question:
-- For comprehensive questions (discuss, explain, analyze): Use full CSS exam format with Introduction, Body (12-20 headings), Conclusion
-- For brief requests (briefly, summarize, in short): Provide 3-7 key points in bullet format
-- For FAQ questions (how to, tips): Use practical, conversational format
-- For definitions (what is, define): Give clear definition + key features + CSS relevance"""
+            system_prompt = """System Prompt: CSS Political Science Answer-Writing Assistant
+You are an assistant specialized in Political Science and related subjects for CSS (Central Superior Services) exam preparation in Pakistan. Your task is to generate exam-ready answers in a strict CSS style format, avoiding repetition of sentences or arguments.
+________________________________________
+Core Answering Framework
+1. Introduction
+•	Begin with a polite greeting.
+•	Provide a concise overview of the topic, defining key terms if necessary.
+•	Clearly state the arguments/themes that will be discussed in the body (like a roadmap).
+•	Do not start analyzing yet — only set up the discussion.
+________________________________________
+2. Main Body
+2.1 Rephrased Question as Heading
+•	The first heading after the Introduction must be a rephrased version of the question prompt.
+•	Example: If the question is “Plato’s theory of justice legitimizes hierarchy and authoritarian rule. Discuss.” then the immediate heading should be:
+“How Plato’s Theory of Justice Legitimizes Hierarchy and Authoritarian Rule.”
+2.2 Subheadings Under Main Heading
+•	Under this main heading, create 12–15 distinct subheadings.
+•	Each subheading must be self-explanatory, i.e., a one-liner summary that clearly captures the cause-effect relationship or central argument of that paragraph.
+o	Example: “Justice Defined as Functional Hierarchy Leads to Institutionalized Inequality.”
+•	Subheadings should refer back to the main idea of the heading to maintain coherence.
+•	Each subheading should introduce a new and unique argument — no repetition.
+________________________________________
+3. Incorporation of Critiques and Modern Relevance
+•	Include critiques from different thinkers (e.g., Popper on Plato, Marx on Aristotle, modern IR critiques of Machiavelli).
+•	Use modern relevance/examples where possible: global politics, Pakistan’s political system, or contemporary governance models.
+•	Critique should not be isolated at the end; it must be integrated alongside arguments to demonstrate critical evaluation.
+________________________________________
+4. Conclusion
+•	Must be crisp, clear, and analytical.
+•	Should provide a balanced summary of the discussion.
+•	End with a reasoned judgement (not just restating arguments).
+________________________________________
+Rules of Writing Style
+1.	No Repetition Rule
+o	Do not repeat the same argument or sentence in different words.
+o	Each subheading must provide a new dimension of analysis.
+2.	Formal, Academic, and CSS-Oriented Tone
+o	Use formal yet approachable academic language.
+o	Prioritize clarity and precision — avoid fluff or storytelling.
+3.	Critical Depth and Balance
+o	Present both sides where relevant (support + critique).
+o	Always highlight contemporary significance for extra marks.
+4.	Subheadings as One-Liners
+o	Subheadings should be mini-conclusions of the paragraph.
+o	They must reflect cause + effect or argument + consequence.
+5.	Answer Length
+o	Answers should be comprehensive yet time-efficient, resembling what a CSS candidate can realistically write in the exam (around 1200-1500 words for a long question).
+6.	Do not mention CSS anywhere in the answers.Strictly ensure that the term CSS is not mentioned anywhere in the answers."""
         
         # Build context from conversation with better summarization
         chat_history = ""
@@ -300,15 +345,15 @@ class RAGTool:
             elif point_match:
                 num_points = point_match.group(2)
             
-            adaptive_instruction = f"INSTRUCTION: Provide a very brief, focused response with {num_points} key points in bullet format. Keep each point to 1-2 sentences maximum. Be concise and direct."
+            adaptive_instruction = f"INSTRUCTION: Provide a very brief, focused response with {num_points} key points using **Markdown bullet points** (-). Keep each point to 1-2 sentences maximum. Be concise and direct. Use **bold** for key terms."
         elif any(word in question_lower for word in ["how to", "tips", "advice", "guidance", "steps"]):
-            adaptive_instruction = "INSTRUCTION: Provide practical, actionable guidance in a conversational format with clear steps or tips."
+            adaptive_instruction = "INSTRUCTION: Provide practical, actionable guidance in **Markdown** format using numbered steps (1., 2., 3.) or bullet points. Use **bold** for important actions."
         elif any(word in question_lower.split()[:3] for word in ["what", "define", "definition"]):
-            adaptive_instruction = "INSTRUCTION: Provide a clear definition followed by key characteristics and CSS exam relevance."
+            adaptive_instruction = "INSTRUCTION: Provide a clear definition using **Markdown**. Use **bold** for the main term, bullet points (-) for key characteristics, and mention CSS exam relevance."
         elif any(word in question_lower.split()[:3] for word in ["discuss", "explain", "analyze", "evaluate", "examine", "assess"]):
-            adaptive_instruction = "INSTRUCTION: Use the full CSS exam format with Introduction (2-3 sentences), Body (12-20 detailed headings), and Conclusion (2-3 sentences)."
+            adaptive_instruction = "INSTRUCTION: Use the full CSS exam format in **Markdown** with **Introduction** (2-3 sentences), **Body** (12-20 detailed headings using ##), and **Conclusion** (2-3 sentences). Use **bold** for key concepts."
         else:
-            adaptive_instruction = "INSTRUCTION: Analyze the question type and respond appropriately - comprehensive format for detailed topics, brief format for quick requests."
+            adaptive_instruction = "INSTRUCTION: Analyze the question type and respond appropriately in **Markdown** format - comprehensive format with ## headings for detailed topics, brief format with bullet points for quick requests. Always use **bold** for important terms."
         
         return f"""{system_prompt}
 
@@ -323,6 +368,56 @@ Question: {question}
 {adaptive_instruction}
 
 Answer:"""
+    
+    async def _enhance_answer_with_context(
+        self,
+        answer: str,
+        current_question: str,
+        conversation_context: List[Dict],
+        retrieved_sources: List[Dict]
+    ) -> str:
+        """
+        Enhance the RAG-generated answer with conversation context for continuity.
+        This happens AFTER retrieval to avoid contaminating the search process.
+        """
+        try:
+            # Build conversation summary for context
+            context_summary = self._build_contextual_summary(conversation_context, current_question)
+            
+            # Only enhance if there's meaningful context and the answer isn't already contextual
+            if not context_summary or len(context_summary.strip()) < 50:
+                return answer
+            
+            # Create enhancement prompt
+            enhancement_prompt = f"""You are enhancing an answer to maintain conversation continuity.
+
+CONVERSATION CONTEXT:
+{context_summary}
+
+CURRENT QUESTION: {current_question}
+
+RAG-GENERATED ANSWER:
+{answer}
+
+TASK: Enhance the answer to acknowledge the conversation context if relevant, but keep the core RAG content intact. Only add contextual connections if they genuinely improve understanding. If the context is not relevant to the current question, return the original answer unchanged.
+
+IMPORTANT: 
+- Do not repeat information already in the answer
+- Only add brief contextual bridges if helpful
+- Maintain the CSS exam answer format
+- Keep the answer length reasonable
+
+ENHANCED ANSWER:"""
+            
+            # Call LLM to enhance the answer with context
+            enhanced_answer = await self._call_llm_async(enhancement_prompt, max_tokens=2048)
+            
+            # Return enhanced answer if valid, otherwise original
+            return enhanced_answer if enhanced_answer and not enhanced_answer.startswith("[") else answer
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to enhance answer with context: {e}")
+            return answer  # Return original answer if enhancement fails
     
     async def _call_llm_async(self, prompt: str, max_tokens: int = 2048) -> str:
         """Async LLM call for answer generation."""
@@ -339,7 +434,7 @@ Answer:"""
         payload = {
             "model": self.llm_model,
             "messages": [
-                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always provide structured, comprehensive answers suitable for civil service examination preparation."},
+                {"role": "system", "content": "You are an expert CSS exam preparation assistant. Always provide structured, comprehensive answers in **Markdown format** suitable for civil service examination preparation. Use proper headings (##), bullet points (-), **bold** text for key terms, and *italics* for emphasis."},
                 {"role": "user", "content": prompt}
             ],
             "max_tokens": max_tokens,
