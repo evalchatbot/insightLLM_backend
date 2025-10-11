@@ -12,7 +12,7 @@ SUPABASE_ISSUER = f"{SUPABASE_URL}/auth/v1"
 SUPABASE_AUDIENCE = os.getenv("SUPABASE_AUDIENCE", "authenticated")
 #LLM
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-CHATBOT_LLM_MODEL = os.getenv("CHATBOT_LLM_MODEL", "llama-3.3-70b-versatile")
+CHATBOT_LLM_MODEL = os.getenv("CHATBOT_LLM_MODEL", "llama-3.1-8b-instant")
 
 # LangSmith Configuration
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")

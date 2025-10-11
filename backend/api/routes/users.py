@@ -3,9 +3,58 @@ from datetime import datetime
 from pydantic import BaseModel
 from backend.db.supabase_client import SupabaseDB
 from backend.api.routes.auth import get_current_user, AuthUser  # adjust import path
+import os
 
 router = APIRouter(prefix="/user", tags=["user"])
 db = SupabaseDB()
+
+class UserSessionCreateRequest(BaseModel):
+    # Optional: omit user_id from body; take it from token
+    user_id: str | None = None
+
+class UserSessionResponse(BaseModel):
+    session_id: str
+    user_id: str
+    created_at: datetime
+
+# Development-only endpoint for testing
+class DevTokenRequest(BaseModel):
+    user_id: str
+
+class DevTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+@router.post("/dev-token", response_model=DevTokenResponse)
+async def create_dev_token(req: DevTokenRequest):
+    """
+    Development-only endpoint to create test tokens.
+    Remove this in production!
+    """
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Create a simple JWT-like token for development
+    # This is a simplified token - in real scenarios, use proper JWT libraries
+    import json
+    import base64
+    
+    payload = {
+        "sub": req.user_id,
+        "email": f"{req.user_id}@test.com",
+        "aud": os.getenv("SUPABASE_AUDIENCE", "authenticated"),
+        "iss": os.getenv("SUPABASE_ISSUER", "supabase"),
+        "exp": 9999999999  # Far future expiry for testing
+    }
+    
+    # This is a mock token for development only
+    # In production, you'd get real tokens from Supabase/Clerk
+    from jose import jwt
+    from backend.config import SUPABASE_JWT_SECRET
+    
+    token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
+    
+    return DevTokenResponse(access_token=token)
 
 class UserSessionCreateRequest(BaseModel):
     # Optional: omit user_id from body; take it from token
