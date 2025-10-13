@@ -34,8 +34,8 @@ logger = get_logger(__name__)
 
 class ConversationUpdateRequest(BaseModel):
     title: Optional[str] = None
-    genre: Optional[str] = None
-    book_ids: Optional[List[str]] = None
+    icon: Optional[str] = None
+    is_pinned: Optional[bool] = None
 
 
 class ConversationWithQuestionRequest(BaseModel):
@@ -43,16 +43,15 @@ class ConversationWithQuestionRequest(BaseModel):
     user_id: str
     question: str
     answer: str
-    genre: Optional[str] = "General"
-    book_ids: Optional[List[str]] = None
+    # schema no longer carries genre/book_ids at conversation level
 
 
 class NewChatRequest(BaseModel):
     """Request to create a new empty chat conversation."""
     user_id: str
     title: Optional[str] = "New Chat"
-    genre: Optional[str] = "General"
-    book_ids: Optional[List[str]] = None
+    icon: Optional[str] = None
+    is_pinned: Optional[bool] = False
 
 
 class ConversationMessageRequest(BaseModel):
@@ -78,8 +77,8 @@ async def create_new_chat(req: NewChatRequest) -> Conversation:
         conversation_data = {
             "user_id": valid_user_id,
             "title": req.title or "New Chat",
-            "genre": req.genre or "General",
-            "book_ids": req.book_ids or []
+            "icon": req.icon,
+            "is_pinned": bool(req.is_pinned),
         }
         
         logger.info(f"[API] Creating conversation with title: {conversation_data['title']}")
@@ -108,10 +107,10 @@ async def create_conversation(req: ConversationCreateRequest) -> Conversation:
             raise HTTPException(status_code=400, detail="No valid user found for conversation creation")
         
         conversation_data = {
-            "user_id": valid_user_id,  # Use validated user_id
+            "user_id": valid_user_id,
             "title": req.title,
-            "genre": req.genre,
-            "book_ids": req.book_ids
+            "icon": req.icon,
+            "is_pinned": bool(req.is_pinned or False),
         }
         
         result = supabase_service.create_conversation(conversation_data)
@@ -141,8 +140,6 @@ async def create_conversation_with_auto_title(req: ConversationWithQuestionReque
             user_id=valid_user_id,
             first_question=req.question,
             first_answer=req.answer,
-            genre=req.genre or "General",
-            book_ids=req.book_ids
         )
         
         if not conversation_id:
@@ -304,10 +301,10 @@ async def update_conversation(
         updates = {}
         if req.title is not None:
             updates["title"] = req.title
-        if req.genre is not None:
-            updates["genre"] = req.genre
-        if req.book_ids is not None:
-            updates["book_ids"] = req.book_ids
+        if req.icon is not None:
+            updates["icon"] = req.icon
+        if req.is_pinned is not None:
+            updates["is_pinned"] = bool(req.is_pinned)
         
         if not updates:
             # Return existing conversation if no updates
@@ -366,9 +363,8 @@ async def get_conversation_info(
         return {
             "conversation": conversation_data,
             "actual_message_count": len(messages_data),
-            "stored_message_count": conversation_data.get("message_count", 0),
             "last_updated": conversation_data.get("updated_at"),
-            "is_active": conversation_data.get("is_active", True)
+            "is_pinned": conversation_data.get("is_pinned", False)
         }
     
     except HTTPException:

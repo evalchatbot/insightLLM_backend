@@ -317,16 +317,16 @@ class SupabaseService:
                 logger.info(f"[SUPABASE] User validation successful: {user_id}")
             
             conversation_id = str(uuid.uuid4())
+            chat_id = str(uuid.uuid4())
             conversation_record = {
                 "id": conversation_id,
-                "user_id": user_id,  # Use validated/corrected user_id
-                "title": conversation_data["title"],
-                "genre": conversation_data.get("genre"),
-                "book_ids": conversation_data.get("book_ids", []),
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "title": conversation_data.get("title"),
+                "icon": conversation_data.get("icon"),
+                "is_pinned": bool(conversation_data.get("is_pinned", False)),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat(),
-                "message_count": 0,
-                "is_active": True
             }
             
             logger.info(f"[SUPABASE] Creating conversation with record: {conversation_id}")
@@ -351,10 +351,18 @@ class SupabaseService:
             raise
     
     def get_user_conversations(self, user_id: str, limit: int = 50) -> List[Dict]:
-        """Get all conversations for a user"""
+        """Get all conversations for a user (updated schema)"""
         try:
             logger.info(f"[SUPABASE] Getting conversations for user: {user_id}")
-            result = self.supabase.table("conversations").select("*").eq("user_id", user_id).eq("is_active", True).order("updated_at", desc=True).limit(limit).execute()
+            result = (
+                self.supabase
+                .table("conversations")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("updated_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
             
             logger.info(f"[SUPABASE] Query result: {result}")
             logger.info(f"[SUPABASE] Found {len(result.data) if result.data else 0} conversations")
@@ -380,7 +388,7 @@ class SupabaseService:
             return None
     
     def update_conversation(self, conversation_id: str, updates: Dict) -> bool:
-        """Update conversation metadata"""
+        """Update conversation metadata (title, icon, is_pinned)"""
         try:
             updates["updated_at"] = datetime.utcnow().isoformat()
             result = self.supabase.table("conversations").update(updates).eq("id", conversation_id).execute()
@@ -390,29 +398,77 @@ class SupabaseService:
             return False
     
     def add_conversation_message(self, message_data: Dict) -> Dict:
-        """Add a message to a conversation"""
+        """Add a message to a conversation (updated schema 'messages').
+        Supports either pair insert (user_prompt + llm_response) or single sender mapping.
+        """
         start_time = time.time()
-        log_supabase_request(logger, "INSERT", "conversation_messages", data=message_data)
+        log_supabase_request(logger, "INSERT", "messages", data=message_data)
         
         try:
-            message_id = str(uuid.uuid4())
-            message_record = {
-                "id": message_id,
-                "conversation_id": message_data["conversation_id"],
-                "sender": message_data["sender"],
-                "message": message_data["message"],
-                "citations": message_data.get("citations", []),
-                "metadata": message_data.get("metadata", {}),
-                "created_at": datetime.utcnow().isoformat()
-            }
-            
-            logger.info(f"[SUPABASE] Adding message to conversation {message_data['conversation_id']} (sender: {message_data['sender']})")
-            
-            result = self.supabase.table("conversation_messages").insert(message_record).execute()
+            # Direct pair insert if provided
+            if "user_prompt" in message_data or "llm_response" in message_data:
+                record = {
+                    "id": str(uuid.uuid4()),
+                    "conversation_id": message_data["conversation_id"],
+                    "user_prompt": message_data.get("user_prompt"),
+                    "llm_response": message_data.get("llm_response"),
+                    "img_name": message_data.get("img_name"),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+                result = self.supabase.table("messages").insert(record).execute()
+            else:
+                # Map legacy sender/message writes
+                conv_id = message_data["conversation_id"]
+                sender = message_data.get("sender")
+                content = message_data.get("message")
+                if sender == "user":
+                    record = {
+                        "id": str(uuid.uuid4()),
+                        "conversation_id": conv_id,
+                        "user_prompt": content,
+                        "llm_response": None,
+                        "created_at": datetime.utcnow().isoformat(),
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }
+                    result = self.supabase.table("messages").insert(record).execute()
+                elif sender == "assistant":
+                    # Try to update the latest row without llm_response
+                    # Note: Supabase python client may not support update with ordering; fetch id first
+                    latest = (
+                        self.supabase.table("messages")
+                        .select("id")
+                        .eq("conversation_id", conv_id)
+                        .is_("llm_response", None)
+                        .order("created_at", desc=True)
+                        .limit(1)
+                        .execute()
+                    )
+                    if latest.data:
+                        msg_id = latest.data[0]["id"]
+                        result = (
+                            self.supabase.table("messages")
+                            .update({"llm_response": content, "updated_at": datetime.utcnow().isoformat()})
+                            .eq("id", msg_id)
+                            .execute()
+                        )
+                    else:
+                        # Insert standalone assistant response
+                        record = {
+                            "id": str(uuid.uuid4()),
+                            "conversation_id": conv_id,
+                            "user_prompt": None,
+                            "llm_response": content,
+                            "created_at": datetime.utcnow().isoformat(),
+                            "updated_at": datetime.utcnow().isoformat(),
+                        }
+                        result = self.supabase.table("messages").insert(record).execute()
+                else:
+                    raise ValueError("Invalid sender for legacy message mapping")
             execution_time = time.time() - start_time
             
             response_data = result.data[0] if result.data else None
-            log_supabase_response(logger, "INSERT", "conversation_messages", response_data, execution_time)
+            log_supabase_response(logger, "INSERT/UPDATE", "messages", response_data, execution_time)
             
             if hasattr(result, 'error') and result.error:
                 logger.error(f"[SUPABASE] Message insert error details: {result.error}")
@@ -421,36 +477,50 @@ class SupabaseService:
         
         except Exception as e:
             execution_time = time.time() - start_time
-            log_supabase_response(logger, "INSERT", "conversation_messages", None, execution_time, str(e))
+            log_supabase_response(logger, "INSERT/UPDATE", "messages", None, execution_time, str(e))
             logger.error(f"[SUPABASE] Exception type: {type(e)}")
             import traceback
             logger.error(f"[SUPABASE] Traceback: {traceback.format_exc()}")
             raise
     
     def get_conversation_messages(self, conversation_id: str, limit: int = 100, offset: int = 0) -> List[Dict]:
-        """Get messages for a conversation"""
+        """Get messages for a conversation (updated schema 'messages')"""
         start_time = time.time()
         filters = {"conversation_id": conversation_id, "limit": limit, "offset": offset}
-        log_supabase_request(logger, "SELECT", "conversation_messages", filters=filters)
+        log_supabase_request(logger, "SELECT", "messages", filters=filters)
         
         try:
-            result = self.supabase.table("conversation_messages").select("*").eq("conversation_id", conversation_id).order("created_at").range(offset, offset + limit - 1).execute()
+            result = (
+                self.supabase.table("messages")
+                .select("*")
+                .eq("conversation_id", conversation_id)
+                .order("created_at")
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
             execution_time = time.time() - start_time
             
-            log_supabase_response(logger, "SELECT", "conversation_messages", result.data, execution_time)
+            log_supabase_response(logger, "SELECT", "messages", result.data, execution_time)
             return result.data if result.data else []
             
         except Exception as e:
             execution_time = time.time() - start_time
-            log_supabase_response(logger, "SELECT", "conversation_messages", None, execution_time, str(e))
+            log_supabase_response(logger, "SELECT", "messages", None, execution_time, str(e))
             import traceback
             logger.error(f"[SUPABASE] Traceback: {traceback.format_exc()}")
             return []
     
     def get_recent_conversation_messages(self, conversation_id: str, limit: int = 10) -> List[Dict]:
-        """Get recent messages for a conversation (for context)"""
+        """Get recent messages for a conversation (for context) from 'messages'"""
         try:
-            result = self.supabase.table("conversation_messages").select("*").eq("conversation_id", conversation_id).order("created_at", desc=True).limit(limit).execute()
+            result = (
+                self.supabase.table("messages")
+                .select("*")
+                .eq("conversation_id", conversation_id)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
             # Reverse to get chronological order
             messages = result.data if result.data else []
             return list(reversed(messages))
@@ -459,9 +529,9 @@ class SupabaseService:
             return []
     
     def delete_conversation(self, conversation_id: str, user_id: str = None) -> bool:
-        """Soft delete a conversation (mark as inactive)"""
+        """Delete a conversation (hard delete to match schema)"""
         try:
-            query = self.supabase.table("conversations").update({"is_active": False, "updated_at": datetime.utcnow().isoformat()})
+            query = self.supabase.table("conversations").delete()
             if user_id:
                 query = query.eq("user_id", user_id)
             query = query.eq("id", conversation_id)
@@ -471,6 +541,20 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error deleting conversation: {e}")
             return False
+
+    def add_message_pair(self, conversation_id: str, user_prompt: str, llm_response: str, img_name: Optional[str] = None) -> Optional[Dict]:
+        """Convenience method to insert a message row with both user and assistant content."""
+        try:
+            record = {
+                "conversation_id": conversation_id,
+                "user_prompt": user_prompt,
+                "llm_response": llm_response,
+                "img_name": img_name,
+            }
+            return self.add_conversation_message(record)
+        except Exception as e:
+            logger.error(f"[SUPABASE] add_message_pair failed: {e}")
+            return None
     
     def get_valid_user_id(self, requested_user_id: str = None) -> Optional[str]:
         """Get a valid user ID for conversation creation, handling foreign key constraints."""

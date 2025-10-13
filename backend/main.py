@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
+from backend.api.routes import users, chatbot, books, ingest, conversations
+from backend.api.routes import assistant
 from backend.api.routes import users, chatbot, books, ingest, conversations, ocr
 from backend.api.routes.auth import get_current_user  # NEW
 from backend.utils.logging_config import setup_logging
@@ -40,6 +42,7 @@ app.include_router(debug)  #
 # Protect all “app” routers by default (leave root public)
 app.include_router(users.router, dependencies=[Depends(get_current_user)])
 app.include_router(chatbot.router)  # Removed JWT authentication for Clerk migration
+app.include_router(assistant.router)  # New router with intent-based routing
 app.include_router(conversations.router, dependencies=[Depends(get_current_user)])
 app.include_router(books.router, dependencies=[Depends(get_current_user)])
 app.include_router(ingest.router, dependencies=[Depends(get_current_user)])
