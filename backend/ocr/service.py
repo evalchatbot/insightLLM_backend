@@ -7,26 +7,58 @@ import fitz  # PyMuPDF
 import sys
 from pathlib import Path
 
-# Add the OCR script directory to Python path
-ocr_script_path = Path(__file__).resolve().parent.parent.parent.parent / "ocr"
-sys.path.insert(0, str(ocr_script_path))
+# Add the OCR script directory to Python path (robust detection)
+_ocr_candidates: List[Path] = []
+env_dir = os.getenv("OCR_MODULE_DIR")
+if env_dir:
+    _ocr_candidates.append(Path(env_dir))
 
-# ---- import the original script as a module-level helper ----
-try:
-    from ocr import (
-        run_ocr_with_retries,
-        segment_questions,
-        writing_issues_for_page,
-        writing_issues_for_text,
-        evaluate_qa_detailed,
-        writing_score_bins_value_and_label,
-        annotate_pdf_with_report,
-        QAReportDetailed, 
-        IssueRow,
-        load_env
-    )
-except ImportError as e:
-    raise ImportError(f"Could not import OCR module from {ocr_script_path}. Make sure ocr.py exists there. Error: {e}")
+# Common container layout: /app/ocr
+_ocr_candidates.append(Path("/app/ocr"))
+
+# Repo-root heuristic: ../../.. from this file points to repo, then `ocr`
+_ocr_candidates.append(Path(__file__).resolve().parents[2] / "ocr")
+_ocr_candidates.append(Path(__file__).resolve().parents[3] / "ocr")
+
+OCR_AVAILABLE = False
+OCR_IMPORT_ERROR = None
+ocr_script_path: Optional[Path] = None
+
+for cand in _ocr_candidates:
+    try:
+        if cand and cand.exists():
+            sys.path.insert(0, str(cand))
+            from ocr import (
+                run_ocr_with_retries,
+                segment_questions,
+                writing_issues_for_page,
+                writing_issues_for_text,
+                evaluate_qa_detailed,
+                writing_score_bins_value_and_label,
+                annotate_pdf_with_report,
+                QAReportDetailed,
+                IssueRow,
+                load_env,
+            )
+            OCR_AVAILABLE = True
+            ocr_script_path = cand
+            break
+    except Exception as e:
+        OCR_IMPORT_ERROR = e
+        continue
+
+if not OCR_AVAILABLE:
+    # Define minimal placeholders to avoid import-time crash; will error at runtime when used
+    run_ocr_with_retries = None  # type: ignore
+    segment_questions = None  # type: ignore
+    writing_issues_for_page = None  # type: ignore
+    writing_issues_for_text = None  # type: ignore
+    evaluate_qa_detailed = None  # type: ignore
+    writing_score_bins_value_and_label = None  # type: ignore
+    annotate_pdf_with_report = None  # type: ignore
+    QAReportDetailed = None  # type: ignore
+    IssueRow = None  # type: ignore
+    load_env = None  # type: ignore
 
 from groq import Groq
 
@@ -46,6 +78,12 @@ def _delete_file_safely(p: Path) -> None:
 class OCRAnnotator:
     def __init__(self, *, fast_mode: bool = False):
         self.fast_mode = fast_mode
+        if not OCR_AVAILABLE:
+            where = f"{ocr_script_path}" if ocr_script_path else "<not found>"
+            raise ImportError(
+                f"OCR module not available. Set OCR_MODULE_DIR to the folder containing ocr.py. "
+                f"Searched: {', '.join(str(p) for p in _ocr_candidates)}. Last error: {OCR_IMPORT_ERROR}"
+            )
         # ensure env variables exist (original script enforces this)
         self.endpoint, self.azure_key, self.groq_key = load_env()
         self.groq_client = Groq(api_key=self.groq_key)
