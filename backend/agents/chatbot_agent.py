@@ -204,14 +204,21 @@ class ChatbotAgent:
             messages = self.db_service.get_recent_conversation_messages(conversation_id, limit)
             self.logger.info(f"[CHATBOT] Retrieved {len(messages)} raw messages from database")
             
-            # Convert to the format expected by the system
+            # Convert 'messages' rows (user_prompt/llm_response) into sequential context entries
             context = []
             for msg in messages:
-                context.append({
-                    "sender": msg["sender"],
-                    "message": msg["message"],
-                    "timestamp": msg["created_at"]
-                })
+                if msg.get("user_prompt"):
+                    context.append({
+                        "sender": "user",
+                        "message": msg.get("user_prompt", ""),
+                        "timestamp": msg.get("created_at")
+                    })
+                if msg.get("llm_response"):
+                    context.append({
+                        "sender": "assistant",
+                        "message": msg.get("llm_response", ""),
+                        "timestamp": msg.get("created_at")
+                    })
             
             self.logger.info(f"[CHATBOT] Converted to {len(context)} context messages")
             return context
@@ -237,31 +244,10 @@ class ChatbotAgent:
                 self.logger.error(f"[CHATBOT] No database service available for saving")
                 return
             
-            # Save user message
-            user_message_data = {
-                "conversation_id": conversation_id,
-                "sender": "user",
-                "message": question,
-                "citations": [],
-                "metadata": {}
-            }
-            
-            self.logger.info(f"[CHATBOT] Saving user message: {len(question)} chars")
-            user_result = self.db_service.add_conversation_message(user_message_data)
-            self.logger.info(f"[CHATBOT] User message saved: {bool(user_result)}")
-            
-            # Save assistant message
-            assistant_message_data = {
-                "conversation_id": conversation_id,
-                "sender": "assistant",
-                "message": answer,
-                "citations": citations or [],
-                "metadata": {}
-            }
-            
-            self.logger.info(f"[CHATBOT] Saving assistant message: {len(answer)} chars, {len(citations or [])} citations")
-            assistant_result = self.db_service.add_conversation_message(assistant_message_data)
-            self.logger.info(f"[CHATBOT] Assistant message saved: {bool(assistant_result)}")
+            # Save as a single messages row with both user and assistant content
+            self.logger.info(f"[CHATBOT] Saving message pair (user+assistant) to DB")
+            pair_result = self.db_service.add_message_pair(conversation_id, question, answer)
+            self.logger.info(f"[CHATBOT] Message pair saved: {bool(pair_result)}")
             
             self.logger.info(f"[CHATBOT] Successfully saved conversation messages to DB: {conversation_id}")
         
@@ -275,8 +261,6 @@ class ChatbotAgent:
         user_id: str,
         first_question: str,
         first_answer: str,
-        genre: str = "General",
-        book_ids: Optional[List[str]] = None
     ) -> Optional[str]:
         """
         Create a new conversation with an LLM-generated title.
@@ -293,12 +277,10 @@ class ChatbotAgent:
             title = self._generate_conversation_title(first_question, first_answer)
             self.logger.info(f"[CHATBOT] Generated conversation title: {title}")
             
-            # Create conversation
+            # Create conversation (updated schema)
             conversation_data = {
                 "user_id": user_id,
                 "title": title,
-                "genre": genre,
-                "book_ids": book_ids or []
             }
             
             conversation = self.db_service.create_conversation(conversation_data)

@@ -26,6 +26,9 @@ async def annotate_pdf(
     try:
         annotator = OCRAnnotator(fast_mode=(mode == "fast"))
         annotated_bytes, meta = annotator.annotate_pdf(pdf_bytes=data, original_filename=file.filename)
+    except ImportError as e:
+        # OCR module not available/misconfigured
+        raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")
     except HTTPException:
         raise
     except Exception as e:
@@ -70,5 +73,7 @@ async def annotate_pdf_json(
         annotator = OCRAnnotator(fast_mode=(mode == "fast"))
         _, meta = annotator.annotate_pdf(pdf_bytes=data, original_filename=file.filename)
         return {"ok": True, **meta}
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR failed: {e}")

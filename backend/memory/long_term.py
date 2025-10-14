@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
 from backend.db.supabase_client import SupabaseDB
+from backend.db.supabase_service import SupabaseService
+import os
+import uuid
 from backend.memory.conversation_summarizer import get_conversation_summarizer
 
 logger = logging.getLogger(__name__)
@@ -19,19 +22,50 @@ class LongTermMemory:
         self.db = SupabaseDB()
         self.table = "long_term_memory"  # Table must exist in Supabase
         self.summarizer = get_conversation_summarizer()
+        # Optional DB service for user id normalization
+        try:
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            self.db_service = SupabaseService(supabase_url, supabase_key) if supabase_url and supabase_key else None
+        except Exception:
+            self.db_service = None
+
+    def _normalize_user_id(self, user_id: str) -> Optional[str]:
+        """Ensure user_id is a valid UUID for the DB schema. If not, try to fallback.
+        Order of resolution:
+        1) If input is already a valid UUID, use it.
+        2) If service is available, try DB fallback (an existing user UUID).
+        3) Otherwise, generate a fresh UUID (per schema, no FK required).
+        """
+        try:
+            _ = uuid.UUID(str(user_id))
+            return str(user_id)
+        except Exception:
+            # Generate a new UUID whenever the provided user_id is not a UUID.
+            # This avoids attributing memory to another existing user.
+            new_id = str(uuid.uuid4())
+            logger.warning(
+                f"[LTM] Non-UUID user_id '{user_id}' provided; generating new UUID {new_id} for long-term memory"
+            )
+            return new_id
 
     def save_fact(self, user_id: str, session_id: str, context: str, fact: str) -> Any:
         """
         Persist a fact or context snippet to Supabase.
         This method is kept for backward compatibility but should use save_summary for conversations.
         """
+        norm_user = self._normalize_user_id(user_id)
+        if not norm_user:
+            # Skip DB write if we cannot ensure UUID
+            return None
+
         data = {
-            "user_id": user_id,
+            "user_id": norm_user,
             "session_id": session_id,
             "context": context,
             "fact": fact,
-            "content_type": "fact",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
         }
         return self.db.insert(self.table, data)
     
@@ -50,19 +84,17 @@ class LongTermMemory:
             # Create rich summary with context
             summary_data = await self.summarizer.create_contextual_summary(messages)
             
+            norm_user = self._normalize_user_id(user_id)
+            if not norm_user:
+                return None
+
             data = {
-                "user_id": user_id,
+                "user_id": norm_user,
                 "session_id": session_id,
                 "context": context,
                 "fact": summary_data["summary"],
-                "content_type": "conversation_summary",
-                "metadata": {
-                    "topics": summary_data["topics"],
-                    "message_count": summary_data["message_count"],
-                    "user_preferences": summary_data["user_preferences"],
-                    "summary_type": summary_data["summary_type"]
-                },
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
             }
             
             logger.info(f"Saving conversation summary for {user_id}/{session_id}: {len(messages)} messages → {len(summary_data['summary'])} chars")
@@ -107,26 +139,18 @@ class LongTermMemory:
     
     def get_conversation_summaries(self, user_id: str, session_id: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """Retrieve conversation summaries for a user."""
-        filters = {"user_id": user_id, "content_type": "conversation_summary"}
-        if session_id:
-            filters["session_id"] = session_id
-        
         try:
-            # Use Supabase client directly for ordering and limiting
             query = (
                 self.db.supabase.table(self.table)
                 .select("*")
                 .eq("user_id", user_id)
-                .eq("content_type", "conversation_summary")
+                .order("created_at", desc=True)
+                .limit(limit)
             )
-            
             if session_id:
                 query = query.eq("session_id", session_id)
-            
-            query = query.order("created_at", desc=True).limit(limit)
             res = query.execute()
             return res.data if hasattr(res, 'data') else []
-            
         except Exception as e:
             logger.error(f"Failed to retrieve conversation summaries: {e}")
             return []
@@ -159,25 +183,8 @@ class LongTermMemory:
         Removes redundant storage after summarization.
         """
         try:
-            # Delete old individual facts for this session
-            filters = {
-                "user_id": user_id,
-                "session_id": session_id,
-                "content_type": "fact"
-            }
-            
-            # Note: This would need a proper delete method in SupabaseDB
-            # For now, we'll mark them as archived
-            old_facts = self.get_facts(user_id, session_id)
-            for fact in old_facts:
-                if fact.get("content_type") == "fact":
-                    # Update to mark as archived instead of deleting
-                    self.db.supabase.table(self.table).update({
-                        "content_type": "archived_fact",
-                        "archived_at": datetime.utcnow().isoformat()
-                    }).eq("id", fact.get("id")).execute()
-                    
-            logger.info(f"Archived {len(old_facts)} old facts for {user_id}/{session_id}")
-            
+            # With the simplified schema, we skip archival and keep summaries compact.
+            # Optionally, we could delete older rows, but avoiding destructive ops by default.
+            logger.info(f"[LTM] cleanup_old_facts noop for {user_id}/{session_id} (schema without content_type)")
         except Exception as e:
             logger.error(f"Failed to cleanup old facts: {e}")
