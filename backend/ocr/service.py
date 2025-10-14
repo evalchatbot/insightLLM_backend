@@ -16,6 +16,9 @@ if env_dir:
 # Common container layout: /app/ocr
 _ocr_candidates.append(Path("/app/ocr"))
 
+# Check backend utils path (common when ocr.py moved into backend/utils)
+_ocr_candidates.append(Path(__file__).resolve().parents[1] / "utils")
+
 # Repo-root heuristic: ../../.. from this file points to repo, then `ocr`
 _ocr_candidates.append(Path(__file__).resolve().parents[2] / "ocr")
 _ocr_candidates.append(Path(__file__).resolve().parents[3] / "ocr")
@@ -23,6 +26,18 @@ _ocr_candidates.append(Path(__file__).resolve().parents[3] / "ocr")
 OCR_AVAILABLE = False
 OCR_IMPORT_ERROR = None
 ocr_script_path: Optional[Path] = None
+
+import logging
+logger = logging.getLogger("ocr_service")
+logger.setLevel(logging.INFO)
+
+# Emit candidate checks to stderr/logs for easier deployment debugging
+for p in _ocr_candidates:
+    try:
+        logger.info(f"OCR candidate path: {p} exists={p.exists()}")
+    except Exception:
+        # best-effort logging
+        print(f"OCR candidate path: {p} exists check failed", file=sys.stderr)
 
 for cand in _ocr_candidates:
     try:
