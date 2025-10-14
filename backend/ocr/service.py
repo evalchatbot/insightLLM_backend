@@ -7,8 +7,9 @@ import fitz  # PyMuPDF
 import sys
 from pathlib import Path
 
-# Add the OCR script directory to Python path
-ocr_script_path = Path(__file__).resolve().parent.parent.parent.parent / "ocr"
+# Add the OCR module directory (moved into backend utils) to Python path
+# New location: <repo>/insightLLM_backend/backend/utils/ocr.py
+ocr_script_path = Path(__file__).resolve().parent.parent / "utils"
 sys.path.insert(0, str(ocr_script_path))
 
 # ---- import the original script as a module-level helper ----
@@ -26,7 +27,7 @@ try:
         load_env
     )
 except ImportError as e:
-    raise ImportError(f"Could not import OCR module from {ocr_script_path}. Make sure ocr.py exists there. Error: {e}")
+    raise ImportError(f"Could not import OCR module from {ocr_script_path}. Make sure utils/ocr.py exists there. Error: {e}")
 
 from groq import Groq
 
