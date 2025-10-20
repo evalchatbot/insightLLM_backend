@@ -176,7 +176,7 @@ def get_streaming_llm_client() -> StreamingLLMClient:
             raise RuntimeError("GROQ_API_KEY not set")
         return StreamingLLMClient(
             api_key=settings.GROQ_API_KEY,
-            model=settings.GROQ_MODEL or "llama3-8b-8192",
+            model=getattr(settings, "GROQ_MODEL_NAME", "llama-3.1-8b-instant"),
             provider="groq"
         )
     elif provider == "openai":
@@ -184,7 +184,7 @@ def get_streaming_llm_client() -> StreamingLLMClient:
             raise RuntimeError("OPENAI_API_KEY not set")
         return StreamingLLMClient(
             api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_MODEL or "gpt-4o-mini",
+            model=getattr(settings, "OPENAI_MODEL_NAME", "gpt-4o-mini"),
             provider="openai"
         )
     else:

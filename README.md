@@ -1,15 +1,14 @@
 # NotebookLM Backend
 
-A modular backend for an agentic book chatbot platform, featuring advanced RAG-based chat with intelligent conversation summarization. Built with FastAPI, Supabase, and LangGraph.
+A FastAPI backend that powers a Pakistani competitive-exam study companion. The chatbot now uses a single large language model with a robust CSS/PMS-specific system prompt—no vector stores or RAG pipeline required. Conversation memory is still persisted through Supabase.
 
 ## Features
-- Advanced chatbot agent with RAG pipeline and multi-step reasoning
-- Intelligent conversation summarization (auto-summarizes after 5 exchanges)
-- Short-term memory (LangGraph InMemoryStore) and long-term memory (Supabase)
-- Performance optimizations with caching and parallel processing
-- LangSmith tracing for monitoring and debugging
-- JWT authentication for all endpoints
-- Modular, scalable, and well-documented codebase
+- CSS/PMS mentor chatbot with exam-focused system prompt and contextual memory
+- Intelligent conversation summarisation (summaries after every 5 turns)
+- Short-term memory (LangGraph InMemoryStore) plus long-term Supabase storage
+- Optional OCR grading pipeline for annotated PDF feedback
+- JWT authentication for private endpoints
+- Modular layout with clear logging and configuration hooks
 
 ## Requirements
 - Python 3.13+
@@ -46,10 +45,11 @@ A modular backend for an agentic book chatbot platform, featuring advanced RAG-b
 - Redoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ## Supabase Table Requirements
-You must create the following tables in your Supabase project:
-- `users`, `books`, `chat_messages`, `document_chunks`, `sessions`, `long_term_memory`
-- See `backend/db/models.py` for field suggestions.
-- For conversation summarization, add `content_type`, `metadata`, `created_at`, `archived_at` columns to `long_term_memory`
+You must create (or adapt) the following tables in Supabase:
+- `users`, `conversations`, `messages`, `long_term_memory`
+- Optional: `books`, `document_chunks` if you keep the ingestion/OCR utilities
+- See `backend/db/models.py` for field suggestions and expected columns
+
 
 ## Directory Structure
 ```

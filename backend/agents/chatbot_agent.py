@@ -1,520 +1,660 @@
 """
-Chatbot Agent module.
-Simplified agent that directly uses RAG for all queries.
+Chatbot Agent tuned for Pakistani competitive exam preparation.
+Provides teacher-style answers without any RAG dependencies.
 """
-import asyncio
-import time
-from typing import Dict, Any, List, Optional
-import logging
+from __future__ import annotations
 
-from backend.memory.short_term import ShortTermMemory
-from backend.memory.long_term import LongTermMemory
-from backend.agents.tools import get_rag_tool
-from backend.rag.telemetry.langsmith_tracer import trace_agent_method
-from backend.rag.telemetry.performance_monitor import get_performance_monitor
-from backend.db.supabase_service import SupabaseService
-from backend.utils.logging_config import get_logger
+import json
 import os
 import re
+import time
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
+from backend.db.supabase_service import SupabaseService
+from backend.memory.long_term import LongTermMemory
+from backend.memory.short_term import ShortTermMemory
+from backend.rag.llm.streaming_client import StreamingLLMClient, get_streaming_llm_client
+from backend.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+SYSTEM_PROMPT = (
+    "System Prompt: Pakistani Competitive Exam Mentor\n"
+    "You specialise in Political Science and governance for Pakistani competitive examinations.\n"
+    "Core rules you must ALWAYS obey:\n"
+    "1. Follow the custom instructions supplied in the user prompt exactly—they may override or narrow the default exam structure.\n"
+    "2. Think aloud (internally) about the task before drafting. Identify the directives (define, compare, critique, apply, etc.) and satisfy each one explicitly.\n"
+    "3. Maintain a scholarly yet approachable tone. Use evidence (constitutional articles, case law, theorists, contemporary events) whenever relevant.\n"
+    "4. Every argument must be analytical: state the point, explain the reasoning, anchor it in Pakistan/global context, and (where apt) balance with critique.\n"
+    "5. Never repeat sentences or recycle the same argument under different headings.\n"
+    "6. Never mention the acronym 'CSS'.\n"
+    "7. When instructed to provide exam-technique guidance, it must appear after the conclusion.\n"
+)
+
+SYSTEM_PROMPT_ID = "css-pol-sci.v3"
+
+
+TITLE_PROMPT_TEMPLATE = (
+    "You are naming a chat for a Pakistani CSS/PMS aspirant.\n"
+    "Student question: \"{question}\"\n"
+    "Mentor answer (summary): \"{answer}\".\n"
+    "Produce a concise title (max 6 words) that reflects the exam-prep focus. "
+    "Use Title Case and avoid punctuation except spaces or hyphen."
+)
 
 
 class ChatbotAgent:
     """
-    Simplified chatbot agent that uses RAG for all queries.
-    No domain classification or routing - all questions go directly to RAG.
+    A lightweight, non-RAG chatbot tailored for Pakistani competitive exams.
     """
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.short_term = ShortTermMemory()
         self.long_term = LongTermMemory()
-        self.logger = get_logger(__name__)
-        self.performance_monitor = get_performance_monitor()
-        
-        # Initialize RAG tool only
-        self.rag_tool = get_rag_tool()
-        
-        # Initialize database service for conversation persistence
+        self._streaming_client: Optional[StreamingLLMClient] = None
+
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        
-        self.logger.info(f"[CHATBOT] Initializing database service:")
-        self.logger.info(f"[CHATBOT] SUPABASE_URL configured: {bool(supabase_url)}")
-        self.logger.info(f"[CHATBOT] SUPABASE_SERVICE_ROLE_KEY configured: {bool(supabase_key)}")
-        
         if supabase_url and supabase_key:
             try:
                 self.db_service = SupabaseService(supabase_url, supabase_key)
-                self.logger.info(f"[CHATBOT] Database service initialized successfully")
-            except Exception as e:
-                self.logger.error(f"[CHATBOT] Failed to initialize database service: {e}")
+                logger.info("[CHATBOT] Supabase service initialised")
+            except Exception as exc:
+                logger.error(f"[CHATBOT] Failed to init Supabase service: {exc}")
                 self.db_service = None
         else:
-            self.logger.warning(f"[CHATBOT] Database service not initialized - missing configuration")
             self.db_service = None
-    
-    @trace_agent_method(name="chatbot_agent_ask", tags=["chatbot", "unified", "tool_based"])
+            logger.warning("[CHATBOT] Supabase service not configured; skipping persistence")
+
+    # ------------------------------------------------------------------ #
+    # Public API used by FastAPI routes
+    # ------------------------------------------------------------------ #
     async def ask(
-            self,
-            user_id: str,
-            session_id: str,
-            question: str,
-            genre: str,
-            book_ids: Optional[List[str]] = None,
-            conversation_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        # EMERGENCY FIX: Clean contaminated question if needed
-        if "Please provide a comprehensive" in question or "Previous context:" in question:
-            question = self._extract_clean_question_emergency(question)
-        """
-        Simplified ask method that directly uses RAG for all queries.
-        
-        Flow:
-        1. Get conversation context
-        2. Use RAG tool to answer question
-        3. Update memory with conversation
-        4. Return structured response
-        """
-        start_time = time.time()
-        self.logger.info(f"[CHATBOT] Processing question: user_id={user_id}, session_id={session_id}, genre={genre}")
-        
-        try:
-            # Get conversation context  
-            if conversation_id:
-                self.logger.info(f"[CHATBOT] Conversation ID provided: {conversation_id}")
-                if self.db_service:
-                    self.logger.info(f"[CHATBOT] Getting conversation context from database")
-                    context = await self._get_conversation_context(conversation_id)
-                    self.logger.info(f"[CHATBOT] Retrieved {len(context)} context messages from database")
-                else:
-                    self.logger.warning(f"[CHATBOT] Database service not available, falling back to short-term memory")
-                    context = self.short_term.get_recent_messages(user_id, session_id)
-            else:
-                self.logger.info(f"[CHATBOT] No conversation ID, using short-term memory")
-                context = self.short_term.get_recent_messages(user_id, session_id)
-            
-            # Use RAG tool directly for all queries
-            self.logger.info(f"[CHATBOT] Using RAG tool to answer question")
-            mode = self._determine_rag_mode()
-            
-            result = await self.rag_tool.execute(
-                question=question,
-                genre=genre,
-                context=context,
-                book_ids=book_ids,
-                mode=mode
-            )
-            
-            # Ensure context is always present in the result
-            if "context" not in result:
-                result["context"] = context
-            
-            # Update memory with conversation
-            self.logger.info(f"[CHATBOT] Updating conversation memory")
-            await self._update_conversation_memory(
-                user_id, session_id, question, result["answer"], 
-                conversation_id, result.get("citations", [])
-            )
-            
-            # Add execution metadata
-            result["metadata"]["total_execution_time"] = time.time() - start_time
-            result["metadata"]["tool_used"] = "rag_tool"
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"[CHATBOT] Ask failed: {e}")
-            return {
-                "answer": "I apologize, but I encountered an error while processing your question. Please try again.",
-                "sources": [],
-                "citations": [],
-                "context": context if 'context' in locals() else [],
-                "metadata": {
-                    "error": str(e),
-                    "total_execution_time": time.time() - start_time,
-                    "tool_used": "error_handler"
-                }
-            }
-    
-    def _determine_rag_mode(self) -> str:
-        """Determine which RAG mode to use based on configuration."""
-        import os
-        use_adaptive = os.getenv("USE_ADAPTIVE_RAG", "true").lower() in ("1", "true", "yes", "on")
-        use_multi = os.getenv("USE_MULTI_STEP_RAG", "true").lower() in ("1", "true", "yes", "on")
-        
-        if use_adaptive:
-            return "adaptive"
-        elif use_multi:
-            return "multi_step"
-        else:
-            return "fast"
-    
-    
-    async def _update_conversation_memory(
-        self, 
-        user_id: str, 
-        session_id: str, 
-        question: str, 
-        answer: str,
+        self,
+        user_id: str,
+        session_id: str,
+        question: str,
+        genre: str = "general",
+        book_ids: Optional[List[str]] = None,
         conversation_id: Optional[str] = None,
-        citations: Optional[List[dict]] = None
-    ):
-        """Update conversation memory with intelligent summarization and database persistence."""
-        try:
-            # Save to database if conversation_id is provided
-            if conversation_id and conversation_id.strip():
-                self.logger.info(f"[CHATBOT] Saving conversation to database: {conversation_id}")
-                if self.db_service:
-                    self.logger.info(f"[CHATBOT] Database service available, proceeding with message storage")
-                    await self._save_to_conversation_db(conversation_id, question, answer, citations)
-                    self.logger.info(f"[CHATBOT] ✅ Messages successfully saved to conversation: {conversation_id}")
+    ) -> Dict[str, object]:
+        """
+        Generate a complete answer (non-streaming) while maintaining context.
+        """
+        cleaned_question = self._sanitize_question(question)
+        analysis = await self._analyze_question(cleaned_question)
+        context = await self._get_context(user_id, session_id, conversation_id)
+        user_prompt = self._build_user_prompt(cleaned_question, context, analysis)
+
+        start = time.time()
+        answer = await self._ensure_streaming_client().generate_complete(
+            prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=3200,
+            system_message=SYSTEM_PROMPT,
+        )
+
+        update_info = await self._update_memory(
+            user_id=user_id,
+            session_id=session_id,
+            question=cleaned_question,
+            answer=answer,
+            conversation_id=conversation_id,
+        )
+
+        metadata = {
+            "mode": "single_llm",
+            "system_prompt": SYSTEM_PROMPT_ID,
+            "context_messages": len(context),
+            "response_time": round(time.time() - start, 3),
+            "question_analysis": analysis,
+        }
+        if update_info:
+            metadata.update({k: v for k, v in update_info.items() if v is not None})
+
+        return {
+            "answer": answer,
+            "sources": [],
+            "citations": [],
+            "context": context,
+            "metadata": metadata,
+        }
+
+    async def ask_fast(
+        self,
+        user_id: str,
+        session_id: str,
+        question: str,
+        genre: str = "general",
+        book_ids: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """
+        Backwards-compatibility wrapper; fast mode now equals standard ask.
+        """
+        return await self.ask(
+            user_id=user_id,
+            session_id=session_id,
+            question=question,
+            genre=genre,
+            book_ids=book_ids,
+            conversation_id=conversation_id,
+        )
+
+    async def ask_multi_step(
+        self,
+        user_id: str,
+        session_id: str,
+        question: str,
+        genre: str = "general",
+        book_ids: Optional[List[str]] = None,
+        max_iterations: int = 2,
+        conversation_id: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """
+        Multi-step mode is deprecated; delegate to single-call response.
+        """
+        return await self.ask(
+            user_id=user_id,
+            session_id=session_id,
+            question=question,
+            genre=genre,
+            book_ids=book_ids,
+            conversation_id=conversation_id,
+        )
+
+    async def stream_answer(
+        self,
+        user_id: str,
+        session_id: str,
+        question: str,
+        genre: str = "general",
+        book_ids: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream answer chunks while keeping memory updated after completion.
+        """
+        cleaned_question = self._sanitize_question(question)
+        analysis = await self._analyze_question(cleaned_question)
+        context = await self._get_context(user_id, session_id, conversation_id)
+        user_prompt = self._build_user_prompt(cleaned_question, context, analysis)
+
+        llm_stream = self._ensure_streaming_client().generate_stream(
+            prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=3200,
+            system_message=SYSTEM_PROMPT,
+        )
+
+        agent = self
+
+        class StreamWrapper:
+            def __init__(self):
+                self._iterator = llm_stream.__aiter__()
+                self.collected: List[str] = []
+                self.answer: str = ""
+                self.update_info: Dict[str, Optional[str]] = {}
+                self.context_messages = len(context)
+                self.analysis = analysis
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                try:
+                    chunk = await self._iterator.__anext__()
+                except StopAsyncIteration:
+                    self.answer = "".join(self.collected).strip()
+                    self.update_info = await agent._update_memory(
+                        user_id=user_id,
+                        session_id=session_id,
+                        question=cleaned_question,
+                        answer=self.answer,
+                        conversation_id=conversation_id,
+                    )
+                    raise StopAsyncIteration
                 else:
-                    self.logger.warning(f"[CHATBOT] ❌ Database service not available, cannot persist conversation")
-            else:
-                self.logger.info(f"[CHATBOT] ⚠️ No valid conversation ID provided ({conversation_id}), using in-memory storage only")
-            
-            # Continue with existing memory logic for backward compatibility
-            # Add messages to short-term memory
-            self.short_term.add_message(user_id, session_id, {"sender": "user", "message": question})
-            self.short_term.add_message(user_id, session_id, {"sender": "assistant", "message": answer})
-            
-            # Check if we should summarize the conversation
-            if self.short_term.should_summarize(user_id, session_id):
-                current_messages = self.short_term.get_recent_messages(user_id, session_id)
-                await self.long_term.save_conversation_summary(user_id, session_id, current_messages)
-                # Reset the conversation count after summarization
-                self.short_term.reset_conversation_count(user_id, session_id)
-                # Clean up old individual facts
-                await self.long_term.cleanup_old_facts(user_id, session_id)
-                self.logger.info(f"Conversation summarized for {user_id}/{session_id}")
-            else:
-                # For short conversations, save individual fact
-                self.long_term.save_fact(user_id, session_id, context="chat", fact=answer)
-                
-        except Exception as e:
-            self.logger.warning(f"Memory update failed: {e}")
-    
-    async def _get_conversation_context(self, conversation_id: str, limit: int = 10) -> List[Dict]:
-        """Get recent messages from conversation for context."""
-        try:
-            self.logger.info(f"[CHATBOT] Getting conversation context for: {conversation_id}")
-            
-            if not self.db_service:
-                self.logger.warning(f"[CHATBOT] No database service available for context retrieval")
-                return []
-            
-            messages = self.db_service.get_recent_conversation_messages(conversation_id, limit)
-            self.logger.info(f"[CHATBOT] Retrieved {len(messages)} raw messages from database")
-            
-            # Convert 'messages' rows (user_prompt/llm_response) into sequential context entries
-            context = []
-            for msg in messages:
-                if msg.get("user_prompt"):
-                    context.append({
-                        "sender": "user",
-                        "message": msg.get("user_prompt", ""),
-                        "timestamp": msg.get("created_at")
-                    })
-                if msg.get("llm_response"):
-                    context.append({
-                        "sender": "assistant",
-                        "message": msg.get("llm_response", ""),
-                        "timestamp": msg.get("created_at")
-                    })
-            
-            self.logger.info(f"[CHATBOT] Converted to {len(context)} context messages")
-            return context
-        
-        except Exception as e:
-            self.logger.error(f"[CHATBOT] Failed to get conversation context: {e}")
-            import traceback
-            self.logger.error(f"[CHATBOT] Traceback: {traceback.format_exc()}")
-            return []
-    
-    async def _save_to_conversation_db(
-        self, 
-        conversation_id: str, 
-        question: str, 
-        answer: str, 
-        citations: Optional[List[dict]] = None
-    ):
-        """Save user question and assistant answer to conversation database."""
-        try:
-            self.logger.info(f"[CHATBOT] Saving to conversation database: {conversation_id}")
-            
-            if not self.db_service:
-                self.logger.error(f"[CHATBOT] No database service available for saving")
-                return
-            
-            # Save as a single messages row with both user and assistant content
-            self.logger.info(f"[CHATBOT] Saving message pair (user+assistant) to DB")
-            pair_result = self.db_service.add_message_pair(conversation_id, question, answer)
-            self.logger.info(f"[CHATBOT] Message pair saved: {bool(pair_result)}")
-            
-            self.logger.info(f"[CHATBOT] Successfully saved conversation messages to DB: {conversation_id}")
-        
-        except Exception as e:
-            self.logger.error(f"[CHATBOT] Failed to save to conversation database: {e}")
-            import traceback
-            self.logger.error(f"[CHATBOT] Traceback: {traceback.format_exc()}")
-    
+                    self.collected.append(chunk)
+                    return chunk
+
+        return StreamWrapper()
+
+    # ------------------------------------------------------------------ #
+    # Conversation utilities
+    # ------------------------------------------------------------------ #
     async def create_conversation_with_title(
         self,
         user_id: str,
-        first_question: str,
-        first_answer: str,
+        question: str,
+        answer: str,
+        icon: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Create a new conversation with an LLM-generated title.
-        
-        Returns:
-            conversation_id if successful, None if failed
+        Create a new conversation with an auto-generated, exam-themed title.
         """
+        if not self.db_service:
+            logger.warning("[CHATBOT] Cannot auto-create conversation without Supabase service")
+            return None
+
         try:
-            if not self.db_service:
-                self.logger.error(f"[CHATBOT] No database service for conversation creation")
-                return None
-            
-            # Generate title using LLM
-            title = self._generate_conversation_title(first_question, first_answer)
-            self.logger.info(f"[CHATBOT] Generated conversation title: {title}")
-            
-            # Create conversation (updated schema)
+            title = await self._generate_conversation_title(question, answer)
             conversation_data = {
                 "user_id": user_id,
                 "title": title,
+                "icon": icon,
+                "is_pinned": False,
             }
-            
-            conversation = self.db_service.create_conversation(conversation_data)
-            
-            if conversation and conversation.get("id"):
-                conversation_id = conversation["id"]
-                self.logger.info(f"[CHATBOT] Created conversation with title: {title} (ID: {conversation_id})")
-                return conversation_id
-            else:
-                self.logger.error(f"[CHATBOT] Failed to create conversation")
-                return None
-            
-        except Exception as e:
-            self.logger.error(f"[CHATBOT] Error creating conversation with title: {e}")
+            result = self.db_service.create_conversation(conversation_data)
+            return result.get("id") if result else None
+        except Exception as exc:
+            logger.error(f"[CHATBOT] Failed to create conversation with title: {exc}")
             return None
-    
-    async def get_conversation_history(self, conversation_id: str, limit: int = 50) -> List[Dict]:
-        """Get conversation history for external use."""
-        try:
-            if not self.db_service:
-                return []
-            
-            messages = self.db_service.get_conversation_messages(conversation_id, limit)
-            return messages
-        
-        except Exception as e:
-            self.logger.error(f"Failed to get conversation history: {e}")
-            return []
-    
-    def _generate_conversation_title(self, question: str, answer: str) -> str:
-        """
-        Generate a concise conversation title based on the first question and answer.
-        Uses LLM to create a meaningful title.
-        """
-        try:
-            self.logger.info(f"[CHATBOT] Generating conversation title")
-            
-            # Simple rule-based title generation (fast fallback)
-            if len(question) <= 50:
-                # Short questions can be titles themselves
-                title = question.strip('?').strip()
-                if title:
-                    return title[:50]  # Truncate if too long
-            
-            # Extract key topics for title generation
-            title_prompt = f"""
-Based on this conversation, generate a concise title (max 6 words):
 
-Question: {question[:100]}
-Answer: {answer[:200]}
-
-Title:"""
-            
-            # Use the same LLM that generates responses
-            from backend.rag.llm.groq_client import GroqLLMClient
-            llm_client = GroqLLMClient()
-            
-            title_response = llm_client.generate(
-                prompt=title_prompt,
-                max_tokens=20,  # Keep it short
-                temperature=0.3  # Less creative, more focused
-            )
-            
-            if title_response and title_response.strip():
-                # Clean up the generated title
-                title = title_response.strip()
-                # Remove quotes if present
-                title = re.sub(r'^["\'“\u201d]+|["\'“\u201d]+$', '', title)
-                # Ensure reasonable length
-                if len(title) <= 60 and len(title) >= 3:
-                    self.logger.info(f"[CHATBOT] Generated title: {title}")
-                    return title
-            
-            # Fallback: Extract key terms from question
-            return self._extract_title_from_question(question)
-            
-        except Exception as e:
-            self.logger.warning(f"[CHATBOT] Title generation failed: {e}")
-            return self._extract_title_from_question(question)
-    
-    def _extract_title_from_question(self, question: str) -> str:
+    async def get_agent_capabilities(self) -> Dict[str, object]:
         """
-        Fallback title extraction from question using simple rules.
+        Diagnostic helper for API consumers.
         """
-        try:
-            # Clean the question
-            clean_question = re.sub(r'^(what|how|why|when|where|who|which)\s+', '', question.lower())
-            clean_question = clean_question.strip('?').strip()
-            
-            # Take first few words
-            words = clean_question.split()[:6]
-            title = ' '.join(words)
-            
-            # Capitalize properly
-            title = title.title()
-            
-            # Ensure minimum length
-            if len(title) < 3:
-                title = question[:30] + "..." if len(question) > 30 else question
-            
-            return title[:50]  # Max 50 chars
-            
-        except:
-            return "CSS Discussion"
-    
-    # Legacy method support for backward compatibility
-    async def ask_fast(
-            self,
-            user_id: str,
-            session_id: str,
-            question: str,
-            genre: str,
-            book_ids: Optional[List[str]] = None,
-            conversation_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Legacy fast mode - now uses RAG tool in fast mode."""
-        if conversation_id and self.db_service:
-            context = await self._get_conversation_context(conversation_id)
-        else:
-            context = self.short_term.get_recent_messages(user_id, session_id)
-        result = await self.rag_tool.execute(
-            question=question,
-            genre=genre,
-            context=context,
-            book_ids=book_ids,
-            mode="fast"
-        )
-        
-        # Update memory
-        await self._update_conversation_memory(
-            user_id, session_id, question, result["answer"], 
-            conversation_id, result.get("citations", [])
-        )
-        
-        return result
-    
-    async def ask_multi_step(
-            self,
-            user_id: str,
-            session_id: str,
-            question: str,
-            genre: str,
-            book_ids: Optional[List[str]] = None,
-            max_iterations: int = 2,
-            conversation_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Legacy multi-step mode - now uses RAG tool in multi-step mode."""
-        if conversation_id and self.db_service:
-            context = await self._get_conversation_context(conversation_id)
-        else:
-            context = self.short_term.get_recent_messages(user_id, session_id)
-        result = await self.rag_tool.execute(
-            question=question,
-            genre=genre,
-            context=context,
-            book_ids=book_ids,
-            mode="multi_step"
-        )
-        
-        # Update memory
-        await self._update_conversation_memory(
-            user_id, session_id, question, result["answer"], 
-            conversation_id, result.get("citations", [])
-        )
-        
-        return result
-    
-    
-    def get_agent_capabilities(self) -> Dict[str, Any]:
-        """Get comprehensive agent capabilities."""
         return {
-            "agent_type": "simplified_rag_only",
-            "architecture": "direct_rag_processing",
-            "tools": {
-                "rag_tool": self.rag_tool.get_capabilities() if hasattr(self.rag_tool, 'get_capabilities') else "RAG Tool Available"
-            },
-            "processing": {
-                "approach": "Direct RAG for all queries",
-                "domain": "General Knowledge with CSS Focus",
-                "classification": "Removed - all queries processed"
-            },
+            "agent_type": "single_llm",
+            "system_prompt": SYSTEM_PROMPT_ID,
+            "supports_streaming": True,
+            "rag_enabled": False,
             "memory": {
-                "short_term": "LangGraph InMemoryStore",
-                "long_term": "Supabase with intelligent summarization",
-                "summarization_threshold": 5
+                "short_term": True,
+                "long_term": True,
+                "summarisation_threshold": self.short_term.summarization_threshold,
             },
-            "performance": {
-                "modes": ["fast", "multi_step", "adaptive"],
-                "default_mode": "adaptive",
-                "fallback_enabled": True
-            }
         }
-    
-    def _extract_clean_question_emergency(self, contaminated_question: str) -> str:
-        """
-        Emergency method to extract clean question from contaminated input.
-        This is a safeguard against questions that arrive already formatted with context.
-        """
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers
+    # ------------------------------------------------------------------ #
+    def _ensure_streaming_client(self) -> StreamingLLMClient:
+        if not self._streaming_client:
+            self._streaming_client = get_streaming_llm_client()
+        return self._streaming_client
+
+    async def _get_context(
+        self,
+        user_id: str,
+        session_id: str,
+        conversation_id: Optional[str],
+    ) -> List[Dict[str, str]]:
         try:
-            # Pattern 1: Look for "Current question:" pattern
-            if "Current question:" in contaminated_question:
-                parts = contaminated_question.split("Current question:")
-                if len(parts) > 1:
-                    clean_question = parts[-1].strip()
-                    clean_question = clean_question.strip('\n\r .,!?')
-                    if clean_question and len(clean_question) > 5:
-                        return clean_question
-            
-            # Pattern 2: Look for lines that look like questions
-            lines = contaminated_question.split('\n')
+            if conversation_id and self.db_service:
+                records = self.db_service.get_recent_conversation_messages(conversation_id, limit=8)
+                context: List[Dict[str, str]] = []
+                for record in records:
+                    if record.get("user_prompt"):
+                        context.append(
+                            {
+                                "sender": "user",
+                                "message": record.get("user_prompt", ""),
+                                "timestamp": record.get("created_at"),
+                            }
+                        )
+                    if record.get("llm_response"):
+                        context.append(
+                            {
+                                "sender": "assistant",
+                                "message": record.get("llm_response", ""),
+                                "timestamp": record.get("created_at"),
+                            }
+                        )
+                return context[-8:]
+            return self.short_term.get_recent_messages(user_id, session_id)
+        except Exception as exc:
+            logger.warning(f"[CHATBOT] Failed to load context: {exc}")
+            return []
+
+    def _build_user_prompt(self, question: str, context: List[Dict[str, str]], analysis: Dict[str, Any]) -> str:
+        parts: List[str] = []
+
+        if context:
+            trimmed = context[-6:]
+            history_lines = []
+            for entry in trimmed:
+                role = entry.get("sender", "user").title()
+                message = entry.get("message", "").strip()
+                if message:
+                    history_lines.append(f"{role}: {message}")
+            if history_lines:
+                parts.append("Recent exchange (latest last):")
+                parts.append("\n".join(history_lines))
+
+        cleaned_question = question.strip()
+        mode = analysis.get("mode", "essay")
+        directives = analysis.get("directives", [])
+        reasoning = analysis.get("reasoning_focus", [])
+        comparison_pairs = analysis.get("comparison_pairs", [])
+        principles = analysis.get("principles", [])
+        multi_parts = analysis.get("multi_part_breakdown", [])
+        expected_length = analysis.get("expected_length", "essay")
+
+        if mode == "brief":
+            parts.append("Question:")
+            parts.append(cleaned_question)
+            parts.append(
+                "Generate a concise, high-quality response (120–180 words). "
+                "Address the user's need directly with clear reasoning, cite at least one relevant concept or fact, "
+                "and adopt a supportive mentor tone. No headings are required for short responses."
+            )
+            return "\n\n".join(parts)
+
+        parts.append("Exam Question:")
+        parts.append(cleaned_question)
+
+        instructions: List[str] = [
+            "Use Markdown with consistent heading levels. Major sections must appear as level-two headings (`##`).",
+            "Begin with `## Introduction` containing four tightly written sentences (70–90 words). Frame the thesis, define the key concept(s), and preview every strand you will cover. Never greet or mention yourself.",
+            "After the introduction, outline the discussion with numbered level-two headings: `## 1. ...`, `## 2. ...`, etc. Each heading title must encapsulate an argument or theme rather than repeat the question.",
+        ]
+
+        suggested_min = analysis.get("suggested_subheadings_min", 10)
+        suggested_max = analysis.get("suggested_subheadings_max", 14)
+        instructions.append(
+            f"Within those numbered sections, create between {suggested_min} and {suggested_max} distinct level-three subheadings (`### 1.1 ...`, `### 1.2 ...`, etc.). "
+            "Each subheading must be a single analytical claim (cause → effect or argument → implication) followed by a paragraph of 90–110 words."
+        )
+
+        if principles:
+            instructions.append(
+                "Dedicate the earliest subheadings to enumerating each core principle individually before moving to applications or critiques. "
+                f"The principles to cover include: {', '.join(principles)}."
+            )
+
+        if comparison_pairs:
+            for pair in comparison_pairs:
+                instructions.append(
+                    f"Include a dedicated comparative subheading contrasting {pair.get('item_a')} and {pair.get('item_b')} with evaluative commentary."
+                )
+
+        if multi_parts:
+            instructions.append(
+                "Explicitly resolve every part of the prompt. Use distinct numbered headings or clustered subheadings for each component:\n"
+                + "\n".join(f"- {item}" for item in multi_parts)
+            )
+
+        if reasoning:
+            instructions.append(
+                "For each subheading, emphasise reasoning styles: "
+                + ", ".join(reasoning)
+                + ". Make the logic transparent—state the claim, explain causality, cite supporting evidence, then offer Pakistan/global linkage."
+            )
+
+        instructions.extend(
+            [
+                "Integrate critiques and contemporary relevance within the body instead of isolating them at the end. "
+                "Draw on theorists (classical and modern), jurisprudence, and Pakistan-specific governance experience.",
+                "Employ bullet lists for enumerations, comparative takeaways, or policy recommendations so the answer remains scannable.",
+                "Target a total length between 1,100 and 1,400 words unless explicitly told otherwise.",
+                "Add `## Conclusion` to synthesise the discussion and deliver a reasoned judgement.",
+                "Finish with `## Exam Technique Guidance` containing 3–4 concise bullet points tailored to this question. This section must always be last.",
+                "Never mention the acronym 'CSS'.",
+            ]
+        )
+
+        parts.append("Obligations for this answer:")
+        parts.append("\n".join(f"- {item}" for item in instructions))
+
+        rubric_notes = []
+        if directives:
+            rubric_notes.append("Address the following directives explicitly: " + ", ".join(directives))
+        key_terms = analysis.get("key_terms")
+        if key_terms:
+            rubric_notes.append("Key terms to weave into the discussion: " + ", ".join(key_terms))
+        if not rubric_notes:
+            rubric_notes.append(
+                "Use constitutional references, landmark cases, and current affairs to illustrate points wherever relevant."
+            )
+
+        parts.append("Evaluator reminders (keep internal, do not echo verbatim):")
+        parts.append("\n".join(f"• {note}" for note in rubric_notes))
+        parts.append(
+            "Write the answer now, adhering strictly to the obligations above. "
+            "Ensure coverage of every directive and maintain analytical depth throughout."
+        )
+        return "\n\n".join(parts)
+
+    def _sanitize_question(self, raw: str) -> str:
+        try:
+            if not raw:
+                return raw
+            if "Current question:" in raw:
+                raw = raw.split("Current question:")[-1]
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
             for line in lines:
-                line = line.strip()
-                if not line or line.startswith(("Please provide", "Previous context", "Current question", "User:", "Assistant:")) or line.endswith(":"):
+                if line.endswith(":"):
                     continue
-                    
-                # This might be the actual question
-                if len(line) > 10 and ("?" in line or any(word in line.lower() for word in ["discuss", "explain", "analyze", "what", "how", "why"])):
+                if line.lower().startswith(("user:", "assistant:")):
+                    continue
+                if len(line) > 6:
                     return line
-            
-            # Pattern 3: Look for meaningful lines
-            meaningful_lines = []
-            for line in lines:
-                line = line.strip()
-                if len(line) > 20 and not line.startswith(("Please", "Previous", "Current", "User:", "Assistant:")):
-                    meaningful_lines.append(line)
-            
-            if meaningful_lines:
-                for line in meaningful_lines:
-                    if any(word in line.lower() for word in ["aristotle", "distributive", "justice", "discuss"]):
-                        return line
-                return meaningful_lines[0]
-            
-            # Ultimate fallback
-            return "Discuss Aristotle's distributive justice"
-            
+            return raw.strip()
         except Exception:
-            return "Discuss Aristotle's distributive justice"
+            return raw
+
+    async def _generate_conversation_title(self, question: str, answer: str) -> str:
+        prompt = TITLE_PROMPT_TEMPLATE.format(
+            question=question.strip(),
+            answer=answer.strip()[:300],
+        )
+        title = await self._ensure_streaming_client().generate_complete(
+            prompt=prompt,
+            temperature=0.4,
+            max_tokens=32,
+            system_message="You craft short, exam-focused chat titles.",
+        )
+        cleaned = title.replace("\n", " ").strip("\"' ").strip()
+        return cleaned[:60] or "CSS Prep Chat"
+
+    async def _analyze_question(self, question: str) -> Dict[str, Any]:
+        stripped = question.strip()
+        if not stripped:
+            return {"mode": "brief", "reason": "empty_question"}
+
+        lower = stripped.lower()
+        words = re.findall(r"\w+", lower)
+        word_count = len(words)
+
+        greetings = {"hi", "hello", "hey", "salam", "salaam", "thank", "thanks", "good morning", "good evening"}
+        if word_count <= 4 and any(greet in lower for greet in greetings):
+            return {
+                "mode": "brief",
+                "tone": "polite acknowledgement",
+                "directives": [],
+                "reasoning_focus": [],
+                "expected_length": "short",
+            }
+
+        essay_triggers = [
+            "discuss",
+            "evaluate",
+            "critically",
+            "analyse",
+            "analyze",
+            "assess",
+            "to what extent",
+            "how far",
+            "how do",
+            "how does",
+            "how can",
+            "explain",
+            "why",
+            "compare",
+            "contrast",
+            "examine",
+            "elaborate",
+            "comment",
+            "what are",
+        ]
+
+        is_essay = any(trigger in lower for trigger in essay_triggers) or "?" in stripped or word_count >= 18
+        mode = "essay" if is_essay else "brief"
+
+        directives: List[str] = []
+        directive_map = {
+            "discuss": "discuss the major dimensions of the topic",
+            "evaluate": "evaluate strengths and weaknesses",
+            "critically": "deliver a critical appraisal",
+            "assess": "assess the significance",
+            "analyse": "analyse underlying structures",
+            "analyze": "analyse underlying structures",
+            "explain": "explain core mechanisms",
+            "why": "justify the causes",
+            "how do": "describe the operational process",
+            "how does": "describe the operational process",
+            "how can": "illustrate practical application",
+            "compare": "compare contrasting perspectives",
+            "contrast": "contrast the specified perspectives",
+            "what extent": "judge the extent or limits",
+            "what are": "identify and describe the requested items",
+        }
+        for key, directive in directive_map.items():
+            if key in lower and directive not in directives:
+                directives.append(directive)
+
+        reasoning_focus: List[str] = []
+        if any(term in lower for term in ["why", "cause", "impact", "effect", "protect", "consequence"]):
+            reasoning_focus.append("cause-effect reasoning")
+        if any(term in lower for term in ["compare", "contrast", "versus", "vs", "similarities", "differences"]):
+            reasoning_focus.append("comparative reasoning")
+        if any(term in lower for term in ["should", "ought", "recommend", "future", "policy"]):
+            reasoning_focus.append("normative judgement")
+        if "critically" in lower or "evaluate" in lower or "assessment" in lower:
+            reasoning_focus.append("evaluative judgement")
+        if not reasoning_focus:
+            reasoning_focus.append("analytical exposition")
+
+        principles: List[str] = []
+        if "principles of constitutional democracy" in lower:
+            principles = [
+                "rule of law",
+                "separation of powers",
+                "constitutional supremacy",
+                "fundamental rights",
+                "federalism or devolution",
+                "independent judiciary",
+            ]
+
+        comparison_pairs: List[Dict[str, str]] = []
+        if any(term in lower for term in ["compare", "contrast", "versus", "vs"]):
+            match = re.search(r"between\s+(.+?)\s+and\s+(.+)", lower)
+            if match:
+                item_a = match.group(1).strip(" ?.")
+                item_b = match.group(2).strip(" ?.")
+                comparison_pairs.append({"item_a": item_a.upper(), "item_b": item_b.upper()})
+
+        multi_parts: List[str] = []
+        if " and how " in lower and "principle" in lower and "protect" in lower:
+            multi_parts = [
+                "Enumerate and explain the fundamental principles of constitutional democracy.",
+                "Demonstrate how each principle safeguards minority rights in theory and practice.",
+            ]
+
+        if not multi_parts and "and" in lower and "?" in stripped:
+            segments = [seg.strip(" ?.") for seg in stripped.split(" and ") if seg.strip()]
+            if len(segments) > 1:
+                multi_parts = segments[:3]
+
+        expected_length = "essay" if mode == "essay" else "short"
+        suggested_subheadings_min = 10 if mode == "essay" else 0
+        suggested_subheadings_max = 14 if mode == "essay" else 0
+
+        key_terms = []
+        if "constitutional democracy" in lower:
+            key_terms.append("constitutional democracy")
+        if "minority" in lower:
+            key_terms.append("minority rights")
+        if "federalism" in lower:
+            key_terms.append("federalism")
+
+        if not directives:
+            directives.append("explain the topic comprehensively with relevant context")
+
+        analysis = {
+            "mode": mode,
+            "directives": directives,
+            "reasoning_focus": reasoning_focus,
+            "principles": principles,
+            "comparison_pairs": comparison_pairs,
+            "multi_part_breakdown": multi_parts,
+            "expected_length": expected_length,
+            "suggested_subheadings_min": suggested_subheadings_min,
+            "suggested_subheadings_max": suggested_subheadings_max,
+            "key_terms": key_terms,
+            "raw_question": question,
+        }
+
+        if mode != "essay":
+            analysis["expected_length"] = "short"
+            analysis["suggested_subheadings_min"] = 0
+            analysis["suggested_subheadings_max"] = 0
+
+        return analysis
+
+    async def _update_memory(
+        self,
+        user_id: str,
+        session_id: str,
+        question: str,
+        answer: str,
+        conversation_id: Optional[str],
+    ) -> Dict[str, Optional[str]]:
+        update: Dict[str, Optional[str]] = {}
+        suggested_title: Optional[str] = None
+        try:
+            if conversation_id:
+                update["conversation_id"] = conversation_id
+
+            needs_title = False
+            existing_title: Optional[str] = None
+
+            if conversation_id and self.db_service:
+                self.db_service.add_message_pair(conversation_id, question, answer)
+
+                conversation = self.db_service.get_conversation_by_id(conversation_id)
+                if conversation:
+                    existing_title = (conversation.get("title") or "").strip()
+                    if not existing_title or existing_title.lower() in {"new chat", "untitled", "chat"}:
+                        needs_title = True
+                    else:
+                        update["conversation_title"] = existing_title
+                else:
+                    needs_title = True
+            else:
+                needs_title = True
+
+            if needs_title:
+                try:
+                    suggested_title = await self._generate_conversation_title(question, answer)
+                except Exception as exc:
+                    logger.debug(f"[CHATBOT] Title suggestion failed: {exc}")
+                    suggested_title = None
+
+            if conversation_id and self.db_service and suggested_title:
+                try:
+                    self.db_service.update_conversation(conversation_id, {"title": suggested_title})
+                    update["conversation_title"] = suggested_title
+                except Exception as exc:
+                    logger.debug(f"[CHATBOT] Title update skipped: {exc}")
+                    if existing_title:
+                        update.setdefault("conversation_title", existing_title)
+
+            self.short_term.add_message(user_id, session_id, {"sender": "user", "message": question})
+            self.short_term.add_message(user_id, session_id, {"sender": "assistant", "message": answer})
+
+            if self.short_term.should_summarize(user_id, session_id):
+                messages = self.short_term.get_recent_messages(user_id, session_id)
+                await self.long_term.save_conversation_summary(user_id, session_id, messages)
+                self.short_term.reset_conversation_count(user_id, session_id)
+                await self.long_term.cleanup_old_facts(user_id, session_id)
+            else:
+                self.long_term.save_fact(user_id, session_id, context="chat", fact=answer)
+        except Exception as exc:
+            logger.warning(f"[CHATBOT] Memory update failed: {exc}")
+        if suggested_title:
+            update.setdefault("suggested_title", suggested_title)
+        return update

@@ -9,7 +9,7 @@ class RAGSettings(BaseSettings):
     GROQ_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
     # Optional model overrides
-    GROQ_MODEL_NAME: str = Field("llama-3.1-8b-instant", description="Groq chat model name")
+    GROQ_MODEL_NAME: str = Field("llama-3.3-70b-versatile", description="Groq chat model name")
     OPENAI_MODEL_NAME: str = Field("gpt-4o-mini", description="OpenAI chat model name")
 
     # Vector backends
