@@ -23,7 +23,7 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 # Initialize services
 supabase_service = SupabaseService(
     supabase_url=os.getenv("SUPABASE_URL"),
-    supabase_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_key=os.getenv("SUPABASE_KEY")
 )
 
 # Initialize chatbot agent for title generation
