@@ -1,5 +1,5 @@
 from __future__ import annotations
-import io, os, tempfile, uuid, time
+import io, os, tempfile, uuid, time, re
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 
@@ -45,7 +45,6 @@ for cand in _ocr_candidates:
             sys.path.insert(0, str(cand))
             from ocr import (
                 run_ocr_with_retries,
-                segment_questions,
                 writing_issues_for_page,
                 writing_issues_for_text,
                 evaluate_qa_detailed,
@@ -53,6 +52,7 @@ for cand in _ocr_candidates:
                 annotate_pdf_with_report,
                 QAReportDetailed,
                 IssueRow,
+                QAItem,
                 load_env,
             )
             OCR_AVAILABLE = True
@@ -65,7 +65,6 @@ for cand in _ocr_candidates:
 if not OCR_AVAILABLE:
     # Define minimal placeholders to avoid import-time crash; will error at runtime when used
     run_ocr_with_retries = None  # type: ignore
-    segment_questions = None  # type: ignore
     writing_issues_for_page = None  # type: ignore
     writing_issues_for_text = None  # type: ignore
     evaluate_qa_detailed = None  # type: ignore
@@ -73,6 +72,7 @@ if not OCR_AVAILABLE:
     annotate_pdf_with_report = None  # type: ignore
     QAReportDetailed = None  # type: ignore
     IssueRow = None  # type: ignore
+    QAItem = None  # type: ignore
     load_env = None  # type: ignore
 
 from groq import Groq
@@ -90,6 +90,117 @@ def _delete_file_safely(p: Path) -> None:
     except Exception:
         pass
 
+def _strip_question_from_text(text: str, question: str) -> Tuple[str, int]:
+    if not text or not question:
+        return text, 0
+    normalized_question = question.strip()
+    if not normalized_question:
+        return text, 0
+    pattern = re.compile(re.escape(normalized_question), re.IGNORECASE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return text, 0
+    cleaned = pattern.sub("", text)
+    # Trim excessive blank space introduced by removal
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip(), len(matches)
+
+def _normalize_subject(subject: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", subject.strip().lower())
+    return slug.strip("_")
+
+POLI_SCI_SYSTEM_PROMPT = (
+    "You are a senior examiner for Pakistan's CSS Political Science paper. "
+    "Judge the answer strictly, referencing the official rubric. "
+    "Assign integer scores for the JSON keys `relevance_0to4`, `coverage_0to4`, "
+    "`accuracy_0to4`, `analysis_0to4`, and `organization_0to2`, but interpret them with the following maxima:\n"
+    "• Relevance and Understanding — 0 to 5: break down the exact demand of the question, keep every heading linked to the stem, cover all parts, avoid digressions.\n"
+    "• Conceptual Clarity and Knowledge — 0 to 5: reference core political science theories, thinkers, and ideologies accurately, weaving classical and contemporary perspectives without name-dropping.\n"
+    "• Critical Analysis and Argumentation — 0 to 4: weigh opposing schools (liberal vs. Marxist, realist vs. idealist, etc.), test arguments for strengths/weaknesses, and reach a balanced conclusion.\n"
+    "• Structure and Organization — 0 to 3: maintain Introduction–Body–Conclusion, use headings derived from question keywords, and ensure transitions that foreground cause/effect or argument/conclusion.\n"
+    "• Examples and References — 0 to 2: cite key theorists, doctrines, quotations, and contemporary/historical cases that link theory to real politics (CSS/Pakistan context encouraged).\n"
+    "Automation cues: if question keywords are absent from headings/topic sentences, penalize Relevance. If no political thinkers or schools appear, deduct Conceptual Clarity. "
+    "If there are no contrastive phrases (\"however\", \"while\", etc.), the answer is descriptive—penalize Critical Analysis. "
+    "Score Structure when the layout follows the mandated format; score Examples when quotations or case studies ground the answer.\n"
+    "Content marks cap at 15 after deductions. The final total is content plus Language/Expression (max 1 mark) derived from mechanics. "
+    "Still flag grammar/spelling problems as separate issues.\n"
+    "Return ONLY JSON."
+)
+
+POLITICAL_SCIENCE_PROFILE: Dict[str, Any] = {
+    "subject_id": "political_science",
+    "display_name": "Political Science",
+    "system_prompt": POLI_SCI_SYSTEM_PROMPT,
+    "criteria": [
+        {
+            "json_key": "relevance_0to4",
+            "attr": "relevance",
+            "label": "Relevance & Understanding",
+            "max": 5,
+            "detail_source": "question_summary",
+            "detail_text": "Measures how directly the response answers every part of the prompt.",
+        },
+        {
+            "json_key": "coverage_0to4",
+            "attr": "coverage",
+            "label": "Conceptual Clarity & Knowledge",
+            "max": 5,
+            "detail_source": "answer_summary",
+            "detail_text": "Assesses integration of core theorists, doctrines, and definitions.",
+        },
+        {
+            "json_key": "accuracy_0to4",
+            "attr": "accuracy",
+            "label": "Critical Analysis & Argumentation",
+            "max": 4,
+            "detail_text": "Rewards comparison of schools, critique, and defensible judgment.",
+        },
+        {
+            "json_key": "analysis_0to4",
+            "attr": "analysis",
+            "label": "Structure & Organization",
+            "max": 3,
+            "detail_text": "Looks for Introduction–Body–Conclusion, keyword-driven headings, and smooth transitions.",
+        },
+        {
+            "json_key": "organization_0to2",
+            "attr": "organization",
+            "label": "Examples & References",
+            "max": 2,
+            "detail_text": "Credits precise quotations, case studies, and Pakistan/global relevance.",
+        },
+    ],
+    "content_cap": 19.0,
+    "content_target": 15.0,
+    "final_max": 16.0,
+    "writing_max": 1.0,
+    "issue_categories": "Relevance|Understanding|Knowledge|Analysis|Organization|Evidence|Style",
+    "user_prompt_guidance": (
+        "Use the Political Science rubric above. Quote real lines from the Answer. "
+        "Keep JSON strict."
+    ),
+}
+
+SUBJECT_PROFILES: Dict[str, Dict[str, Any]] = {
+    POLITICAL_SCIENCE_PROFILE["subject_id"]: POLITICAL_SCIENCE_PROFILE,
+}
+SUBJECT_DISPLAY_NAMES: Dict[str, str] = {
+    key: prof.get("display_name", key.title()) for key, prof in SUBJECT_PROFILES.items()
+}
+
+def get_subject_profile(subject: str) -> Optional[Dict[str, Any]]:
+    if not subject:
+        return None
+    normalized = _normalize_subject(subject)
+    profile = SUBJECT_PROFILES.get(normalized)
+    if profile:
+        return profile
+    # Allow matching by display name slug
+    for key, prof in SUBJECT_PROFILES.items():
+        if _normalize_subject(prof.get("display_name", "")) == normalized:
+            return prof
+    return None
+
 class OCRAnnotator:
     def __init__(self, *, fast_mode: bool = False):
         self.fast_mode = fast_mode
@@ -103,83 +214,166 @@ class OCRAnnotator:
         self.endpoint, self.azure_key, self.groq_key = load_env()
         self.groq_client = Groq(api_key=self.groq_key)
 
-    def annotate_pdf(self, *, pdf_bytes: bytes, original_filename: str) -> Tuple[bytes, Dict[str, Any]]:
+    def annotate_pdf(
+        self,
+        *,
+        pdf_bytes: bytes,
+        original_filename: str,
+        question_text: str,
+        subject: str,
+    ) -> Tuple[bytes, Dict[str, Any]]:
         """
-        Process PDF with full OCR analysis pipeline from original script.
-        Returns annotated PDF bytes and detailed metadata.
+        Process a PDF alongside a user-provided question, returning an annotated PDF and detailed metadata.
         """
         start_time = time.time()
-        
-        # Save input PDF to temp file
+        clean_question = (question_text or "").strip()
+        subject_profile = get_subject_profile(subject)
+        if subject and not subject_profile:
+            supported = ", ".join(SUBJECT_DISPLAY_NAMES.values())
+            raise ValueError(f"Unsupported subject '{subject}'. Supported subjects: {supported}")
+        subject_id = subject_profile["subject_id"] if subject_profile else (_normalize_subject(subject) or "general")
+        subject_label = subject_profile["display_name"] if subject_profile else (subject.strip() or "General")
+
         temp_input = _bytes_to_temp_pdf(pdf_bytes)
         temp_output = temp_input.with_name(f"{temp_input.stem}_annotated.pdf")
-        
+
+        page_texts: List[str] = []
+        cleaned_page_texts: List[str] = []
+        per_page_question_hits: List[int] = []
+        combined_answer = ""
+        question_occurrences_removed = 0
+        qa_reports_with_labels: List[Tuple[QAReportDetailed, str]] = []
+        all_detailed_issues: List[Dict[str, Any]] = []
+        total_score = 0.0
+        max_possible_score = 0.0
+        scoring_profile_meta: Optional[Dict[str, Any]] = None
+
         try:
-            # 1) OCR - Extract text from PDF using Azure Document Intelligence
             page_texts = run_ocr_with_retries(
-                temp_input, 
-                pages=None,  # Process all pages
-                timeout_s=120, 
-                max_retries=3
+                temp_input,
+                pages=None,
+                timeout_s=120,
+                max_retries=3,
             )
-            
-            # 2) Q/A segmentation - Find questions and answers
-            qas = segment_questions(page_texts)
-            
-            # 3) Page-wise writing issues for overlay
+
+            for raw_text in page_texts:
+                cleaned, removed = _strip_question_from_text(raw_text or "", clean_question)
+                cleaned_page_texts.append(cleaned)
+                per_page_question_hits.append(removed)
+                question_occurrences_removed += removed
+
+            combined_answer = "\n\n".join(text for text in cleaned_page_texts if text).strip()
+
             page_issues: List[List[IssueRow]] = []
-            for page_text in page_texts:
-                issues = writing_issues_for_page(
-                    self.groq_client, 
-                    "llama-3.3-70b-versatile",  # Use the model from original script
-                    page_text or ""
+            if self.fast_mode:
+                page_issues = [[] for _ in cleaned_page_texts]
+            else:
+                for cleaned_text in cleaned_page_texts:
+                    issues = writing_issues_for_page(
+                        self.groq_client,
+                        "llama-3.3-70b-versatile",
+                        cleaned_text or "",
+                    )
+                    page_issues.append(issues)
+
+            if clean_question and combined_answer:
+                qa = QAItem(
+                    number=1,
+                    question=clean_question,
+                    answer=combined_answer,
+                    start_page=1,
+                    end_page=len(page_texts) or 1,
                 )
-                page_issues.append(issues)
-            
-            # 4) QA evaluation + writing analysis
-            qa_reports_with_labels = []
-            all_detailed_issues = []
-            total_score = 0.0
-            max_possible_score = 0.0
-            
-            for qa in qas:
-                # Get writing issues for this answer
                 ans_issues = writing_issues_for_text(
-                    self.groq_client, 
-                    "llama-3.3-70b-versatile", 
-                    qa.answer or ""
+                    self.groq_client,
+                    "llama-3.3-70b-versatile",
+                    combined_answer,
                 )
-                
-                # Calculate writing score
-                w_val, w_label = writing_score_bins_value_and_label(ans_issues)
-                
-                # Get detailed evaluation
+                raw_w_val, raw_w_label = writing_score_bins_value_and_label(ans_issues)
+                writing_value = raw_w_val
+                writing_label = raw_w_label
+                if subject_profile:
+                    target_writing_max = float(subject_profile.get("writing_max", 2.0))
+                    if target_writing_max != 2.0:
+                        scaled = round((raw_w_val / 2.0) * target_writing_max, 2)
+                        suffix = ""
+                        if "(" in raw_w_label:
+                            suffix = raw_w_label[raw_w_label.find("("):]
+                        writing_label = f"{scaled:.1f} /{target_writing_max:g} {suffix}".strip()
+                        writing_value = scaled
+                    else:
+                        writing_value = raw_w_val
                 rep, label = evaluate_qa_detailed(
-                    self.groq_client, 
-                    "llama-3.3-70b-versatile", 
-                    qa, 
-                    w_val, 
-                    w_label
+                    self.groq_client,
+                    "llama-3.3-70b-versatile",
+                    qa,
+                    writing_value,
+                    writing_label,
+                    subject_profile=subject_profile,
                 )
-                
                 qa_reports_with_labels.append((rep, label))
-                
-                # Collect detailed issues for frontend
                 for issue in rep.issues:
-                    all_detailed_issues.append({
-                        "issue_id": f"q{qa.number}_{len(all_detailed_issues)}",
-                        "issue_title": f"{issue.get('category', 'Issue')}: {issue.get('problem', '')}",
-                        "why_it_matters": issue.get('why_it_matters', ''),
-                        "how_to_verify": issue.get('how_to_verify', ''),
-                        "evidence_suggestions": issue.get('evidence_suggestions', []),
-                        "impact_points_0to3": issue.get('impact_points_0to3', 0),
-                        "location_hint": issue.get('location_hint', ''),
-                    })
-                
+                    all_detailed_issues.append(
+                        {
+                            "issue_id": f"q1_{len(all_detailed_issues)}",
+                            "issue_title": f"{issue.get('category', 'Issue')}: {issue.get('problem', '')}",
+                            "why_it_matters": issue.get("why_it_matters", ""),
+                            "how_to_verify": issue.get("how_to_verify", ""),
+                            "evidence_suggestions": issue.get("evidence_suggestions", []),
+                            "impact_points_0to3": issue.get("impact_points_0to3", 0),
+                            "location_hint": issue.get("location_hint", ""),
+                        }
+                    )
                 total_score += rep.final_score_20
-                max_possible_score += 20.0
-            
-            # 5) Generate annotated PDF using original script's function
+                max_possible_score += rep.score_max
+                criteria_meta = []
+                if subject_profile:
+                    for crit in subject_profile.get("criteria", []):
+                        criteria_meta.append(
+                            {
+                                "label": crit.get("label"),
+                                "max_points": crit.get("max"),
+                            }
+                        )
+                else:
+                    criteria_meta = [
+                        {"label": "Relevance", "max_points": 4},
+                        {"label": "Coverage & Depth", "max_points": 4},
+                        {"label": "Factual Accuracy", "max_points": 4},
+                        {"label": "Analysis & Argumentation", "max_points": 4},
+                        {"label": "Organization", "max_points": 2},
+                    ]
+                scoring_profile_meta = {
+                    "content_max": rep.content_score_max,
+                    "writing_max": rep.writing_score_max,
+                    "total_max": rep.score_max,
+                    "criteria": criteria_meta,
+                }
+            else:
+                if subject_profile and scoring_profile_meta is None:
+                    scoring_profile_meta = {
+                        "content_max": subject_profile.get("content_target", subject_profile.get("content_cap", 18.0)),
+                        "writing_max": subject_profile.get("writing_max", 2.0),
+                        "total_max": subject_profile.get("final_max", 20.0),
+                        "criteria": [
+                            {"label": crit.get("label"), "max_points": crit.get("max")}
+                            for crit in subject_profile.get("criteria", [])
+                        ],
+                    }
+                elif scoring_profile_meta is None:
+                    scoring_profile_meta = {
+                        "content_max": 18.0,
+                        "writing_max": 2.0,
+                        "total_max": 20.0,
+                        "criteria": [
+                            {"label": "Relevance", "max_points": 4},
+                            {"label": "Coverage & Depth", "max_points": 4},
+                            {"label": "Factual Accuracy", "max_points": 4},
+                            {"label": "Analysis & Argumentation", "max_points": 4},
+                            {"label": "Organization", "max_points": 2},
+                        ],
+                    }
+
             annotate_pdf_with_report(
                 temp_input,
                 page_issues,
@@ -187,107 +381,48 @@ class OCRAnnotator:
                 temp_output,
                 max_rows_per_page=20,
                 panel_width_ratio=0.30,
-                height_max_ratio=0.60
+                height_max_ratio=0.60,
             )
-            
-            # 6) Read annotated PDF
+
             with open(temp_output, "rb") as f:
                 annotated_bytes = f.read()
-            
+
             processing_time = time.time() - start_time
-            
-            # 7) Build metadata response for frontend
-            meta = {
+
+            meta: Dict[str, Any] = {
                 "issues": all_detailed_issues,
                 "score": {
                     "total_score": round(total_score, 1),
-                    "max_possible_score": round(max_possible_score, 1)
+                    "max_possible_score": round(max_possible_score, 1),
                 },
                 "metadata": {
                     "file_name": original_filename,
                     "page_count": len(page_texts),
                     "processing_time_seconds": round(processing_time, 2),
-                    "questions_found": len(qas),
-                    "fast_mode": self.fast_mode
-                }
+                    "fast_mode": self.fast_mode,
+                    "provided_question": clean_question,
+                    "question_occurrences_removed": question_occurrences_removed,
+                    "question_occurrences_removed_per_page": per_page_question_hits,
+                    "subject": {
+                        "id": subject_id,
+                        "label": subject_label,
+                    },
+                },
             }
-            
+            if scoring_profile_meta:
+                meta["metadata"]["scoring_profile"] = scoring_profile_meta
+            if combined_answer:
+                meta["metadata"]["answer_char_count"] = len(combined_answer)
+            if not qa_reports_with_labels:
+                if subject_profile:
+                    meta["score"]["max_possible_score"] = round(
+                        subject_profile.get("final_max", meta["score"]["max_possible_score"]), 1
+                    )
+                else:
+                    meta["score"]["max_possible_score"] = round(max_possible_score or 20.0, 1)
+
             return annotated_bytes, meta
-            
+
         finally:
-            # Cleanup temp files
             _delete_file_safely(temp_input)
             _delete_file_safely(temp_output)
-        """
-        Returns (annotated_pdf_bytes, metadata_json)
-        """
-        # 1) OCR via Azure Doc Intelligence (prebuilt-read) -> page_texts
-        #    original uses retries & features (OCR_HIGH_RESOLUTION, LANGUAGES, STYLE_FONT)
-        tmp_path = _bytes_to_temp_pdf(pdf_bytes)
-        try:
-            page_texts: List[str] = run_ocr_with_retries(tmp_path, pages=None)
-        finally:
-            _delete_file_safely(tmp_path)
-
-        # 2) Build a PyMuPDF doc from original bytes
-        src = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-        # 3) Right-side panel per page: brief writing issues (or skip in fast mode)
-        #    Your original script offers page-wise writing issues; we'll mirror the call and minimal overlay.
-        #    (Full complex 4-page "Detailed Issues" per QA is heavy; kept for parity below.)
-        page_level_issues: Dict[int, List[IssueRow]] = {}
-        if not self.fast_mode:
-            for idx, text in enumerate(page_texts, start=1):
-                issues = writing_issues_for_page(self.groq_client, model="llama-3.3-70b-versatile", page_text=text)
-                page_level_issues[idx] = issues
-
-        # 4) TODO: Strict Q/A segmentation + detailed CSS evaluation pages
-        #    Your original script segments QAs and produces 4 inserted report pages per QA with rubric & issues.
-        #    For parity, we will call that same logic from your script if it is exposed (else, skip in fast mode).
-        #    NOTE: If those helpers are not exported as functions, we can inline minimal text-only panels here.
-
-        # 5) Draw overlays / panels (minimal viable panel to match look-and-feel; right margin card)
-        #    This mirrors your style (sidebars + dynamic overlay sizing).
-        for pno in range(1, len(src) + 1):
-            page = src[pno - 1]
-            rect = page.rect
-            panel_w = max(180, rect.width * 0.28)
-            panel = fitz.Rect(rect.width - panel_w + 8, 16, rect.width - 8, rect.height - 16)
-            # panel bg
-            page.draw_rect(panel, color=None, fill=(0.97, 0.97, 0.97), overlay=True, width=0)
-            # title
-            page.insert_textbox(panel, f"Page {pno} — Writing Issues", fontsize=11, fontname="helv", color=(0,0,0), align=0)
-            yoff = 24
-            issues = page_level_issues.get(pno, [])
-            if issues:
-                bullets = []
-                for it in issues[:6]:
-                    bullets.append(f"• [{it.type}] {it.issue} → {it.suggestion}")
-                text = "\n".join(bullets)
-            else:
-                text = "No issues detected (fast mode or low-confidence)."
-            inner = fitz.Rect(panel.x0+8, panel.y0+yoff, panel.x1-8, panel.y1-8)
-            page.insert_textbox(inner, text, fontsize=9.5, fontname="helv", color=(0,0,0), align=0)
-
-        # (Optional) If you want to add the 4 "Detailed Issues / Evaluation" report pages per QA,
-        # we can extend here by calling the same functions your script uses for CSS rubric + outline.
-
-        # 6) Save to bytes
-        out = io.BytesIO()
-        src.save(out, deflate=True, garbage=4, clean=True)
-        src.close()
-        annotated = out.getvalue()
-
-        meta = {
-            "issues": [],  # Placeholder for now
-            "score": {
-                "total_score": 0,  # Placeholder for now
-                "max_possible_score": 20  # Based on final_score_20 from OCR script
-            },
-            "metadata": {
-                "file_name": original_filename,
-                "page_count": len(page_texts),
-                "processing_time_seconds": 0.0  # Could add timing if needed
-            }
-        }
-        return annotated, meta

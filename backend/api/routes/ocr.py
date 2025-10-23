@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from fastapi import APIRouter, UploadFile, File, HTTPException, Response, status, Query, Form
-from backend.ocr.service import OCRAnnotator
+from backend.ocr.service import OCRAnnotator, SUBJECT_DISPLAY_NAMES, get_subject_profile
 from backend.db.storage import StorageService
 
 router = APIRouter(prefix="/api/ocr", tags=["ocr"])
@@ -13,6 +13,8 @@ MAX_PAGES = int(os.getenv("MAX_PAGES", "100"))
 async def annotate_pdf(
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    question: str = Form(...),
+    subject: str = Form(...),
     mode: str = Query("full", pattern="^(full|fast)$"),
 ):
     # Validate file
@@ -21,11 +23,26 @@ async def annotate_pdf(
     data = await file.read()
     if len(data) > MAX_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File size exceeds {MAX_MB} MB")
+    question = (question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question text is required")
+
+    subject = (subject or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="Subject selection is required")
+    if not get_subject_profile(subject):
+        supported = ", ".join(SUBJECT_DISPLAY_NAMES.values())
+        raise HTTPException(status_code=400, detail=f"Unsupported subject. Supported options: {supported}")
 
     # Annotate
     try:
         annotator = OCRAnnotator(fast_mode=(mode == "fast"))
-        annotated_bytes, meta = annotator.annotate_pdf(pdf_bytes=data, original_filename=file.filename)
+        annotated_bytes, meta = annotator.annotate_pdf(
+            pdf_bytes=data,
+            original_filename=file.filename,
+            question_text=question,
+            subject=subject,
+        )
     except ImportError as e:
         # OCR module not available/misconfigured
         raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")
@@ -61,6 +78,8 @@ async def annotate_pdf(
 async def annotate_pdf_json(
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    question: str = Form(...),
+    subject: str = Form(...),
     mode: str = Query("full", pattern="^(full|fast)$"),
 ):
     if not file.filename.lower().endswith(".pdf"):
@@ -68,10 +87,25 @@ async def annotate_pdf_json(
     data = await file.read()
     if len(data) > MAX_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File size exceeds {MAX_MB} MB")
+    question = (question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question text is required")
+
+    subject = (subject or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="Subject selection is required")
+    if not get_subject_profile(subject):
+        supported = ", ".join(SUBJECT_DISPLAY_NAMES.values())
+        raise HTTPException(status_code=400, detail=f"Unsupported subject. Supported options: {supported}")
 
     try:
         annotator = OCRAnnotator(fast_mode=(mode == "fast"))
-        _, meta = annotator.annotate_pdf(pdf_bytes=data, original_filename=file.filename)
+        _, meta = annotator.annotate_pdf(
+            pdf_bytes=data,
+            original_filename=file.filename,
+            question_text=question,
+            subject=subject,
+        )
         return {"ok": True, **meta}
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")

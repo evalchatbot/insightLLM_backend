@@ -18,9 +18,9 @@ Install:
 """
 
 import argparse, html, json, os, re, sys, time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Union, Tuple, Any
 
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
@@ -97,7 +97,7 @@ class QAReportDetailed:
     accuracy: int
     analysis: int
     organization: int
-    content_score_18: int
+    content_score_18: float
     writing_score_2_value: float
     final_score_20: float
     strengths: List[str]
@@ -108,6 +108,10 @@ class QAReportDetailed:
     suggested_outline: List[Union[str, dict]]  # dict: {"heading":str, "bullets":[...]}
     question_summary: str
     answer_summary: str
+    content_score_max: float = 18.0
+    writing_score_max: float = 2.0
+    score_max: float = 20.0
+    criterion_labels: Optional[List[Dict[str, Any]]] = field(default_factory=list)
 
 
 # --------------------------- Env & Utilities --------------------------- #
@@ -306,6 +310,44 @@ GROQ_SYSTEM_CSS_DETAILED = (
     "Return ONLY JSON."
 )
 
+DEFAULT_EVAL_CRITERIA = [
+    {
+        "json_key": "relevance_0to4",
+        "attr": "relevance",
+        "label": "Relevance",
+        "max": 4,
+        "detail_source": "question_summary",
+    },
+    {
+        "json_key": "coverage_0to4",
+        "attr": "coverage",
+        "label": "Coverage & Depth",
+        "max": 4,
+        "detail_source": "answer_summary",
+    },
+    {
+        "json_key": "accuracy_0to4",
+        "attr": "accuracy",
+        "label": "Factual Accuracy",
+        "max": 4,
+        "detail_text": "Evidence quality, dates, facts, attribution.",
+    },
+    {
+        "json_key": "analysis_0to4",
+        "attr": "analysis",
+        "label": "Analysis & Argumentation",
+        "max": 4,
+        "detail_text": "Comparisons, causality, critique.",
+    },
+    {
+        "json_key": "organization_0to2",
+        "attr": "organization",
+        "label": "Organization",
+        "max": 2,
+        "detail_text": "Intro→Body→Conclusion, transitions.",
+    },
+]
+
 JSON_SCHEMA_WRITING = {
     "name": "page_issues_schema",
     "strict": True,
@@ -499,7 +541,42 @@ def writing_score_bins_value_and_label(answer_issues: List[IssueRow]) -> (float,
 
 # --------------- CSS-style Question→Answer Evaluation ------------------ #
 
-def _css_user_prompt(qa: QAItem) -> str:
+def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> str:
+    if profile:
+        criteria = profile.get("criteria", [])
+        if criteria:
+            score_entries = ", ".join(f"\"{c['json_key']}\":int" for c in criteria)
+        else:
+            score_entries = "\"relevance_0to4\":int, \"coverage_0to4\":int, \"accuracy_0to4\":int, \"analysis_0to4\":int, \"organization_0to2\":int"
+        issue_categories = profile.get(
+            "issue_categories",
+            "Relevance|Coverage|Accuracy|Analysis|Organization|Style"
+        )
+        content_field = profile.get("content_field", "content_score_18")
+        guidance = profile.get(
+            "user_prompt_guidance",
+            "Use strict CSS-style expectations. Quote real lines from the Answer."
+        )
+        outline_hint = profile.get(
+            "user_prompt_outline_hint",
+            "  \"suggested_outline\": [ {\"heading\":\"...\",\"bullets\":[\"...\",\"...\"]} ]"
+        )
+        return (
+            "Return JSON exactly like:\n"
+            "{\n"
+            "  \"question_summary\": \"...\",\n"
+            "  \"answer_summary\": \"...\",\n"
+            f"  \"scores\": {{{score_entries}}},\n"
+            f"  \"{content_field}\": int,\n"
+            "  \"strengths\": [\"...\"],\n"
+            "  \"improvements\": [\"...\"],\n"
+            f"  \"issues\": [ {{\"category\":\"{issue_categories}\",\"span\":\"quote\",\"problem\":\"why wrong\",\"fix\":\"how to fix\",\"severity_1to5\":int, \"why_it_matters\":\"...\",\"how_to_verify\":\"...\",\"evidence_suggestions\":[\"...\"],\"impact_points_0to3\":int,\"location_hint\":\"Intro|Body|Conclusion|Transition|Data|Example\" }} ],\n"
+            "  \"missing_points\": [\"...\"],\n"
+            f"{outline_hint}\n"
+            "}\n\n"
+            f"{guidance}\n\n"
+            f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
+        )
     return (
         "Return JSON exactly like:\n"
         "{\n"
@@ -517,21 +594,62 @@ def _css_user_prompt(qa: QAItem) -> str:
         f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
     )
 
-def evaluate_qa_detailed(groq_client: Groq, model: str, qa: QAItem, writing_value: float, writing_label: str):
-    data = groq_call_json(groq_client, model, GROQ_SYSTEM_CSS_DETAILED, _css_user_prompt(qa), JSON_SCHEMA_CSS_DETAILED)
+def evaluate_qa_detailed(
+    groq_client: Groq,
+    model: str,
+    qa: QAItem,
+    writing_value: float,
+    writing_label: str,
+    subject_profile: Optional[Dict[str, Any]] = None,
+):
+    profile = subject_profile or {}
+    criteria = profile.get("criteria", DEFAULT_EVAL_CRITERIA)
+    system_prompt = profile.get("system_prompt", GROQ_SYSTEM_CSS_DETAILED)
+    schema = profile.get("schema", JSON_SCHEMA_CSS_DETAILED)
+    user_prompt = _css_user_prompt(qa, profile if subject_profile else None)
+
+    data = groq_call_json(groq_client, model, system_prompt, user_prompt, schema)
 
     def _to_int(x, lo, hi):
         try: v = int(x)
         except Exception: v = 0
         return max(lo, min(hi, v))
 
+    question_summary = str(data.get("question_summary", "")).strip()
+    answer_summary = str(data.get("answer_summary", "")).strip()
+
     scores = data.get("scores", {}) or {}
-    rel = _to_int(scores.get("relevance_0to4", 0), 0, 4)
-    cov = _to_int(scores.get("coverage_0to4", 0), 0, 4)
-    acc = _to_int(scores.get("accuracy_0to4", 0), 0, 4)
-    ana = _to_int(scores.get("analysis_0to4", 0), 0, 4)
-    org = _to_int(scores.get("organization_0to2", 0), 0, 2)
-    base_content = rel + cov + acc + ana + org
+    attr_values: Dict[str, int] = {}
+    criterion_info: List[Dict[str, Any]] = []
+    base_content = 0
+    total_cap = 0
+    for crit in criteria:
+        json_key = crit.get("json_key")
+        attr = crit.get("attr")
+        max_points = int(crit.get("max", 4))
+        total_cap += max_points
+        raw_val = _to_int(scores.get(json_key, 0), 0, max_points)
+        attr_values[attr] = raw_val
+        base_content += raw_val
+        detail = crit.get("detail_text", "")
+        detail_source = crit.get("detail_source")
+        if detail_source == "question_summary":
+            detail = question_summary
+        elif detail_source == "answer_summary":
+            detail = answer_summary
+        criterion_info.append({
+            "attr": attr,
+            "label": crit.get("label", attr.title() if attr else json_key),
+            "value": raw_val,
+            "max": max_points,
+            "detail": detail,
+        })
+
+    rel = int(attr_values.get("relevance", 0))
+    cov = int(attr_values.get("coverage", 0))
+    acc = int(attr_values.get("accuracy", 0))
+    ana = int(attr_values.get("analysis", 0))
+    org = int(attr_values.get("organization", 0))
 
     # Detailed issues
     detailed_issues = []
@@ -558,12 +676,22 @@ def evaluate_qa_detailed(groq_client: Groq, model: str, qa: QAItem, writing_valu
     ded_missing += 1 if len(missing_points)>=3 else 0
     ded_missing += 1 if len(missing_points)>=5 else 0
 
-    content = max(0, min(18, base_content - ded_issues - ded_missing))
+    content_cap = float(profile.get("content_cap", total_cap or 18))
+    content_target = float(profile.get("content_target", content_cap))
+    raw_content = base_content - ded_issues - ded_missing
+    content_clamped = max(0.0, min(content_cap, float(raw_content)))
+    if content_cap > 0 and content_target != content_cap:
+        content = round((content_clamped / content_cap) * content_target, 1)
+    else:
+        content = round(content_clamped, 1)
 
     strengths = [str(s) for s in (data.get("strengths") or [])][:10]
     improvements = [str(s) for s in (data.get("improvements") or [])][:10]
 
-    final = round(max(0.0, min(20.0, content + writing_value)), 1)
+    writing_max = float(profile.get("writing_max", 2.0))
+    writing_value = max(0.0, min(writing_max, float(writing_value)))
+    final_max = float(profile.get("final_max", content_target + writing_max))
+    final = round(max(0.0, min(final_max, content + writing_value)), 1)
 
     # Outline
     raw_outline = data.get("suggested_outline") or []
@@ -583,8 +711,12 @@ def evaluate_qa_detailed(groq_client: Groq, model: str, qa: QAItem, writing_valu
         strengths=strengths, improvements=improvements,
         issues=detailed_issues, missing_points=missing_points,
         suggested_outline=outline,
-        question_summary=str(data.get("question_summary",""))[:800],
-        answer_summary=str(data.get("answer_summary",""))[:800],
+        question_summary=question_summary[:800],
+        answer_summary=answer_summary[:800],
+        content_score_max=content_target,
+        writing_score_max=writing_max,
+        score_max=final_max,
+        criterion_labels=criterion_info,
     ), writing_label
 
 
@@ -595,13 +727,68 @@ def html_escape(s: str) -> str:
 
 def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[str]:
     # Summary page — bigger red final score
+    score_max = getattr(rep, "score_max", 20.0)
+    content_max = getattr(rep, "content_score_max", 18.0)
+    writing_max = getattr(rep, "writing_score_max", 2.0)
+
+    def _fmt_num(value: float) -> str:
+        try:
+            num = float(value)
+        except Exception:
+            return str(value)
+        if abs(num - round(num)) < 1e-6:
+            return str(int(round(num)))
+        return f"{num:.1f}"
+
+    default_criteria = [
+        {
+            "label": "Relevance",
+            "value": rep.relevance,
+            "max": 4,
+            "detail": rep.question_summary or "",
+        },
+        {
+            "label": "Coverage & Depth",
+            "value": rep.coverage,
+            "max": 4,
+            "detail": rep.answer_summary or "",
+        },
+        {
+            "label": "Factual Accuracy",
+            "value": rep.accuracy,
+            "max": 4,
+            "detail": "Evidence quality, dates, facts, attribution.",
+        },
+        {
+            "label": "Analysis & Argumentation",
+            "value": rep.analysis,
+            "max": 4,
+            "detail": "Comparisons, causality, critique.",
+        },
+        {
+            "label": "Organization",
+            "value": rep.organization,
+            "max": 2,
+            "detail": "Intro→Body→Conclusion, transitions.",
+        },
+    ]
+    criterion_data = rep.criterion_labels or default_criteria
+    criterion_items = []
+    for crit in criterion_data:
+        label = html_escape(str(crit.get("label", "Criterion")))
+        value = _fmt_num(crit.get("value", 0))
+        max_points = _fmt_num(crit.get("max", 0))
+        detail_raw = str(crit.get("detail", "")).strip()
+        detail = f" — {html_escape(detail_raw)}" if detail_raw else ""
+        criterion_items.append(f"<li><b>{label}:</b> {value}/{max_points}{detail}</li>")
+
     page_a = f"""
     <div style="font-family: Helvetica, Arial, sans-serif; line-height:1.35;">
       <h1 style="margin:0 0 6pt 0;">Evaluation — Question {rep.number}</h1>
       <div style="margin:2pt 0 8pt 0; color:#333; font-size:12pt;">
         Final Score:
-        <span style="font-weight:900; color:#c00000; font-size:22pt;">{rep.final_score_20:.1f}/20</span>
-        <span style="font-weight:500; color:#666;">(Content {rep.content_score_18}/18 + Writing {html_escape(writing_label)})</span>
+        <span style="font-weight:900; color:#c00000; font-size:22pt;">{rep.final_score_20:.1f}/{_fmt_num(score_max)}</span>
+        <span style="font-weight:500; color:#666;">(Content {_fmt_num(rep.content_score_18)}/{_fmt_num(content_max)} + Writing {html_escape(writing_label)})</span>
       </div>
 
       <h2 style="margin-top:10pt;">Question</h2>
@@ -611,17 +798,13 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
 
       <h2 style="margin-top:10pt;">Criterion Breakdown</h2>
       <ul>
-        <li><b>Relevance:</b> {rep.relevance}/4 — {html_escape(rep.question_summary or "")}</li>
-        <li><b>Coverage & Depth:</b> {rep.coverage}/4 — {html_escape(rep.answer_summary or "")}</li>
-        <li><b>Factual Accuracy:</b> {rep.accuracy}/4 — Evidence quality, dates, facts, attribution.</li>
-        <li><b>Analysis & Argumentation:</b> {rep.analysis}/4 — Comparisons, causality, critique.</li>
-        <li><b>Organization:</b> {rep.organization}/2 — Intro→Body→Conclusion, transitions.</li>
+        {''.join(criterion_items)}
       </ul>
 
       {"<h2>Strengths</h2><ul>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>" if rep.strengths else ""}
       {"<h2>Improvements</h2><ul>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>" if rep.improvements else ""}
 
-      <p style="margin-top:10pt; color:#555;">Scoring: 90% Content (/18) + 10% Writing (/2) → /20 total.</p>
+      <p style="margin-top:10pt; color:#555;">Scoring: Content /{_fmt_num(content_max)} + Writing /{_fmt_num(writing_max)} → /{_fmt_num(score_max)} total.</p>
     </div>
     """
 
