@@ -110,21 +110,16 @@ def _normalize_subject(subject: str) -> str:
     return slug.strip("_")
 
 POLI_SCI_SYSTEM_PROMPT = (
-    "You are a senior examiner for Pakistan's CSS Political Science paper. "
-    "Judge the answer strictly, referencing the official rubric. "
-    "Assign integer scores for the JSON keys `relevance_0to4`, `coverage_0to4`, "
-    "`accuracy_0to4`, `analysis_0to4`, and `organization_0to2`, but interpret them with the following maxima:\n"
-    "• Relevance and Understanding — 0 to 5: break down the exact demand of the question, keep every heading linked to the stem, cover all parts, avoid digressions.\n"
-    "• Conceptual Clarity and Knowledge — 0 to 5: reference core political science theories, thinkers, and ideologies accurately, weaving classical and contemporary perspectives without name-dropping.\n"
-    "• Critical Analysis and Argumentation — 0 to 4: weigh opposing schools (liberal vs. Marxist, realist vs. idealist, etc.), test arguments for strengths/weaknesses, and reach a balanced conclusion.\n"
-    "• Structure and Organization — 0 to 3: maintain Introduction–Body–Conclusion, use headings derived from question keywords, and ensure transitions that foreground cause/effect or argument/conclusion.\n"
-    "• Examples and References — 0 to 2: cite key theorists, doctrines, quotations, and contemporary/historical cases that link theory to real politics (CSS/Pakistan context encouraged).\n"
-    "Automation cues: if question keywords are absent from headings/topic sentences, penalize Relevance. If no political thinkers or schools appear, deduct Conceptual Clarity. "
-    "If there are no contrastive phrases (\"however\", \"while\", etc.), the answer is descriptive—penalize Critical Analysis. "
-    "Score Structure when the layout follows the mandated format; score Examples when quotations or case studies ground the answer.\n"
-    "Content marks cap at 15 after deductions. The final total is content plus Language/Expression (max 1 mark) derived from mechanics. "
-    "Still flag grammar/spelling problems as separate issues.\n"
-    "Return ONLY JSON."
+    "You are a senior examiner for Pakistan's CSS Political Science paper. Apply rigorous, discipline-informed judgment. "
+    "Interrogate how well the response fulfils the question's explicit requirements, the Political Science rubric, and the expectations of analytical depth, theory, and evidence.\n\n"
+    "For scoring, use the JSON keys `relevance_0to4`, `coverage_0to4`, `accuracy_0to4`, `analysis_0to4`, and `organization_0to2`, scaling them against this rubric (reported denominator is 20 but the achievable ceiling is 16):\n"
+    "• Relevance & Understanding — 0–5: break down the prompt, ensure every part is addressed without tangents, keep structure anchored to the question keywords.\n"
+    "• Conceptual Clarity & Knowledge — 0–5: integrate political theory, thinkers, and doctrines accurately; connect classical and contemporary perspectives instead of name-dropping.\n"
+    "• Critical Analysis & Argumentation — 0–4: weigh competing schools (liberal vs. Marxist, realist vs. idealist, etc.), surface causal logic, critique assumptions, and synthesise in the conclusion.\n"
+    "• Structure & Organization — 0–3: preserve an Introduction–Body–Conclusion architecture, use meaningful headings/subheadings, maintain signposted transitions between arguments.\n"
+    "• Examples & References — 0–2: ground claims in precise quotations, historical/contemporary case studies, and Pakistan/global relevance.\n"
+    "Always penalise shallow description, uncritical narrative, misuse of thinkers, factual errors, and missing sub-parts. Reward answers that interrogate the question's core demand, compare perspectives, and marshal evidence judiciously.\n"
+    "Ensure outputs stay within political science norms and return ONLY JSON."
 )
 
 POLITICAL_SCIENCE_PROFILE: Dict[str, Any] = {
@@ -172,12 +167,13 @@ POLITICAL_SCIENCE_PROFILE: Dict[str, Any] = {
     ],
     "content_cap": 19.0,
     "content_target": 15.0,
-    "final_max": 16.0,
+    "achievable_max": 16.0,
+    "final_max": 20.0,
     "writing_max": 1.0,
-    "issue_categories": "Relevance|Understanding|Knowledge|Analysis|Organization|Evidence|Style",
+    "issue_categories": "Relevance|Understanding|Knowledge|Analysis|Structure|Evidence|Depth|Style",
     "user_prompt_guidance": (
-        "Use the Political Science rubric above. Quote real lines from the Answer. "
-        "Keep JSON strict."
+        "Use the Political Science rubric above; compare the answer to each extracted requirement, evaluate depth, and cite exact lines for every critique. "
+        "Keep JSON strict and actionable."
     ),
 }
 
@@ -246,6 +242,7 @@ class OCRAnnotator:
         all_detailed_issues: List[Dict[str, Any]] = []
         total_score = 0.0
         max_possible_score = 0.0
+        max_achievable_score = 0.0
         scoring_profile_meta: Optional[Dict[str, Any]] = None
 
         try:
@@ -326,6 +323,7 @@ class OCRAnnotator:
                     )
                 total_score += rep.final_score_20
                 max_possible_score += rep.score_max
+                max_achievable_score += getattr(rep, "final_score_cap", rep.score_max)
                 criteria_meta = []
                 if subject_profile:
                     for crit in subject_profile.get("criteria", []):
@@ -347,6 +345,7 @@ class OCRAnnotator:
                     "content_max": rep.content_score_max,
                     "writing_max": rep.writing_score_max,
                     "total_max": rep.score_max,
+                    "achievable_max": getattr(rep, "final_score_cap", rep.score_max),
                     "criteria": criteria_meta,
                 }
             else:
@@ -355,16 +354,20 @@ class OCRAnnotator:
                         "content_max": subject_profile.get("content_target", subject_profile.get("content_cap", 18.0)),
                         "writing_max": subject_profile.get("writing_max", 2.0),
                         "total_max": subject_profile.get("final_max", 20.0),
+                        "achievable_max": subject_profile.get("achievable_max", subject_profile.get("final_max", 20.0)),
                         "criteria": [
                             {"label": crit.get("label"), "max_points": crit.get("max")}
                             for crit in subject_profile.get("criteria", [])
                         ],
                     }
+                    max_possible_score = max(max_possible_score, subject_profile.get("final_max", 20.0))
+                    max_achievable_score = max(max_achievable_score, subject_profile.get("achievable_max", max_achievable_score))
                 elif scoring_profile_meta is None:
                     scoring_profile_meta = {
                         "content_max": 18.0,
                         "writing_max": 2.0,
                         "total_max": 20.0,
+                        "achievable_max": 20.0,
                         "criteria": [
                             {"label": "Relevance", "max_points": 4},
                             {"label": "Coverage & Depth", "max_points": 4},
@@ -373,6 +376,8 @@ class OCRAnnotator:
                             {"label": "Organization", "max_points": 2},
                         ],
                     }
+                    max_possible_score = max(max_possible_score, 20.0)
+                    max_achievable_score = max(max_achievable_score, 20.0)
 
             annotate_pdf_with_report(
                 temp_input,
@@ -394,6 +399,7 @@ class OCRAnnotator:
                 "score": {
                     "total_score": round(total_score, 1),
                     "max_possible_score": round(max_possible_score, 1),
+                    "max_achievable_score": round(max_achievable_score if max_achievable_score else max_possible_score, 1),
                 },
                 "metadata": {
                     "file_name": original_filename,
@@ -418,8 +424,13 @@ class OCRAnnotator:
                     meta["score"]["max_possible_score"] = round(
                         subject_profile.get("final_max", meta["score"]["max_possible_score"]), 1
                     )
+                    meta["score"]["max_achievable_score"] = round(
+                        subject_profile.get("achievable_max", meta["score"]["max_achievable_score"]), 1
+                    )
                 else:
                     meta["score"]["max_possible_score"] = round(max_possible_score or 20.0, 1)
+                    if not max_achievable_score:
+                        meta["score"]["max_achievable_score"] = meta["score"]["max_possible_score"]
 
             return annotated_bytes, meta
 

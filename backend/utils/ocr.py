@@ -108,9 +108,12 @@ class QAReportDetailed:
     suggested_outline: List[Union[str, dict]]  # dict: {"heading":str, "bullets":[...]}
     question_summary: str
     answer_summary: str
+    question_requirements: List[Dict[str, Any]] = field(default_factory=list)
+    improvement_plan: List[Dict[str, Any]] = field(default_factory=list)
     content_score_max: float = 18.0
     writing_score_max: float = 2.0
     score_max: float = 20.0
+    final_score_cap: float = 20.0
     criterion_labels: Optional[List[Dict[str, Any]]] = field(default_factory=list)
 
 
@@ -394,9 +397,37 @@ JSON_SCHEMA_CSS_DETAILED = {
                 "required": ["relevance_0to4","coverage_0to4","accuracy_0to4","analysis_0to4","organization_0to2"],
                 "additionalProperties": False
             },
-            "content_score_18": {"type": "integer"},
+            "content_score_18": {"type": "number"},
             "strengths": {"type": "array", "items": {"type":"string"}},
             "improvements": {"type": "array", "items": {"type":"string"}},
+            "question_requirements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "requirement": {"type": "string"},
+                        "why_it_matters": {"type": "string"},
+                        "expected_approach": {"type": "string"},
+                        "met": {"type": "boolean"}
+                    },
+                    "required": ["requirement", "expected_approach"],
+                    "additionalProperties": False
+                }
+            },
+            "improvement_plan": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "focus_area": {"type": "string"},
+                        "problem": {"type": "string"},
+                        "action_steps": {"type": "string"},
+                        "evidence_or_examples": {"type": "string"}
+                    },
+                    "required": ["focus_area", "action_steps"],
+                    "additionalProperties": False
+                }
+            },
             "issues": {
                 "type": "array",
                 "items": {
@@ -567,13 +598,21 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
             "  \"question_summary\": \"...\",\n"
             "  \"answer_summary\": \"...\",\n"
             f"  \"scores\": {{{score_entries}}},\n"
-            f"  \"{content_field}\": int,\n"
+            f"  \"{content_field}\": number,\n"
             "  \"strengths\": [\"...\"],\n"
             "  \"improvements\": [\"...\"],\n"
+            "  \"question_requirements\": [ {\"requirement\":\"...\",\"expected_approach\":\"...\",\"why_it_matters\":\"...\",\"met\":true} ],\n"
+            "  \"improvement_plan\": [ {\"focus_area\":\"...\",\"problem\":\"...\",\"action_steps\":\"...\",\"evidence_or_examples\":\"...\"} ],\n"
             f"  \"issues\": [ {{\"category\":\"{issue_categories}\",\"span\":\"quote\",\"problem\":\"why wrong\",\"fix\":\"how to fix\",\"severity_1to5\":int, \"why_it_matters\":\"...\",\"how_to_verify\":\"...\",\"evidence_suggestions\":[\"...\"],\"impact_points_0to3\":int,\"location_hint\":\"Intro|Body|Conclusion|Transition|Data|Example\" }} ],\n"
             "  \"missing_points\": [\"...\"],\n"
             f"{outline_hint}\n"
             "}\n\n"
+            "Evaluation requirements:\n"
+            "- Decompose the prompt into explicit requirements; for each record expected approach, why it matters, and whether the answer fulfils it.\n"
+            "- Judge depth of analysis, conceptual clarity, synthesis, and critique relative to question demands and Political Science scholarship.\n"
+            "- Cross-check the student's answer with the rubric criteria AND the extracted requirements; penalise shallow, descriptive, or off-target sections.\n"
+            "- Strengths must cite specific passages/ideas that genuinely add value. Improvements must propose concrete fixes (add theory, restructure argument, integrate evidence, etc.).\n"
+            "- Key issues should highlight the highest-impact problems, referencing exact quotes and supplying actionable corrections plus verification cues.\n"
             f"{guidance}\n\n"
             f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
         )
@@ -583,14 +622,20 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
         "  \"question_summary\": \"...\",\n"
         "  \"answer_summary\": \"...\",\n"
         "  \"scores\": {\"relevance_0to4\":int, \"coverage_0to4\":int, \"accuracy_0to4\":int, \"analysis_0to4\":int, \"organization_0to2\":int},\n"
-        "  \"content_score_18\": int,\n"
+        "  \"content_score_18\": number,\n"
         "  \"strengths\": [\"...\"],\n"
         "  \"improvements\": [\"...\"],\n"
+        "  \"question_requirements\": [ {\"requirement\":\"...\",\"expected_approach\":\"...\",\"why_it_matters\":\"...\",\"met\":true} ],\n"
+        "  \"improvement_plan\": [ {\"focus_area\":\"...\",\"problem\":\"...\",\"action_steps\":\"...\",\"evidence_or_examples\":\"...\"} ],\n"
         "  \"issues\": [ {\"category\":\"Relevance|Coverage|Accuracy|Analysis|Organization|Style\",\"span\":\"quote\",\"problem\":\"why wrong\",\"fix\":\"how to fix\",\"severity_1to5\":int, \"why_it_matters\":\"...\",\"how_to_verify\":\"...\",\"evidence_suggestions\":[\"...\"],\"impact_points_0to3\":int,\"location_hint\":\"Intro|Body|Conclusion|Transition|Data|Example\" } ],\n"
         "  \"missing_points\": [\"...\"],\n"
         "  \"suggested_outline\": [ {\"heading\":\"...\",\"bullets\":[\"...\",\"...\"]} ]\n"
         "}\n\n"
-        "Use strict CSS-style expectations. Quote real lines from the Answer.\n\n"
+        "Evaluation requirements:\n"
+        "- Break the prompt into concrete requirements and state how the answer handles each.\n"
+        "- Diagnose conceptual accuracy, analytical depth, structure, and evidence quality in detail.\n"
+        "- Deliver actionable improvements (what to add, how to reorganise, which theories/examples to integrate).\n"
+        "- Quote real lines for every issue you raise and explain how to verify the fix.\n\n"
         f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
     )
 
@@ -617,6 +662,38 @@ def evaluate_qa_detailed(
 
     question_summary = str(data.get("question_summary", "")).strip()
     answer_summary = str(data.get("answer_summary", "")).strip()
+    raw_requirements = data.get("question_requirements") or []
+    question_requirements: List[Dict[str, Any]] = []
+    for req in raw_requirements:
+        if not isinstance(req, dict):
+            continue
+        requirement = str(req.get("requirement", "")).strip()
+        expected = str(req.get("expected_approach", "")).strip()
+        if not requirement or not expected:
+            continue
+        entry = {
+            "requirement": requirement,
+            "expected_approach": expected,
+            "why_it_matters": str(req.get("why_it_matters", "")).strip(),
+            "met": bool(req.get("met", False)),
+        }
+        question_requirements.append(entry)
+
+    raw_plan = data.get("improvement_plan") or []
+    improvement_plan: List[Dict[str, Any]] = []
+    for step in raw_plan:
+        if not isinstance(step, dict):
+            continue
+        focus = str(step.get("focus_area", "")).strip()
+        actions = str(step.get("action_steps", "")).strip()
+        if not focus and not actions:
+            continue
+        improvement_plan.append({
+            "focus_area": focus or "Improvement",
+            "problem": str(step.get("problem", "")).strip(),
+            "action_steps": actions,
+            "evidence_or_examples": str(step.get("evidence_or_examples", "")).strip(),
+        })
 
     scores = data.get("scores", {}) or {}
     attr_values: Dict[str, int] = {}
@@ -690,8 +767,11 @@ def evaluate_qa_detailed(
 
     writing_max = float(profile.get("writing_max", 2.0))
     writing_value = max(0.0, min(writing_max, float(writing_value)))
-    final_max = float(profile.get("final_max", content_target + writing_max))
-    final = round(max(0.0, min(final_max, content + writing_value)), 1)
+    achievable_cap = float(profile.get("achievable_max", content_target + writing_max))
+    final_max = float(profile.get("final_max", max(achievable_cap, content_target + writing_max)))
+    if final_max < achievable_cap:
+        final_max = achievable_cap
+    final = round(max(0.0, min(achievable_cap, content + writing_value)), 1)
 
     # Outline
     raw_outline = data.get("suggested_outline") or []
@@ -716,6 +796,9 @@ def evaluate_qa_detailed(
         content_score_max=content_target,
         writing_score_max=writing_max,
         score_max=final_max,
+        final_score_cap=achievable_cap,
+        question_requirements=question_requirements[:12],
+        improvement_plan=improvement_plan[:10],
         criterion_labels=criterion_info,
     ), writing_label
 
@@ -730,6 +813,7 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
     score_max = getattr(rep, "score_max", 20.0)
     content_max = getattr(rep, "content_score_max", 18.0)
     writing_max = getattr(rep, "writing_score_max", 2.0)
+    score_cap = getattr(rep, "final_score_cap", score_max)
 
     def _fmt_num(value: float) -> str:
         try:
@@ -782,33 +866,70 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
         detail = f" — {html_escape(detail_raw)}" if detail_raw else ""
         criterion_items.append(f"<li><b>{label}:</b> {value}/{max_points}{detail}</li>")
 
+    req_items = []
+    for req in rep.question_requirements or []:
+        requirement = html_escape(req.get("requirement", ""))
+        expected = html_escape(req.get("expected_approach", ""))
+        why = html_escape(req.get("why_it_matters", ""))
+        met = bool(req.get("met"))
+        status_label = "Met" if met else "Needs Work"
+        status_color = "#146c43" if met else "#b91c1c"
+        status_bg = "#d1fae5" if met else "#fee2e2"
+        req_items.append(
+            f"""
+            <li style="margin-bottom:10pt;">
+              <div style="display:flex; align-items:center; gap:8pt;">
+                <span style="font-size:12pt; font-weight:600;">{requirement}</span>
+                <span style="font-size:10pt; padding:2pt 10pt; border-radius:999px; background:{status_bg}; color:{status_color};">
+                  {status_label}
+                </span>
+              </div>
+              <div style="margin-top:6pt; font-size:12pt;"><b>What a high-quality answer needs:</b> {expected}</div>
+              {f"<div style='margin-top:4pt; font-size:11pt; color:#4b5563;'>{why}</div>" if why else ""}
+            </li>
+            """
+        )
+    if not req_items and rep.question_summary:
+        req_items.append(
+            f"<li style='margin-bottom:8pt;'><b>Core demand:</b> {html_escape(rep.question_summary)}</li>"
+        )
+
     page_a = f"""
-    <div style="font-family: Helvetica, Arial, sans-serif; line-height:1.35;">
-      <h1 style="margin:0 0 6pt 0;">Evaluation — Question {rep.number}</h1>
-      <div style="margin:2pt 0 8pt 0; color:#333; font-size:12pt;">
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
+      <h1 style="margin:0 0 10pt 0; font-size:20pt;">Evaluation — Question {rep.number}</h1>
+      <div style="margin:4pt 0 14pt 0; color:#333; font-size:13pt;">
         Final Score:
-        <span style="font-weight:900; color:#c00000; font-size:22pt;">{rep.final_score_20:.1f}/{_fmt_num(score_max)}</span>
-        <span style="font-weight:500; color:#666;">(Content {_fmt_num(rep.content_score_18)}/{_fmt_num(content_max)} + Writing {html_escape(writing_label)})</span>
+        <span style="font-weight:900; color:#c00000; font-size:26pt;">{rep.final_score_20:.1f}/{_fmt_num(score_max)}</span>
+        <div style="font-size:11pt; color:#4b5563; margin-top:6pt;">
+          Score is capped at {_fmt_num(score_cap)} even though the nominal scale is /{_fmt_num(score_max)}.<br/>
+          Content {_fmt_num(rep.content_score_18)}/{_fmt_num(content_max)} · Writing {html_escape(writing_label)} (max {_fmt_num(writing_max)})
+        </div>
       </div>
 
-      <h2 style="margin-top:10pt;">Question</h2>
-      <blockquote style="margin:6pt 0; border-left:2pt solid #999; padding-left:6pt; color:#222;">
+      <h2 style="margin-top:12pt; font-size:16pt;">Question</h2>
+      <blockquote style="margin:8pt 0 16pt 0; border-left:3pt solid #2563eb; padding-left:12pt; color:#1f2937; font-style:italic;">
         {html_escape(rep.question)}
       </blockquote>
 
-      <h2 style="margin-top:10pt;">Criterion Breakdown</h2>
-      <ul>
+      <h2 style="margin-top:12pt; font-size:16pt;">Breakdown of Key Requirements</h2>
+      <ul style="list-style:disc; padding-left:22pt; margin:8pt 0 16pt 0;">
+        {''.join(req_items) if req_items else "<li>No explicit requirements were extracted.</li>"}
+      </ul>
+
+      <h2 style="margin-top:12pt; font-size:16pt;">Rubric Scores</h2>
+      <ul style="list-style:disc; padding-left:22pt; margin:8pt 0 16pt 0; font-size:12.5pt;">
         {''.join(criterion_items)}
       </ul>
 
-      {"<h2>Strengths</h2><ul>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>" if rep.strengths else ""}
-      {"<h2>Improvements</h2><ul>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>" if rep.improvements else ""}
+      {"<h2 style='margin-top:12pt; font-size:16pt;'>Strengths</h2><ul style='list-style:disc; padding-left:22pt; margin:6pt 0 14pt 0; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>" if rep.strengths else ""}
+      {"<h2 style='margin-top:12pt; font-size:16pt;'>High-Impact Improvements</h2><ul style='list-style:disc; padding-left:22pt; margin:6pt 0 12pt 0; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>" if rep.improvements else ""}
 
-      <p style="margin-top:10pt; color:#555;">Scoring: Content /{_fmt_num(content_max)} + Writing /{_fmt_num(writing_max)} → /{_fmt_num(score_max)} total.</p>
+      <p style="margin-top:12pt; color:#4b5563; font-size:11.5pt;">
+        Scoring reference: Content /{_fmt_num(content_max)} + Writing /{_fmt_num(writing_max)} → Reported /{_fmt_num(score_max)} (effective maximum {_fmt_num(score_cap)}).
+      </p>
     </div>
     """
 
-    # Detailed issues page
     items = []
     for i, it in enumerate(rep.issues, start=1):
         cat = html_escape(it.get('category','Issue'))
@@ -816,38 +937,37 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
         imp = it.get('impact_points_0to3', 0)
         why = html_escape(it.get('why_it_matters',''))
         verify = html_escape(it.get('how_to_verify',''))
-        loc = html_escape(it.get('location_hint',''))
         ev_list = it.get('evidence_suggestions') or []
         ev_html = "".join(f"<li>{html_escape(x)}</li>" for x in ev_list) if ev_list else ""
         items.append(f"""
-        <div style="margin-bottom:12pt;">
-          <h3 style="margin:0 0 4pt 0;">Issue {i} — {cat}
-            <span style="font-weight:500; color:#555;">(Severity {sev}/5; Est. Impact {imp}/3)</span>
-          </h3>
-          <div style="font-size:9.5pt; color:#000;">
-            <div style="color:#444; margin:2pt 0;">Problem:</div>
-            <p style="margin:2pt 0;">{html_escape(it.get('problem',''))}</p>
-            <div style="color:#444; margin:6pt 0 2pt 0;">Quoted from answer:</div>
-            <blockquote style="margin:0; border-left:2pt solid #c33; padding-left:6pt; color:#222;">{html_escape(it.get('span',''))}</blockquote>
-            <div style="color:#444; margin:6pt 0 2pt 0;">Fix:</div>
-            <p style="margin:2pt 0;">{html_escape(it.get('fix',''))}</p>
-            {"<div style='color:#444; margin:6pt 0 2pt 0;'>Why it matters:</div><p style='margin:2pt 0;'>"+why+"</p>" if why else ""}
-            {"<div style='color:#444; margin:6pt 0 2pt 0;'>How to verify:</div><p style='margin:2pt 0;'>"+verify+"</p>" if verify else ""}
-            {("<div style='color:#444; margin:6pt 0 2pt 0;'>Evidence to consult:</div><ul>"+ev_html+"</ul>") if ev_html else ""}
-            {("<div style='color:#444; margin:6pt 0 2pt 0;'>Location hint:</div><p style='margin:2pt 0;'>"+loc+"</p>") if loc else ""}
+        <div style="margin-bottom:16pt; padding:16pt; border-radius:16pt; background:#ffffff; border:1px solid #d1d5db;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12pt;">
+            <h3 style="margin:0; font-size:15pt;">Issue {i}: {cat}</h3>
+            <span style="font-size:11.5pt; color:#374151;">Severity {sev}/5 · Impact {imp}/3</span>
+          </div>
+          <div style="margin-top:10pt; font-size:12.5pt;">
+            <div style="font-weight:600; color:#111;">Problem</div>
+            <p style="margin:4pt 0 10pt 0;">{html_escape(it.get('problem',''))}</p>
+            <div style="font-weight:600; color:#111;">Quoted text</div>
+            <blockquote style="margin:6pt 0 12pt 0; border-left:3pt solid #dc2626; padding-left:12pt; color:#1f2937;">{html_escape(it.get('span',''))}</blockquote>
+            <div style="font-weight:600; color:#111;">Recommended fix</div>
+            <p style="margin:4pt 0 10pt 0;">{html_escape(it.get('fix',''))}</p>
+            {"<div style='font-weight:600; color:#111;'>Why it matters</div><p style='margin:4pt 0 10pt 0; color:#374151;'>"+why+"</p>" if why else ""}
+            {"<div style='font-weight:600; color:#111;'>How to verify</div><p style='margin:4pt 0 10pt 0; color:#374151;'>"+verify+"</p>" if verify else ""}
+            {("<div style='font-weight:600; color:#111;'>Helpful evidence/examples</div><ul style='margin:6pt 0 0 20pt; color:#374151; font-size:12pt;'>"+ev_html+"</ul>") if ev_html else ""}
           </div>
         </div>""")
 
     page_b = f"""
-    <div style="font-family: Helvetica, Arial, sans-serif; line-height:1.35;">
-      <h1 style="margin:0 0 8pt 0;">Key Problems & How to Fix Them</h1>
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
+      <h1 style="margin:0 0 12pt 0; font-size:20pt;">Key Problems & How to Fix Them</h1>
       {''.join(items) if items else '<p>No critical problems detected.</p>'}
+      {"<h2 style='margin-top:18pt; font-size:16pt;'>Missing Key Points</h2><ul style='margin:8pt 0 0 20pt; font-size:12.5pt;'>"+ "".join(f"<li>{html_escape(x)}</li>" for x in rep.missing_points) + "</ul>" if rep.missing_points else ""}
     </div>"""
 
-    # Missing + nested outline
-    miss_html = "".join(f"<li>{html_escape(x)}</li>" for x in rep.missing_points) if rep.missing_points else "<li>—</li>"
     def outline_block():
-        if not rep.suggested_outline: return "<li>—</li>"
+        if not rep.suggested_outline:
+            return "<li>—</li>"
         out = []
         for item in rep.suggested_outline:
             if isinstance(item, dict) and "heading" in item:
@@ -860,20 +980,42 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
             else:
                 out.append(f"<li>{html_escape(str(item))}</li>")
         return "".join(out)
+
+    improvement_html = []
+    for step in rep.improvement_plan or []:
+        focus = html_escape(step.get("focus_area", "Improvement"))
+        problem = html_escape(step.get("problem", ""))
+        actions = html_escape(step.get("action_steps", ""))
+        evidence = html_escape(step.get("evidence_or_examples", ""))
+        improvement_html.append(
+            f"""
+            <div style="border:1px solid #d1d5db; border-radius:16pt; padding:14pt; margin-bottom:12pt; background:#f8fafc;">
+              <div style="font-weight:700; font-size:13.5pt; color:#111;">{focus}</div>
+              {f"<div style='margin-top:6pt; font-size:12.5pt; color:#374151;'><b>Problem:</b> {problem}</div>" if problem else ""}
+              <div style="margin-top:6pt; font-size:12.5pt; color:#111;"><b>Action steps:</b> {actions}</div>
+              {f"<div style='margin-top:6pt; font-size:12pt; color:#374151;'><b>Evidence/examples to integrate:</b> {evidence}</div>" if evidence else ""}
+            </div>
+            """
+        )
+    if not improvement_html and rep.improvements:
+        improvement_html.append(
+            "<ul style='margin:6pt 0 0 20pt; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(x)}</li>" for x in rep.improvements) + "</ul>"
+        )
+
     page_c = f"""
-    <div style="font-family: Helvetica, Arial, sans-serif; line-height:1.35;">
-      <h1 style="margin:0 0 8pt 0;">How to Score Higher</h1>
-      <h2>Missing Key Points</h2>
-      <ul>{miss_html}</ul>
-      <h2>Suggested High-Scoring Outline</h2>
-      <ol>{outline_block()}</ol>
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
+      <h1 style="margin:0 0 12pt 0; font-size:20pt;">Improvement Roadmap</h1>
+      {"".join(improvement_html) if improvement_html else "<p>No additional improvement steps were generated.</p>"}
+      <h2 style="margin-top:18pt; font-size:16pt;">Suggested High-Scoring Outline</h2>
+      <ol style="margin:8pt 0 0 20pt; font-size:12.5pt;">{outline_block()}</ol>
     </div>"""
 
-    # Full answer
     page_d = f"""
-    <div style="font-family: Helvetica, Arial, sans-serif; line-height:1.35;">
-      <h1 style="margin:0 0 8pt 0;">Full OCR’d Answer (for reference)</h1>
-      <div style="white-space:pre-wrap; font-size:10pt; color:#111;">{html_escape(rep.answer_full)}</div>
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.6; font-size:12pt; color:#111;">
+      <h1 style="margin:0 0 12pt 0; font-size:18pt;">Full OCR’d Answer (for reference)</h1>
+      <div style="white-space:pre-wrap; font-size:11pt; color:#1f2937; background:#f9fafb; border-radius:14pt; padding:14pt; border:1px solid #e5e7eb;">
+        {html_escape(rep.answer_full)}
+      </div>
     </div>"""
 
     return [page_a, page_b, page_c, page_d]
