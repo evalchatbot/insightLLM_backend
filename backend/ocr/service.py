@@ -825,6 +825,13 @@ class OCRAnnotator:
                     },
                 },
             }
+
+            # For qualitative evaluations (e.g., Essay Outline), include overall_remark
+            if qa_reports_with_labels and subject_profile and subject_profile.get("is_qualitative"):
+                rep, _ = qa_reports_with_labels[0]  # Get first report
+                if hasattr(rep, 'overall_remark'):
+                    meta["metadata"]["overall_remark"] = rep.overall_remark
+
             if scoring_profile_meta:
                 meta["metadata"]["scoring_profile"] = scoring_profile_meta
             if combined_answer:
