@@ -149,7 +149,9 @@ def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 
     """Azure Document Intelligence 'prebuilt-read' (printed + handwritten)."""
     endpoint, key, _ = load_env()
     client = DocumentIntelligenceClient(endpoint=endpoint, credential=AzureKeyCredential(key))
-    features = [DocumentAnalysisFeature.OCR_HIGH_RESOLUTION, DocumentAnalysisFeature.LANGUAGES, DocumentAnalysisFeature.STYLE_FONT]
+    # Only use OCR_HIGH_RESOLUTION to reduce costs (removes LANGUAGES and STYLE_FONT)
+    # Cost: 6 pages × 2 features = 12 billed pages (instead of 24)
+    features = [DocumentAnalysisFeature.OCR_HIGH_RESOLUTION]
 
     attempt = 0
     while True:
@@ -608,11 +610,14 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
             f"{outline_hint}\n"
             "}\n\n"
             "Evaluation requirements:\n"
-            "- Decompose the prompt into explicit requirements; for each record expected approach, why it matters, and whether the answer fulfils it.\n"
-            "- Judge depth of analysis, conceptual clarity, synthesis, and critique relative to question demands and Political Science scholarship.\n"
+            "- First, carefully read the QUESTION to understand: time period, geographic scope, specific concepts/theories being asked about, and the exact prompt demand.\n"
+            "- Decompose the QUESTION into explicit requirements; for each record expected approach, why it matters, and whether the answer fulfils it.\n"
+            "- Judge depth of analysis, conceptual clarity, synthesis, and critique relative to QUESTION demands and Political Science scholarship.\n"
             "- Cross-check the student's answer with the rubric criteria AND the extracted requirements; penalise shallow, descriptive, or off-target sections.\n"
-            "- Strengths must cite specific passages/ideas that genuinely add value. Improvements must propose concrete fixes (add theory, restructure argument, integrate evidence, etc.).\n"
-            "- Key issues should highlight the highest-impact problems, referencing exact quotes and supplying actionable corrections plus verification cues.\n"
+            "- Strengths must cite specific passages/ideas that DIRECTLY address the question. Improvements must propose fixes RELEVANT TO THE QUESTION (e.g., 'Since the question asks about X period/region, add Y theory/example').\n"
+            "- Key issues should highlight problems where the answer fails to address the QUESTION's specific demands.\n"
+            "- Evidence suggestions must be specific to the question's topic, time period, and context (e.g., if question mentions 1947-1977, don't suggest 2020s examples).\n"
+            "- For 'evidence_suggestions' field: provide sources/examples that are CONTEXTUALLY RELEVANT to what the question is asking about.\n"
             f"{guidance}\n\n"
             f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
         )
@@ -632,10 +637,13 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
         "  \"suggested_outline\": [ {\"heading\":\"...\",\"bullets\":[\"...\",\"...\"]} ]\n"
         "}\n\n"
         "Evaluation requirements:\n"
-        "- Break the prompt into concrete requirements and state how the answer handles each.\n"
-        "- Diagnose conceptual accuracy, analytical depth, structure, and evidence quality in detail.\n"
-        "- Deliver actionable improvements (what to add, how to reorganise, which theories/examples to integrate).\n"
-        "- Quote real lines for every issue you raise and explain how to verify the fix.\n\n"
+        "- First, carefully analyze the QUESTION to understand: time period, geographic scope, specific concepts being asked, and exact requirements.\n"
+        "- Break the QUESTION into concrete requirements and state how the answer handles each.\n"
+        "- Diagnose conceptual accuracy, analytical depth, structure, and evidence quality in detail — RELATIVE TO THE QUESTION.\n"
+        "- Deliver actionable improvements SPECIFIC TO THE QUESTION (what theory/example to add based on question's topic/period).\n"
+        "- Evidence suggestions must match the question's context (time period, region, specific theories mentioned).\n"
+        "- Quote real lines for every issue you raise and explain how to verify the fix IN THE CONTEXT OF THE QUESTION.\n"
+        "- Never give generic feedback that applies to any essay — everything must be question-specific.\n\n"
         f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
     )
 
@@ -857,14 +865,67 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
         },
     ]
     criterion_data = rep.criterion_labels or default_criteria
-    criterion_items = []
+    score_rows = []
+    # Check if this is qualitative (check if max points are 0)
+    is_qual = all(crit.get("max", 0) == 0 for crit in criterion_data)
+
     for crit in criterion_data:
         label = html_escape(str(crit.get("label", "Criterion")))
-        value = _fmt_num(crit.get("value", 0))
-        max_points = _fmt_num(crit.get("max", 0))
         detail_raw = str(crit.get("detail", "")).strip()
-        detail = f" — {html_escape(detail_raw)}" if detail_raw else ""
-        criterion_items.append(f"<li><b>{label}:</b> {value}/{max_points}{detail}</li>")
+        detail = html_escape(detail_raw) if detail_raw else ""
+
+        if is_qual:
+            # Qualitative evaluation - show remark instead of numeric score
+            remark = str(crit.get("value", "N/A"))
+            remark_color = {
+                'Excellent': '#0c4',
+                'Good': '#06c',
+                'Average': '#f80',
+                'Weak': '#c00'
+            }.get(remark, '#666')
+            score_rows.append(
+                f"<tr>"
+                f"<td style='padding:5pt 8pt;border:1px solid #ddd;'>{label}</td>"
+                f"<td align='center' style='padding:5pt 8pt;border:1px solid #ddd;font-weight:bold;color:{remark_color};'>{remark}</td>"
+                f"<td style='padding:5pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;'>{detail}</td>"
+                f"</tr>"
+            )
+        else:
+            # Numeric evaluation - show score/max
+            value = _fmt_num(crit.get("value", 0))
+            max_points = _fmt_num(crit.get("max", 0))
+            score_rows.append(
+                f"<tr>"
+                f"<td style='padding:5pt 8pt;border:1px solid #ddd;'>{label}</td>"
+                f"<td align='center' style='padding:5pt 8pt;border:1px solid #ddd;'>{value}</td>"
+                f"<td align='center' style='padding:5pt 8pt;border:1px solid #ddd;'>{max_points}</td>"
+                f"<td style='padding:5pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;'>{detail}</td>"
+                f"</tr>"
+            )
+
+    # Only add writing row for numeric evaluations
+    if not is_qual and writing_max > 0:
+        score_rows.append(
+            f"<tr style='background:#f5f5f5;'>"
+            f"<td style='padding:5pt 8pt;border:1px solid #ddd;'>Language & Expression</td>"
+            f"<td align='center' style='padding:5pt 8pt;border:1px solid #ddd;'>{html_escape(writing_label.split(' ')[0])}</td>"
+            f"<td align='center' style='padding:5pt 8pt;border:1px solid #ddd;'>{_fmt_num(writing_max)}</td>"
+            f"<td style='padding:5pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;'>Grammar, spelling, sentence structure.</td>"
+            f"</tr>"
+        )
+
+    summary_points = []
+    if rep.question_summary:
+        summary_points.append(f"<li><b>Question focus:</b> {html_escape(rep.question_summary)}</li>")
+    if rep.answer_summary:
+        summary_points.append(f"<li><b>Answer snapshot:</b> {html_escape(rep.answer_summary)}</li>")
+    unmet_requirements = [r for r in (rep.question_requirements or []) if not r.get("met")]
+    if unmet_requirements:
+        summary_points.append(f"<li><b>Unmet requirements:</b> {len(unmet_requirements)} key prompt demands still need coverage.</li>")
+    if rep.improvement_plan:
+        headline_action = html_escape(rep.improvement_plan[0].get("action_steps", "")) or html_escape(rep.improvement_plan[0].get("focus_area", "Introduce stronger evidence."))
+        summary_points.append(f"<li><b>Highest priority fix:</b> {headline_action}</li>")
+    summary_html = "<ul style='list-style:disc; padding-left:20pt; margin:6pt 0 0 0; font-size:12.5pt;'>" + "".join(summary_points) + "</ul>" if summary_points else ""
 
     req_items = []
     for req in rep.question_requirements or []:
@@ -894,41 +955,88 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
             f"<li style='margin-bottom:8pt;'><b>Core demand:</b> {html_escape(rep.question_summary)}</li>"
         )
 
-    page_a = f"""
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
-      <h1 style="margin:0 0 10pt 0; font-size:20pt;">Evaluation — Question {rep.number}</h1>
-      <div style="margin:4pt 0 14pt 0; color:#333; font-size:13pt;">
-        Final Score:
-        <span style="font-weight:900; color:#c00000; font-size:26pt;">{rep.final_score_20:.1f}/{_fmt_num(score_max)}</span>
-        <div style="font-size:11pt; color:#4b5563; margin-top:6pt;">
-          Score is capped at {_fmt_num(score_cap)} even though the nominal scale is /{_fmt_num(score_max)}.<br/>
-          Content {_fmt_num(rep.content_score_18)}/{_fmt_num(content_max)} · Writing {html_escape(writing_label)} (max {_fmt_num(writing_max)})
-        </div>
-      </div>
+    # Check if this is a qualitative evaluation (Essay Outline)
+    is_qualitative = score_max == 0.0 or (hasattr(rep, 'is_qualitative') and rep.is_qualitative)
 
-      <h2 style="margin-top:12pt; font-size:16pt;">Question</h2>
-      <blockquote style="margin:8pt 0 16pt 0; border-left:3pt solid #2563eb; padding-left:12pt; color:#1f2937; font-style:italic;">
-        {html_escape(rep.question)}
-      </blockquote>
+    # Determine subject type for header
+    subject_type = "English Essay Outline — CSS Examination" if is_qualitative else "Political Science — CSS Examination"
 
-      <h2 style="margin-top:12pt; font-size:16pt;">Breakdown of Key Requirements</h2>
-      <ul style="list-style:disc; padding-left:22pt; margin:8pt 0 16pt 0;">
-        {''.join(req_items) if req_items else "<li>No explicit requirements were extracted.</li>"}
-      </ul>
+    # Simplified HTML for better rendering in PyMuPDF
+    if is_qualitative:
+        # Qualitative evaluation - show overall remark instead of numeric score
+        overall_remark = getattr(rep, 'overall_remark', 'N/A')
+        remark_color = {
+            'Excellent': '#0c4',
+            'Good': '#06c',
+            'Average': '#f80',
+            'Weak': '#c00'
+        }.get(overall_remark, '#666')
 
-      <h2 style="margin-top:12pt; font-size:16pt;">Rubric Scores</h2>
-      <ul style="list-style:disc; padding-left:22pt; margin:8pt 0 16pt 0; font-size:12.5pt;">
-        {''.join(criterion_items)}
-      </ul>
+        page_a = f"""<html><body style="font-family:Helvetica;font-size:11pt;margin:20pt;">
+<h1 style="text-align:center;font-size:18pt;margin-bottom:10pt;">Evaluation Report</h1>
+<p style="text-align:center;font-size:12pt;color:#666;margin-bottom:20pt;">{subject_type}</p>
 
-      {"<h2 style='margin-top:12pt; font-size:16pt;'>Strengths</h2><ul style='list-style:disc; padding-left:22pt; margin:6pt 0 14pt 0; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>" if rep.strengths else ""}
-      {"<h2 style='margin-top:12pt; font-size:16pt;'>High-Impact Improvements</h2><ul style='list-style:disc; padding-left:22pt; margin:6pt 0 12pt 0; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>" if rep.improvements else ""}
+<div style="background:#f0f0f0;padding:15pt;margin-bottom:15pt;text-align:center;">
+<p style="font-size:13pt;color:#666;margin:0 0 5pt 0;">Overall Assessment</p>
+<p style="font-size:32pt;font-weight:bold;color:{remark_color};margin:0 0 5pt 0;">{overall_remark}</p>
+<p style="font-size:12pt;color:#666;margin:0;">Qualitative Evaluation</p>
+</div>
 
-      <p style="margin-top:12pt; color:#4b5563; font-size:11.5pt;">
-        Scoring reference: Content /{_fmt_num(content_max)} + Writing /{_fmt_num(writing_max)} → Reported /{_fmt_num(score_max)} (effective maximum {_fmt_num(score_cap)}).
-      </p>
-    </div>
-    """
+<h2 style="font-size:14pt;border-bottom:1px solid #ccc;padding-bottom:4pt;margin:15pt 0 8pt 0;">Criteria Assessment</h2>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:15pt;">
+<tr style="background-color:#f5f5f5;">
+<th align="left" style="padding:5pt 8pt;border:1px solid #ddd;">Criterion</th>
+<th align="center" style="padding:5pt 8pt;border:1px solid #ddd;width:20%;">Remark</th>
+<th align="left" style="padding:5pt 8pt;border:1px solid #ddd;">Notes</th>
+</tr>
+{''.join(score_rows)}
+</table>"""
+    else:
+        # Numeric evaluation - show score
+        page_a = f"""<html><body style="font-family:Helvetica;font-size:11pt;margin:20pt;">
+<h1 style="text-align:center;font-size:18pt;margin-bottom:10pt;">Evaluation Report</h1>
+<p style="text-align:center;font-size:12pt;color:#666;margin-bottom:20pt;">{subject_type}</p>
+
+<div style="background:#f0f0f0;padding:15pt;margin-bottom:15pt;text-align:center;">
+<p style="font-size:13pt;color:#666;margin:0 0 5pt 0;">Total Score Obtained</p>
+<p style="font-size:32pt;font-weight:bold;color:#c00;margin:0 0 5pt 0;">{rep.final_score_20:.1f}</p>
+<p style="font-size:14pt;color:#666;margin:0;">out of {_fmt_num(score_max)}</p>
+</div>
+
+<h2 style="font-size:14pt;border-bottom:1px solid #ccc;padding-bottom:4pt;margin:15pt 0 8pt 0;">Score Breakdown</h2>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:15pt;">
+<tr style="background-color:#f5f5f5;">
+<th align="left" style="padding:5pt 8pt;border:1px solid #ddd;">Criterion</th>
+<th align="center" style="padding:5pt 8pt;border:1px solid #ddd;">Score</th>
+<th align="center" style="padding:5pt 8pt;border:1px solid #ddd;">Max</th>
+<th align="left" style="padding:5pt 8pt;border:1px solid #ddd;">Notes</th>
+</tr>
+{''.join(score_rows)}
+<tr style="background:#fff8dc;font-weight:bold;">
+<td style="padding:6pt 8pt;border:1px solid #ddd;">TOTAL</td>
+<td align="center" style="padding:6pt 8pt;border:1px solid #ddd;color:#c00;">{rep.final_score_20:.1f}</td>
+<td align="center" style="padding:6pt 8pt;border:1px solid #ddd;">{_fmt_num(score_max)}</td>
+<td style="padding:6pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;">Content + Writing</td>
+</tr>
+</table>"""
+
+    # Continue with common sections
+    page_a += f"""
+
+<h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Question</h2>
+<p style="font-style:italic;padding:8pt;background:#f9f9f9;border-left:3pt solid #36c;margin:0 0 12pt 0;">{html_escape(rep.question)}</p>
+
+<h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Executive Summary</h2>
+{summary_html or "<p>No summarised insights were generated.</p>"}
+
+<h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Key Requirements</h2>
+<ul style="margin:0 0 12pt 15pt;line-height:1.4;">
+{''.join(req_items) if req_items else "<li>No explicit requirements were extracted.</li>"}
+</ul>
+
+{("<h2 style='font-size:13pt;margin:15pt 0 6pt 0;'>Strengths</h2><ul style='margin:0 0 12pt 15pt;line-height:1.4;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>") if rep.strengths else ""}
+{("<h2 style='font-size:13pt;margin:15pt 0 6pt 0;'>Areas for Improvement</h2><ul style='margin:0 0 12pt 15pt;line-height:1.4;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>") if rep.improvements else ""}
+</body></html>"""
 
     items = []
     for i, it in enumerate(rep.issues, start=1):
@@ -955,6 +1063,25 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
             {"<div style='font-weight:600; color:#111;'>Why it matters</div><p style='margin:4pt 0 10pt 0; color:#374151;'>"+why+"</p>" if why else ""}
             {"<div style='font-weight:600; color:#111;'>How to verify</div><p style='margin:4pt 0 10pt 0; color:#374151;'>"+verify+"</p>" if verify else ""}
             {("<div style='font-weight:600; color:#111;'>Helpful evidence/examples</div><ul style='margin:6pt 0 0 20pt; color:#374151; font-size:12pt;'>"+ev_html+"</ul>") if ev_html else ""}
+          </div>
+        </div>""")
+
+    for req in unmet_requirements:
+        requirement = html_escape(req.get("requirement", "Prompt requirement"))
+        expected = html_escape(req.get("expected_approach", "Add detailed coverage."))
+        why = html_escape(req.get("why_it_matters", ""))
+        items.append(f"""
+        <div style="margin-bottom:16pt; padding:16pt; border-radius:16pt; background:#fff7ed; border:1px solid #f97316;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12pt;">
+            <h3 style="margin:0; font-size:15pt;">Missing Requirement</h3>
+            <span style="font-size:11.5pt; color:#b91c1c;">Not addressed</span>
+          </div>
+          <div style="margin-top:10pt; font-size:12.5pt;">
+            <div style="font-weight:600; color:#111;">Requirement</div>
+            <p style="margin:4pt 0 10pt 0;">{requirement}</p>
+            <div style="font-weight:600; color:#111;">What to cover</div>
+            <p style="margin:4pt 0 10pt 0;">{expected}</p>
+            {"<div style='font-weight:600; color:#111;'>Why it matters</div><p style='margin:4pt 0 0 0; color:#374151;'>"+why+"</p>" if why else ""}
           </div>
         </div>""")
 
@@ -1010,15 +1137,9 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
       <ol style="margin:8pt 0 0 20pt; font-size:12.5pt;">{outline_block()}</ol>
     </div>"""
 
-    page_d = f"""
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.6; font-size:12pt; color:#111;">
-      <h1 style="margin:0 0 12pt 0; font-size:18pt;">Full OCR’d Answer (for reference)</h1>
-      <div style="white-space:pre-wrap; font-size:11pt; color:#1f2937; background:#f9fafb; border-radius:14pt; padding:14pt; border:1px solid #e5e7eb;">
-        {html_escape(rep.answer_full)}
-      </div>
-    </div>"""
+    # Removed page_d (Full OCR'd Answer) - not needed in report
 
-    return [page_a, page_b, page_c, page_d]
+    return [page_a, page_b, page_c]
 
 
 # ------------------------- Overlay & Save PDF -------------------------- #
@@ -1039,10 +1160,16 @@ def issues_panel_html(page_no: int, rows: List[IssueRow], max_rows: int) -> str:
     return head + "\n".join(items) + more + "</ul></div>"
 
 def insert_html_page(doc: fitz.Document, html_text: str, base_rect: fitz.Rect):
+    """Insert a new page with HTML content at the beginning of the document."""
     page = doc.new_page(pno=0, width=base_rect.width, height=base_rect.height)
     margin = 36
     panel = fitz.Rect(margin, margin, base_rect.width - margin, base_rect.height - margin)
-    page.insert_htmlbox(panel, html_text, scale_low=0.8, overlay=True)
+    # Insert HTML with proper rendering
+    try:
+        page.insert_htmlbox(panel, html_text, css="body {margin:0; padding:12pt;}", archive=None, rotate=0)
+    except Exception as e:
+        # Fallback: insert as plain text if HTML fails
+        page.insert_textbox(panel, html_text, fontsize=10, fontname="helv", color=(0, 0, 0))
 
 def _auto_panel_height(rect: fitz.Rect, rows_count: int, base_header_h: float, row_line_h: float,
                        extras: float, height_max_ratio: float) -> float:
@@ -1069,8 +1196,14 @@ def annotate_pdf_with_report(input_pdf: Path,
     # Insert report pages first
     report_pages_html: List[str] = []
     for rep, label in qa_reports_with_labels:
-        report_pages_html.extend(build_report_html_pages(rep, label))
-    for html_text in reversed(report_pages_html):
+        pages = build_report_html_pages(rep, label)
+        report_pages_html.extend(pages)
+        eprint(f"[PDF] Generated {len(pages)} report pages for question {rep.number}")
+
+    eprint(f"[PDF] Total report pages to insert: {len(report_pages_html)}")
+
+    for idx, html_text in enumerate(reversed(report_pages_html)):
+        eprint(f"[PDF] Inserting report page {idx + 1}/{len(report_pages_html)}")
         insert_html_page(doc, html_text, base_rect)
 
     # Overlay per original page (dynamic height)
