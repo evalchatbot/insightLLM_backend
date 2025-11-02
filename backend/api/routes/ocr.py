@@ -232,7 +232,10 @@ async def debug_rubrics():
             debug_info["error"] = "python-docx not installed"
 
         # Calculate Rubrics path (same logic as rubric_parser)
-        backend_dir = Path(__file__).resolve().parents[1]
+        # This file is at: backend/api/routes/ocr.py
+        # Rubrics is at: backend/Rubrics/
+        # So we need parents[2] to get to 'backend/' directory
+        backend_dir = Path(__file__).resolve().parents[2]
         rubrics_dir = backend_dir / "Rubrics"
 
         debug_info["rubrics_path"] = str(rubrics_dir)
