@@ -6,7 +6,7 @@ import time
 from typing import Dict, Any, Tuple
 from fastapi import APIRouter, UploadFile, File, HTTPException, Response, status, Query, Form
 from fastapi.responses import StreamingResponse, JSONResponse
-from backend.ocr.service import OCRAnnotator, SUBJECT_DISPLAY_NAMES, get_subject_profile
+from backend.ocr.service import OCRAnnotator, get_all_available_subjects
 from backend.db.storage import StorageService
 import io
 
@@ -69,9 +69,6 @@ async def annotate_pdf(
     subject = (subject or "").strip()
     if not subject:
         raise HTTPException(status_code=400, detail="Subject selection is required")
-    if not get_subject_profile(subject):
-        supported = ", ".join(SUBJECT_DISPLAY_NAMES.values())
-        raise HTTPException(status_code=400, detail=f"Unsupported subject. Supported options: {supported}")
 
     # Generate cache key
     cache_key = _generate_cache_key(user_id, file.filename, question, subject)
@@ -90,12 +87,25 @@ async def annotate_pdf(
         _store_metadata(cache_key, meta)
 
     except ImportError as e:
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"OCR ImportError: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")
+    except ValueError as e:
+        # Subject validation errors
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         import traceback
-        error_detail = f"OCR/annotation failed: {str(e)}\n{traceback.format_exc()}"
+        import logging
+        logger = logging.getLogger(__name__)
+        error_detail = f"OCR/annotation failed: {str(e)}"
+        logger.error(f"{error_detail}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=error_detail)
 
     # Upload to Supabase Storage and get signed URL
@@ -145,9 +155,6 @@ async def annotate_pdf_json(
     subject = (subject or "").strip()
     if not subject:
         raise HTTPException(status_code=400, detail="Subject selection is required")
-    if not get_subject_profile(subject):
-        supported = ", ".join(SUBJECT_DISPLAY_NAMES.values())
-        raise HTTPException(status_code=400, detail=f"Unsupported subject. Supported options: {supported}")
 
     try:
         annotator = OCRAnnotator(fast_mode=(mode == "fast"))
@@ -159,6 +166,37 @@ async def annotate_pdf_json(
         )
         return {"ok": True, **meta}
     except ImportError as e:
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"OCR ImportError: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=503, detail=f"OCR module unavailable: {e}")
+    except ValueError as e:
+        # Subject validation errors
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        error_detail = f"OCR failed: {str(e)}"
+        logger.error(f"{error_detail}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.get("/subjects")
+async def get_subjects():
+    """
+    Get all available subjects from rubric folders.
+    Returns dynamically based on Rubrics folder contents.
+    """
+    try:
+        subjects = get_all_available_subjects()
+        return {
+            "subjects": subjects,
+            "count": len(subjects)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load subjects: {e}")

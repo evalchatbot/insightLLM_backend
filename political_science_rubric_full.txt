@@ -1,0 +1,112 @@
+
+================================================================================
+COMPLETE RUBRIC: Political Science
+================================================================================
+
+--- ALL CONTENT ---
+
+[001] [Heading 2           ] CSS Political Science Evaluation Rubric (For Bot Assessment — 200 Marks Paper)
+[002] [normal              ] Total = 100% = 20 Marks per question
+[008] [Heading 2           ] DETAILED RUBRIC
+[010] [Heading 3           ] 1. Understanding of Question and Relevance (4 Marks)
+[011] [normal              ] Objective: Gauge how well the student identifies what the question demands — theoretical, comparative, or analytical.
+[012] [normal              ] Indicators:
+[013] [normal              ] Correctly identifies whether the question pertains to political theory, ideology, institutional comparison, or philosophical interpretation.
+
+[014] [normal              ] Addresses all parts of the question (causes, effects, evaluation).
+
+[015] [normal              ] Subheadings correspond directly with question components.
+
+[016] [normal              ] Avoids irrelevant historical or ideological tangents.
+
+[018] [Heading 3           ] 2. Conceptual Clarity and Theoretical Depth (5 Marks)
+[019] [normal              ] Objective: Assess depth of understanding of Western and Muslim political thought, ideologies, and state systems.
+[020] [normal              ] Indicators:
+[021] [normal              ] Clear definitions and distinctions between concepts (e.g., sovereignty vs. liberty).
+
+[022] [normal              ] Correctly references key thinkers and theories (Plato’s justice, Locke’s social contract, Marx’s dialectical materialism, Iqbal’s Khudi).
+
+[023] [normal              ] Demonstrates understanding of Islamic political concepts (Shura, Khilafah, justice, Ummah).
+
+[024] [normal              ] Integrates both classical and contemporary perspectives.
+
+[026] [Heading 3           ] 3. Critical Analysis and Argumentation (4 Marks)
+[027] [normal              ] Objective: Measure ability to analyze, critique, and form independent arguments.
+[028] [normal              ] Indicators:
+[029] [normal              ] Evaluates strengths and weaknesses of political ideas (e.g., Rousseau’s General Will, Marxism’s practicality).
+
+[030] [normal              ] Offers comparative insights between thinkers (Locke vs. Hobbes; Iqbal vs. Rida).
+
+[031] [normal              ] Demonstrates critical engagement rather than rote reproduction.
+
+[032] [normal              ] Presents independent judgment supported by logical reasoning.
+
+[034] [Heading 3           ] 4. Comparative Insight and Application (2 Marks)
+[035] [normal              ] Objective: Test student’s ability to connect theory to practice and compare systems or thinkers.
+[036] [normal              ] Indicators:
+[037] [normal              ] Draws cross-contextual comparisons (e.g., UK parliamentary vs. U.S. presidential system).
+
+[038] [normal              ] Applies theoretical frameworks to modern contexts (democracy, governance, globalization).
+
+[039] [normal              ] Demonstrates understanding of political systems of U.S.A., U.K., France, Germany, Turkey, Iran, Malaysia, India, and China.
+
+[040] [normal              ] Relates ideologies and theories to Pakistan’s political evolution.
+
+[042] [Heading 3           ] 5. Structure, Organization, and Coherence (3 Marks)
+[043] [normal              ] Objective: Evaluate flow, formatting, and logical structure of the answer.
+[044] [normal              ] Indicators:
+[045] [normal              ] Uses the Introduction–Body–Conclusion format.
+
+[046] [normal              ] Each major heading derived from question keywords.
+
+[047] [normal              ] Headings convey cause–effect or analytical meaning.
+
+[048] [normal              ] Smooth transitions and paragraph coherence.
+
+[049] [normal              ] Balanced coverage of subtopics.
+
+[051] [Heading 3           ] 6. Language, Expression, and Scholarly Tone (2 Marks)
+[052] [normal              ] Objective: Assess linguistic quality and tone suitable for academic writing.
+[053] [normal              ] Indicators:
+[054] [normal              ] Formal, neutral, and analytical language.
+
+[055] [normal              ] Uses political terminology correctly (e.g., legitimacy, sovereignty, hegemony).
+
+[056] [normal              ] Avoids ideological bias or emotional tone.
+
+[057] [normal              ] Grammatically sound, coherent sentences.
+
+[059] [Heading 2           ] Total Marks Summary
+[061] [Heading 3           ] For Bot Integration
+[062] [normal              ] Your AI evaluator should:
+[063] [normal              ] Detect thinker names and ideologies (Plato, Locke, Marx, Iqbal, etc.).
+
+[064] [normal              ] Identify thematic keywords: “justice,” “liberty,” “social contract,” “state,” “authority,” “civil society.”
+
+[065] [normal              ] Recognize comparative and analytical markers: “in contrast,” “whereas,” “however,” “this theory suggests.”
+
+[066] [normal              ] Track argument balance: checks if opposing views are represented.
+
+[067] [normal              ] Flag bias or descriptive-only responses.
+
+[068] [normal              ] Detect intro-body-conclusion and subheading presence.
+
+
+
+================================================================================
+--- ALL TABLES ---
+================================================================================
+
+
+TABLE 1:
+Traceback (most recent call last):
+  File "D:\my_projects\bookschat\backend\insightLLM_backend\parse_full_rubric.py", line 45, in <module>
+    parse_complete_rubric(rubric_file)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "D:\my_projects\bookschat\backend\insightLLM_backend\parse_full_rubric.py", line 30, in parse_complete_rubric
+    print(f"{'\u2500'*80}")
+    ~~~~~^^^^^^^^^^^^^
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-79: character maps to <undefined>

@@ -17,7 +17,7 @@ Install:
   GROQ_API_KEY=...
 """
 
-import argparse, html, json, os, re, sys, time
+import argparse, html, json, os, re, sys, time, math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple, Any
@@ -26,7 +26,6 @@ from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError, ServiceRequestError
 from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import DocumentAnalysisFeature
 from groq import Groq
 import fitz  # PyMuPDF
 
@@ -40,6 +39,8 @@ SUPPORTED_SCHEMA_MODELS = {
 }
 
 ISSUE_TYPES = ["Spelling","Grammar","Punctuation","Sentence Structure"]
+
+DEFAULT_MIN_WORD_COUNT = 800
 
 DATE_WORDS = {"january","february","march","april","may","june","july","august",
               "september","october","november","december","jan","feb","mar","apr",
@@ -116,6 +117,12 @@ class QAReportDetailed:
     final_score_cap: float = 20.0
     criterion_labels: Optional[List[Dict[str, Any]]] = field(default_factory=list)
 
+    # NEW FIELDS for rubric-based evaluation (added 2025-11-01)
+    question_breakdown_detailed: str = ""  # What ideal answer should cover (conceptual scope, themes, requirements)
+    evaluator_final_comments: str = ""     # Overall assessment paragraph
+    model_answer_outline: Dict[str, Any] = field(default_factory=dict)  # Structured model with 10-12 arguments
+    criterion_evaluator_comments: List[str] = field(default_factory=list)  # Per-criterion detailed feedback
+
 
 # --------------------------- Env & Utilities --------------------------- #
 
@@ -145,19 +152,56 @@ def ensure_pdf_output_path(input_pdf: Path, requested: Optional[str]) -> Path:
 
 # -------------------------------- OCR ---------------------------------- #
 
+def _save_extracted_text_debug(pdf_path: Path, page_texts: List[str]) -> None:
+    """Save extracted OCR text to a local file for quality verification (temporary debug feature)."""
+    try:
+        # Create debug output directory if it doesn't exist
+        debug_dir = pdf_path.parent / "ocr_debug_output"
+        debug_dir.mkdir(exist_ok=True)
+
+        # Generate output filename based on input PDF
+        output_file = debug_dir / f"{pdf_path.stem}_extracted_text.txt"
+
+        # Write extracted text with page separators
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(f"OCR Extraction Debug Output\n")
+            f.write(f"Source PDF: {pdf_path.name}\n")
+            f.write(f"Extraction Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Pages: {len(page_texts)}\n")
+            f.write(f"Mode: Base OCR (no premium features)\n")
+            f.write("=" * 80 + "\n\n")
+
+            for page_num, text in enumerate(page_texts, start=1):
+                f.write(f"\n{'=' * 80}\n")
+                f.write(f"PAGE {page_num} / {len(page_texts)}\n")
+                f.write(f"{'=' * 80}\n\n")
+                f.write(text if text else "(Empty page)")
+                f.write("\n\n")
+
+            f.write(f"\n{'=' * 80}\n")
+            f.write(f"END OF EXTRACTION\n")
+            f.write(f"Character Count: {sum(len(t) for t in page_texts)}\n")
+            f.write(f"{'=' * 80}\n")
+
+        eprint(f"[Debug] Extracted text saved to: {output_file}")
+    except Exception as e:
+        eprint(f"[Debug] Failed to save extracted text: {e}")
+
 def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 120, max_retries: int = 3) -> List[str]:
     """Azure Document Intelligence 'prebuilt-read' (printed + handwritten)."""
     endpoint, key, _ = load_env()
     client = DocumentIntelligenceClient(endpoint=endpoint, credential=AzureKeyCredential(key))
-    # Only use OCR_HIGH_RESOLUTION to reduce costs (removes LANGUAGES and STYLE_FONT)
-    # Cost: 6 pages × 2 features = 12 billed pages (instead of 24)
-    features = [DocumentAnalysisFeature.OCR_HIGH_RESOLUTION]
+    # REMOVED OCR_HIGH_RESOLUTION to reduce costs from 2x page billing to 1x page billing
+    # Previous cost: 6 pages × 2 (base + feature) = 12 billed pages
+    # New cost: 6 pages × 1 (base only) = 6 billed pages (50% savings)
+    # features = [DocumentAnalysisFeature.OCR_HIGH_RESOLUTION]  # DISABLED for cost savings
 
     attempt = 0
     while True:
         try:
             with open(pdf_path, "rb") as f:
-                poller = client.begin_analyze_document(model_id="prebuilt-read", body=f, features=features, pages=pages)
+                # Removed features parameter - using base OCR only
+                poller = client.begin_analyze_document(model_id="prebuilt-read", body=f, pages=pages)
                 result = poller.result(timeout=timeout_s)
             break
         except (HttpResponseError, ServiceRequestError, TimeoutError) as ex:
@@ -183,6 +227,10 @@ def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 
             page_texts.append("\n".join(lines_by_page[pnum]).strip())
     else:
         page_texts = [getattr(result, "content", "") or ""]
+
+    # Save extracted text to local file for quality verification
+    _save_extracted_text_debug(pdf_path, page_texts)
+
     return page_texts
 
 
@@ -281,6 +329,48 @@ def segment_questions(page_texts: List[str]) -> List[QAItem]:
             end_page=len(page_texts)
         ))
     return qas
+
+
+# ----------------------- Question Alignment Helpers --------------------- #
+
+QUESTION_KEYWORD_STOPWORDS = {
+    "what", "which", "whose", "where", "when", "why", "how",
+    "does", "do", "did", "was", "were", "is", "are", "am",
+    "and", "or", "the", "that", "with", "within", "without",
+    "about", "around", "among", "between", "using", "based",
+    "discuss", "explain", "compare", "evaluate", "critically",
+    "analyze", "analysis", "examine", "assess"
+}
+
+
+def _question_keyword_overlap(question: str, answer: str, min_len: int = 5) -> Tuple[float, List[str]]:
+    """
+    Estimate lexical overlap between question keywords and answer content.
+    Returns (ratio, missing_keywords[]).
+    """
+    if not question or not answer:
+        return 1.0, []
+
+    q_tokens = re.findall(r"[a-z]+", question.lower())
+    keywords: List[str] = []
+    seen = set()
+    for tok in q_tokens:
+        if len(tok) < min_len:
+            continue
+        if tok in QUESTION_KEYWORD_STOPWORDS:
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        keywords.append(tok)
+
+    if not keywords:
+        return 1.0, []
+
+    answer_tokens = set(re.findall(r"[a-z]+", answer.lower()))
+    missing = [tok for tok in keywords if tok not in answer_tokens]
+    ratio = 1.0 - (len(missing) / len(keywords))
+    return max(0.0, ratio), missing[:6]
 
 
 # ---------------------- Groq helpers (JSON modes) ---------------------- #
@@ -610,16 +700,19 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
             f"{outline_hint}\n"
             "}\n\n"
             "Evaluation requirements:\n"
-            "- First, carefully read the QUESTION to understand: time period, geographic scope, specific concepts/theories being asked about, and the exact prompt demand.\n"
+            "- First, carefully read the QUESTION provided below. Treat it as the ONLY authoritative prompt. Do NOT infer or reuse any previous wording.\n"
+            "- Confirm the exact question text before analysing the answer. If the answer ignores this wording, penalise relevance and content heavily.\n"
             "- Decompose the QUESTION into explicit requirements; for each record expected approach, why it matters, and whether the answer fulfils it.\n"
-            "- Judge depth of analysis, conceptual clarity, synthesis, and critique relative to QUESTION demands and Political Science scholarship.\n"
+            "- Judge depth of analysis, conceptual clarity, synthesis, and critique relative to QUESTION demands and current scholarship.\n"
             "- Cross-check the student's answer with the rubric criteria AND the extracted requirements; penalise shallow, descriptive, or off-target sections.\n"
             "- Strengths must cite specific passages/ideas that DIRECTLY address the question. Improvements must propose fixes RELEVANT TO THE QUESTION (e.g., 'Since the question asks about X period/region, add Y theory/example').\n"
             "- Key issues should highlight problems where the answer fails to address the QUESTION's specific demands.\n"
-            "- Evidence suggestions must be specific to the question's topic, time period, and context (e.g., if question mentions 1947-1977, don't suggest 2020s examples).\n"
-            "- For 'evidence_suggestions' field: provide sources/examples that are CONTEXTUALLY RELEVANT to what the question is asking about.\n"
+            "- Evidence suggestions must be specific to the question's topic, time period, and context defined by the prompt.\n"
             f"{guidance}\n\n"
-            f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
+            "QUESTION (use this wording ONLY; never infer another question):\n"
+            f"{qa.question[:8000]}\n\n"
+            "STUDENT ANSWER (evaluate strictly against the question above):\n"
+            f"{qa.answer[:12000]}"
         )
     return (
         "Return JSON exactly like:\n"
@@ -637,14 +730,18 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
         "  \"suggested_outline\": [ {\"heading\":\"...\",\"bullets\":[\"...\",\"...\"]} ]\n"
         "}\n\n"
         "Evaluation requirements:\n"
-        "- First, carefully analyze the QUESTION to understand: time period, geographic scope, specific concepts being asked, and exact requirements.\n"
+        "- First, carefully read the QUESTION provided below. Treat it as the ONLY authoritative prompt. Do NOT infer or reuse any previous wording.\n"
+        "- Verify that the student's answer actually addresses this wording. If it does not, penalise relevance and content heavily.\n"
         "- Break the QUESTION into concrete requirements and state how the answer handles each.\n"
         "- Diagnose conceptual accuracy, analytical depth, structure, and evidence quality in detail — RELATIVE TO THE QUESTION.\n"
-        "- Deliver actionable improvements SPECIFIC TO THE QUESTION (what theory/example to add based on question's topic/period).\n"
-        "- Evidence suggestions must match the question's context (time period, region, specific theories mentioned).\n"
+        "- Deliver actionable improvements SPECIFIC TO THE QUESTION (what theory/example to add based on the question's topic/period).\n"
+        "- Evidence suggestions must match the question's context (time period, region, theories, terminology).\n"
         "- Quote real lines for every issue you raise and explain how to verify the fix IN THE CONTEXT OF THE QUESTION.\n"
         "- Never give generic feedback that applies to any essay — everything must be question-specific.\n\n"
-        f"Question:\n{qa.question[:8000]}\n\nAnswer:\n{qa.answer[:12000]}"
+        "QUESTION (use this wording ONLY; never infer another question):\n"
+        f"{qa.question[:8000]}\n\n"
+        "STUDENT ANSWER (evaluate strictly against the question above):\n"
+        f"{qa.answer[:12000]}"
     )
 
 def evaluate_qa_detailed(
@@ -706,7 +803,6 @@ def evaluate_qa_detailed(
     scores = data.get("scores", {}) or {}
     attr_values: Dict[str, int] = {}
     criterion_info: List[Dict[str, Any]] = []
-    base_content = 0
     total_cap = 0
     for crit in criteria:
         json_key = crit.get("json_key")
@@ -715,7 +811,6 @@ def evaluate_qa_detailed(
         total_cap += max_points
         raw_val = _to_int(scores.get(json_key, 0), 0, max_points)
         attr_values[attr] = raw_val
-        base_content += raw_val
         detail = crit.get("detail_text", "")
         detail_source = crit.get("detail_source")
         if detail_source == "question_summary":
@@ -738,7 +833,8 @@ def evaluate_qa_detailed(
 
     # Detailed issues
     detailed_issues = []
-    for i in (data.get("issues") or []):
+    raw_issues = data.get("issues") or []
+    for i in raw_issues:
         detailed_issues.append({
             "category": str(i.get("category","")).strip(),
             "span": str(i.get("span","")).strip(),
@@ -751,8 +847,77 @@ def evaluate_qa_detailed(
             "impact_points_0to3": _to_int(i.get("impact_points_0to3", 0), 0, 3),
             "location_hint": str(i.get("location_hint","")).strip(),
         })
+    while len(detailed_issues) < 3 and len(raw_issues) < 3:
+        idx = len(detailed_issues)
+        detailed_issues.append({
+            "category": "Relevance" if idx == 0 else "Coverage" if idx == 1 else "Analysis",
+            "span": "",
+            "problem": "Answer needs deeper alignment with the question prompt and greater analytical depth.",
+            "fix": "Explicitly re-align the content with the prompt and expand with evidence-backed analysis.",
+            "severity_1to5": 4,
+            "why_it_matters": "High-score answers must satisfy every prompt demand and demonstrate analytical depth.",
+            "how_to_verify": "Check each paragraph against the question requirements and confirm analytical commentary.",
+            "evidence_suggestions": [],
+            "impact_points_0to3": 2,
+            "location_hint": "Body"
+        })
+
+    improvements = [str(s) for s in (data.get("improvements") or [])][:10]
 
     missing_points = [str(x) for x in (data.get("missing_points") or [])][:18]
+
+    min_word_requirement = int(profile.get("min_word_count", DEFAULT_MIN_WORD_COUNT))
+    word_count = len(re.findall(r"[A-Za-z0-9']+", qa.answer or ""))
+    word_ratio = (word_count / min_word_requirement) if min_word_requirement else 1.0
+    if min_word_requirement and word_ratio < 1.0:
+        wc_deficit = min_word_requirement - word_count
+        wc_issue_problem = f"Answer length is {word_count} words; minimum required is {min_word_requirement}."
+        detailed_issues.append({
+            "category": "Coverage",
+            "span": "",
+            "problem": wc_issue_problem,
+            "fix": f"Expand the answer with additional evidence-based analysis to reach at least {min_word_requirement} words.",
+            "severity_1to5": 4,
+            "why_it_matters": "CSS rubric expects fully developed 800+ word responses for this subject.",
+            "how_to_verify": "Ensure the revised answer exceeds the minimum word count with substantive content, not filler.",
+            "evidence_suggestions": [],
+            "impact_points_0to3": 2,
+            "location_hint": "Body"
+        })
+        wc_penalty = max(1, math.ceil(wc_deficit / 150))
+        for crit in criterion_info:
+            attr = crit.get("attr")
+            if attr in ("coverage", "analysis", "organization"):
+                current_val = int(crit.get("value", 0))
+                new_val = max(0, current_val - wc_penalty)
+                if new_val < current_val:
+                    crit["value"] = new_val
+                    attr_values[attr] = new_val
+                    detail_text = (crit.get("detail") or "").strip()
+                    crit["detail"] = f"{detail_text} Penalised for being under the {min_word_requirement}-word requirement.".strip()
+        word_improvement = f"Expand the answer to at least {min_word_requirement} words (current length: {word_count})."
+        if word_improvement not in improvements:
+            improvements.append(word_improvement)
+        content_penalty_limit = min(content_penalty_limit or content_target, content_target * max(word_ratio, 0.3))
+
+    for mp in missing_points:
+        text_mp = mp.strip()
+        if not text_mp:
+            continue
+        issue_problem_mp = f"Missing required point from prompt: {text_mp}"
+        if not any(issue.get("problem") == issue_problem_mp for issue in detailed_issues):
+            detailed_issues.append({
+                "category": "Coverage",
+                "span": "",
+                "problem": issue_problem_mp,
+                "fix": f"Add a substantive paragraph addressing: {text_mp}",
+                "severity_1to5": 4,
+                "why_it_matters": "Prompt requirements must be met to satisfy coverage and accuracy indicators.",
+                "how_to_verify": "Confirm the revised answer explicitly covers this missing point with evidence.",
+                "evidence_suggestions": [],
+                "impact_points_0to3": 2,
+                "location_hint": "Body"
+            })
 
     # Stricter deductions based on severity + missing points (like v5)
     severe = sum(1 for it in detailed_issues if it["severity_1to5"] >= 4)
@@ -763,23 +928,183 @@ def evaluate_qa_detailed(
 
     content_cap = float(profile.get("content_cap", total_cap or 18))
     content_target = float(profile.get("content_target", content_cap))
+
+    overlap_ratio, missing_keywords = _question_keyword_overlap(qa.question or "", qa.answer or "")
+    content_penalty_limit = None
+    if (qa.question or "") and overlap_ratio < 0.30:
+        overlap_ratio = max(0.0, overlap_ratio)
+        keywords_text = ", ".join(missing_keywords) if missing_keywords else "the specific prompt demands"
+        # tighten relevance score
+        rel = min(rel, max(0, int(round(overlap_ratio * 4))))
+        attr_values["relevance"] = rel
+        for crit in criterion_info:
+            if crit.get("attr") == "relevance":
+                crit["value"] = rel
+                addition = f"Answer misses core prompt keywords ({keywords_text})."
+                crit["detail"] = f"{crit.get('detail', '')} {addition}".strip()
+                break
+        # cap remaining criteria
+        penalty_note = "Capped due to failing the question relevance check."
+        for crit in criterion_info:
+            attr = crit.get("attr")
+            if not attr or attr == "relevance":
+                continue
+            max_points = int(crit.get("max", 0) or 0)
+            if max_points <= 0:
+                continue
+            cap = 2 if max_points > 2 else max(1, max_points - 1)
+            current_val = int(crit.get("value", 0))
+            if current_val > cap:
+                crit["value"] = cap
+                attr_values[attr] = cap
+                detail_text = (crit.get("detail") or "").strip()
+                crit["detail"] = f"{detail_text} {penalty_note}".strip()
+        cov = int(attr_values.get("coverage", cov))
+        acc = int(attr_values.get("accuracy", acc))
+        ana = int(attr_values.get("analysis", ana))
+        org = int(attr_values.get("organization", org))
+        content_penalty_limit = content_target * max(overlap_ratio * 0.4, 0.10)
+        # add synthetic high-severity issue
+        issue_problem = f"Answer ignores the question keywords: {keywords_text}."
+        if not any(issue.get("problem") == issue_problem for issue in detailed_issues):
+            detailed_issues.append({
+                "category": "Relevance",
+                "span": "",
+                "problem": issue_problem,
+                "fix": f"Reframe the response around the actual question and explicitly cover {keywords_text}.",
+                "severity_1to5": 5,
+                "why_it_matters": "CSS examiners award zero relevance marks if the prompt is not addressed directly.",
+                "how_to_verify": "Check that each section answers the precise wording of the question.",
+                "evidence_suggestions": [],
+                "impact_points_0to3": 3,
+                "location_hint": "Intro"
+            })
+        for kw in missing_keywords[:3]:
+            issue_problem_kw = f"Required keyword '{kw}' is not addressed anywhere in the answer."
+            if not any(issue.get("problem") == issue_problem_kw for issue in detailed_issues):
+                detailed_issues.append({
+                    "category": "Coverage",
+                    "span": "",
+                    "problem": issue_problem_kw,
+                    "fix": f"Add a dedicated section that defines '{kw}' and connects it directly to the question.",
+                    "severity_1to5": 4,
+                    "why_it_matters": "Missing prompt keywords breaches the coverage indicators and signals misunderstanding.",
+                    "how_to_verify": f"Ensure at least one paragraph explicitly develops '{kw}' within the answer.",
+                    "evidence_suggestions": [],
+                    "impact_points_0to3": 2,
+                    "location_hint": "Body"
+                })
+        # front-load improvement to address prompt
+        core_improvement = f"Refocus the answer on the actual question prompt: \"{qa.question[:140]}\"."
+        if core_improvement not in improvements:
+            improvements.insert(0, core_improvement)
+        improvements = improvements[:10]
+
+    penalty_keywords = {
+        "relevance": ("relevance", "understanding"),
+        "coverage": ("coverage", "breadth", "depth"),
+        "analysis": ("analysis", "argument"),
+        "organization": ("organization", "structure", "coherence", "flow"),
+        "style": ("style", "language", "expression", "writing")
+    }
+    attr_penalties = {key: 0.0 for key in ["relevance", "coverage", "analysis", "organization"]}
+    style_penalty = 0.0
+    for issue in detailed_issues:
+        cat = str(issue.get("category", "")).lower()
+        sev = int(issue.get("severity_1to5", 3))
+        if sev <= 1:
+            continue
+        penalty = 1.0 if sev >= 4 else 0.5 if sev >= 3 else 0.25
+        for attr, keywords in penalty_keywords.items():
+            if any(keyword in cat for keyword in keywords):
+                if attr == "style":
+                    style_penalty += penalty
+                else:
+                    attr_penalties[attr] += penalty
+
+    for crit in criterion_info:
+        attr = crit.get("attr")
+        if not attr or attr == "relevance":
+            continue
+        penalty = attr_penalties.get(attr, 0.0)
+        if penalty <= 0:
+            continue
+        current_val = int(attr_values.get(attr, 0))
+        new_val = max(0, current_val - int(math.ceil(penalty)))
+        if new_val < current_val:
+            attr_values[attr] = new_val
+            crit["value"] = new_val
+            detail_text = (crit.get("detail") or "").strip()
+            crit["detail"] = f"{detail_text} Penalties applied due to multiple high-severity issues.".strip()
+
+
+
+    base_content = sum(int(attr_values.get(crit.get("attr"), 0)) for crit in criteria)
     raw_content = base_content - ded_issues - ded_missing
     content_clamped = max(0.0, min(content_cap, float(raw_content)))
     if content_cap > 0 and content_target != content_cap:
         content = round((content_clamped / content_cap) * content_target, 1)
     else:
         content = round(content_clamped, 1)
+    if content_penalty_limit is not None:
+        content = round(min(content, content_penalty_limit), 1)
+    content = min(content, 16.0)
 
-    strengths = [str(s) for s in (data.get("strengths") or [])][:10]
-    improvements = [str(s) for s in (data.get("improvements") or [])][:10]
+    strengths = [] if ((qa.question or "") and overlap_ratio < 0.30) or rel <= 0 else [str(s) for s in (data.get("strengths") or [])][:10]
+    if (qa.question or "") and overlap_ratio < 0.30:
+        focus_improvement = f"Refocus the answer on the actual question prompt: \"{qa.question[:140]}\"."
+        if missing_keywords:
+            focus_improvement += f" Address keywords such as {keywords_text}."
+        if focus_improvement not in improvements:
+            improvements.insert(0, focus_improvement)
+        improvements = improvements[:10]
 
     writing_max = float(profile.get("writing_max", 2.0))
     writing_value = max(0.0, min(writing_max, float(writing_value)))
-    achievable_cap = float(profile.get("achievable_max", content_target + writing_max))
-    final_max = float(profile.get("final_max", max(achievable_cap, content_target + writing_max)))
-    if final_max < achievable_cap:
-        final_max = achievable_cap
+    if style_penalty > 0 and writing_max > 0:
+        deduction = 0.5 * math.ceil(style_penalty)
+        writing_value = max(0.0, writing_value - deduction)
+        writing_label = f"{writing_value:.1f} /{writing_max:g} (style penalties)"
+    score_max_display = float(profile.get("final_max", content_target + writing_max))
+    achievable_cap = float(profile.get("achievable_max", score_max_display))
+    achievable_cap = min(achievable_cap, 16.0)
     final = round(max(0.0, min(achievable_cap, content + writing_value)), 1)
+
+    if rel <= 0:
+        penalty_note_zero = "Zero relevance automatically zeroes other criteria."
+        for crit in criterion_info:
+            attr = crit.get("attr")
+            if not attr or attr == "relevance":
+                continue
+            if crit.get("value"):
+                crit["value"] = 0
+                attr_values[attr] = 0
+                detail_text = (crit.get("detail") or "").strip()
+                crit["detail"] = f"{detail_text} {penalty_note_zero}".strip()
+        cov = acc = ana = org = 0
+        if writing_max > 0:
+            writing_value = 0.0
+            writing_label = f"0.0 /{writing_max:g} (relevance failure)"
+        strengths = []
+        rewrite_improvement = f"Rewrite the entire answer to address the precise question prompt: \"{qa.question[:140]}\"."
+        if rewrite_improvement not in improvements:
+            improvements.insert(0, rewrite_improvement)
+        improvements = improvements[:10]
+        if not any("zero relevance" in str(issue.get("problem","")).lower() for issue in detailed_issues):
+            detailed_issues.append({
+                "category": "Relevance",
+                "span": "",
+                "problem": "The answer scored zero on Understanding & Relevance; no other rubric criterion can earn marks until the prompt is addressed.",
+                "fix": "Restart the response by outlining how each part of the question will be answered, then rewrite the body with direct references to the prompt.",
+                "severity_1to5": 5,
+                "why_it_matters": "CSS examiners award no marks when the question is ignored.",
+                "how_to_verify": "Ensure introduction, body, and conclusion explicitly restate and satisfy the question wording.",
+                "evidence_suggestions": [],
+                "impact_points_0to3": 3,
+                "location_hint": "Intro"
+            })
+        content_penalty_limit = 0.0
+        final = 0.0
 
     # Outline
     raw_outline = data.get("suggested_outline") or []
@@ -792,7 +1117,7 @@ def evaluate_qa_detailed(
         else:
             outline.append(str(item))
 
-    return QAReportDetailed(
+    report = QAReportDetailed(
         number=qa.number, question=qa.question, answer_full=qa.answer,
         relevance=rel, coverage=cov, accuracy=acc, analysis=ana, organization=org,
         content_score_18=content, writing_score_2_value=writing_value, final_score_20=final,
@@ -803,20 +1128,51 @@ def evaluate_qa_detailed(
         answer_summary=answer_summary[:800],
         content_score_max=content_target,
         writing_score_max=writing_max,
-        score_max=final_max,
+        score_max=score_max_display,
         final_score_cap=achievable_cap,
         question_requirements=question_requirements[:12],
         improvement_plan=improvement_plan[:10],
         criterion_labels=criterion_info,
-    ), writing_label
+    )
+    setattr(report, "answer_word_count", word_count)
+    setattr(report, "minimum_word_count", min_word_requirement)
+    return report, writing_label
 
 
 # ----------------------------- Report Pages ---------------------------- #
 
-def html_escape(s: str) -> str:
+def html_escape(s) -> str:
+    """Escape HTML, handling both strings and lists."""
+    if isinstance(s, list):
+        # Join list items with commas
+        s = ", ".join(str(item) for item in s)
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ""
     return html.escape((s or "").replace("\u00AD",""))
 
 def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[str]:
+    """
+    Build CSS evaluation report - NEW 8-section format.
+
+    Routes to new report builder for comprehensive feedback.
+    Falls back to legacy builder if new one unavailable.
+    """
+    try:
+        from backend.utils.report_builder_new import build_css_evaluation_report
+        return build_css_evaluation_report(rep, writing_label)
+    except Exception as e:
+        import traceback
+        eprint(f"[Warning] New report builder failed, using legacy: {e}")
+        eprint(f"[Debug] Traceback: {traceback.format_exc()}")
+        try:
+            return build_report_html_pages_legacy(rep, writing_label)
+        except Exception as legacy_err:
+            eprint(f"[Error] Legacy report builder also failed: {legacy_err}")
+            eprint(f"[Debug] Legacy traceback: {traceback.format_exc()}")
+            raise
+
+def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) -> List[str]:
+    """LEGACY report builder - kept for backwards compatibility."""
     # Summary page — bigger red final score
     score_max = getattr(rep, "score_max", 20.0)
     content_max = getattr(rep, "content_score_max", 18.0)

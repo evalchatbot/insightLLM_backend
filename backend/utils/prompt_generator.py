@@ -1,0 +1,775 @@
+#!/usr/bin/env python3
+"""
+Dynamic Prompt Generator - Create LLM system prompts from rubric structure.
+
+Generates strict, comprehensive evaluation prompts that follow rubric indicators deeply.
+"""
+
+from typing import Dict, Any, Optional
+from .rubric_parser import RubricStructure, RubricDimension
+
+
+class PromptGenerator:
+    """Generate LLM system prompts from rubric structure."""
+
+    # Constants for strict marking
+    STRICT_MAX_20_MARKS = 16.0  # Exceptional answers capped at 16/20
+    STRICT_MAX_100_MARKS = 35.0  # For 100-mark papers
+
+    def __init__(self, rubric: RubricStructure):
+        """
+        Initialize prompt generator with rubric.
+
+        Args:
+            rubric: Parsed rubric structure with dimensions and indicators
+        """
+        self.rubric = rubric
+
+    def generate_system_prompt(self) -> str:
+        """
+        Generate comprehensive system prompt for LLM evaluation.
+
+        Returns:
+            Complete system prompt string with all rubric details
+        """
+        prompt_parts = [
+            self._generate_header(),
+            self._generate_strict_marking_instructions(),
+            self._generate_evaluation_criteria(),
+            self._generate_indicator_checklist(),
+            self._generate_bot_instructions(),
+            self._generate_execution_framework(),
+            self._generate_output_requirements(),
+            self._generate_strictness_reminder()
+        ]
+
+        return "\n\n".join(filter(None, prompt_parts))
+
+    def _generate_header(self) -> str:
+        """Generate prompt header with role and context."""
+        return f"""You are a strict CSS {self.rubric.subject_display_name} examiner with 20+ years of experience evaluating Pakistan's Central Superior Services examination answers.
+
+Treat EVERY evaluation as a fresh session with ZERO prior context. The user message will contain the full question text; that text is the ONLY authoritative statement of the prompt. NEVER assume, infer, reuse, or import content from any previous question—even if the answer seems similar.
+
+Your role is to conduct an EXCEPTIONALLY STRICT, COMPREHENSIVE evaluation following the official CSS rubric with surgical precision. The CSS examination has a pass rate below 5% - maintain these extremely high standards."""
+
+    def _generate_strict_marking_instructions(self) -> str:
+        """Generate strict marking guidelines."""
+        max_marks = self.rubric.total_marks
+        achievable_max = self.STRICT_MAX_20_MARKS if max_marks == 20 else self.STRICT_MAX_100_MARKS
+
+        return f"""CRITICAL MARKING INSTRUCTIONS:
+
+1. **STRICT MARKING CAP**: Maximum achievable score is {achievable_max}/{max_marks} marks
+   - Even exceptional, near-perfect answers are capped at {achievable_max}/{max_marks}
+   - Perfect {max_marks}/{max_marks} is theoretically impossible
+   - Most answers fall in the {int(max_marks * 0.5)}-{int(max_marks * 0.7)} range
+   - Good answers: {int(max_marks * 0.6)}-{int(max_marks * 0.7)} marks
+   - Excellent answers: {int(max_marks * 0.7)}-{int(achievable_max * 0.9)} marks
+   - Outstanding answers: {int(achievable_max * 0.9)}-{achievable_max} marks
+
+2. **MULTI-PART QUESTION ANALYSIS** (CRITICAL):
+   - FIRST: Identify if question has multiple parts (e.g., "Compare X and Y. How do they reflect Z?")
+   - Part identification keywords: "compare", "contrast", "analyze", "how", "why", "evaluate", "discuss both"
+   - For EACH part identified:
+     * Check if student addresses it with sufficient depth (minimum 2-3 paragraphs per part)
+     * Verify if student provides specific examples/evidence for that part
+     * Note if part is completely missing or superficially covered
+   - **LINKING ANALYSIS** (if question requires connection between parts):
+     * Does student explicitly connect each requirement to the others?
+     * Are there transition sentences showing causal/comparative relationships?
+     * Deduct heavily if parts are treated as separate essays without synthesis
+   - Document in "question_requirements" EACH part and whether it was met
+
+3. **PARAGRAPH-BY-PARAGRAPH DEEP ANALYSIS**:
+   - Read the ENTIRE answer line by line, paragraph by paragraph
+   - For EACH paragraph, note:
+     * Main claim made
+     * Evidence provided (or lack thereof)
+     * Accuracy of facts/dates/names
+     * Depth of analysis (descriptive vs analytical)
+     * Connection to question requirements
+   - Analyze each sentence for accuracy, relevance, and depth
+   - Check EVERY claim against rubric indicators
+   - Identify minimum 15-25 specific issues per answer
+   - Create a mental map: Paragraph 1 covers X, Paragraph 2 covers Y, etc.
+   - Note gaps: "Question requires discussion of X but no paragraph addresses it"
+
+4. **SPECIFIC EXAMPLES REQUIRED** (NO GENERIC FEEDBACK):
+   - For EVERY strength, improvement, or issue identified:
+     * Quote EXACT text from answer (minimum 20-30 words - MANDATORY)
+     * Reference specific paragraph number or section name
+     * Show PRECISELY what's wrong and HOW it should be corrected
+     * Provide model example of correct approach
+
+   FORBIDDEN (Generic):
+   - ❌ "Analysis is weak"
+   - ❌ "Needs more examples"
+   - ❌ "Structure could be improved"
+   - ❌ "Good understanding shown"
+
+   REQUIRED (Specific):
+   - ✅ "Paragraph 3 states a high-level claim but fails to explain WHY it happened. Add the causal mechanism and supporting evidence so the examiner can see the logical link."
+   - ✅ "Introduction claims 'both eras faced similar crises' but Body paragraphs show they differed significantly (1947-56: constitutional deadlock, post-2008: judicial activism). This contradiction weakens the thesis. Revise thesis to: 'While both eras experienced governance crises, their nature and origins differed fundamentally.'"
+   - ✅ "Paragraph 5 mentions 'institutional weakness' 4 times but never defines what makes an institution weak. Add concrete indicators: weak institutions lack autonomy (example: judiciary's subservience to executive 1947-56), resources (underfunded bureaucracy), or legitimacy (frequent PCO judges post-2007)."
+
+5. **FOLLOW ALL {self.rubric.total_indicators} INDICATORS RIGOROUSLY**:
+   - Check EACH indicator systematically (create mental checklist)
+   - Deduct marks for EVERY indicator not met
+   - Document which indicators are satisfied and which are not
+   - For each unsatisfied indicator, provide specific example of what's missing
+   - Example: "Indicator 'Uses political terminology correctly' NOT MET: Student writes 'President's rule' instead of correct term 'Governor's rule' for provincial emergencies under Article 234."
+
+6. **DEPTH OF ANALYSIS CHECK**:
+   - Surface level (just definition): 0-40% marks for criterion
+   - Descriptive (what happened): 40-60% marks
+   - Analytical (why/how): 60-80% marks
+   - Critical with evidence (evaluation with sources): 80-95% marks
+   - Example: "Policy failed" (surface) vs "Policy failed because stakeholders rejected funding terms" (analytical) vs "Policy failed because stakeholders rejected funding terms, which exposed a structural weakness in fiscal planning" (critical with evidence)"""
+
+    def _generate_evaluation_criteria(self) -> str:
+        """Generate detailed criteria section with dimensions."""
+        lines = [f"EVALUATION CRITERIA (Total: {self.rubric.total_marks} marks):"]
+        lines.append("=" * 80)
+
+        for i, dim in enumerate(self.rubric.dimensions, 1):
+            lines.append(f"\n{i}. {dim.name.upper()}")
+            lines.append(f"   Marks: {dim.max_marks}/{self.rubric.total_marks}")
+            lines.append(f"   Weight: {dim.weight_percent}%")
+            lines.append(f"   \n   Objective: {dim.objective}")
+            lines.append(f"   Assessment Focus: {dim.assessment_focus}")
+
+        return "\n".join(lines)
+
+    def _generate_indicator_checklist(self) -> str:
+        """Generate complete checklist of all indicators."""
+        lines = ["DETAILED INDICATOR CHECKLIST:"]
+        lines.append("=" * 80)
+        lines.append("You MUST verify EACH of the following indicators systematically:")
+        lines.append("")
+
+        for i, dim in enumerate(self.rubric.dimensions, 1):
+            lines.append(f"\n{i}. {dim.name} - VERIFY ALL {len(dim.indicators)} INDICATORS:")
+            lines.append(f"   (Award marks ONLY if indicators below are satisfied)")
+            lines.append("")
+
+            for j, indicator in enumerate(dim.indicators, 1):
+                lines.append(f"   [{i}.{j}] {indicator}")
+
+            lines.append("")
+
+        lines.append("=" * 80)
+        lines.append(f"TOTAL INDICATORS TO CHECK: {self.rubric.total_indicators}")
+        lines.append("=" * 80)
+
+        return "\n".join(lines)
+
+    def _generate_bot_instructions(self) -> str:
+        """Include bot-specific instructions from rubric."""
+        if not self.rubric.bot_instructions:
+            return ""
+
+        lines = ["BOT-SPECIFIC EVALUATION INSTRUCTIONS:"]
+        lines.append("=" * 80)
+        lines.append(self.rubric.bot_instructions)
+        lines.append("=" * 80)
+
+        return "\n".join(lines)
+
+    def _generate_output_requirements(self) -> str:
+        """Generate required JSON output structure."""
+        # Build dimension score keys dynamically
+        dimension_keys = []
+        for dim in self.rubric.dimensions:
+            # Create key like "understanding_0to4" from dimension name
+            key_name = self._dimension_to_key(dim.name)
+            max_marks = int(dim.max_marks)
+            dimension_keys.append(f'"{key_name}": <integer 0 to {max_marks}>')
+
+        dimension_keys_str = ",\n        ".join(dimension_keys)
+
+        return f"""REQUIRED JSON OUTPUT STRUCTURE:
+
+You MUST return a valid JSON object with the following structure:
+
+{{
+  "question_breakdown_detailed": "<string: Comprehensive explanation of what an ideal answer should cover - conceptual scope, key themes, theoretical requirements, multiple parts>",
+
+  "question_summary": "<string: Brief summary of question focus>",
+
+  "answer_summary": "<string: Brief summary of what answer covered>",
+
+  "scores": {{
+    {dimension_keys_str}
+  }},
+
+  "content_score_{self.rubric.total_marks}": <number: Sum of all dimension scores>,
+
+  "criterion_evaluator_comments": [
+    "<string: Detailed evaluator comment for dimension 1>",
+    "<string: Detailed evaluator comment for dimension 2>",
+    ... {len(self.rubric.dimensions)} comments total
+  ],
+
+  "strengths": [
+    "<string: Specific strength with exact quote (20-30 words) and why it's good>",
+    ... 3-8 detailed strengths
+  ],
+
+  "improvements": [
+    "<string: Specific improvement needed with quote and how to fix>",
+    ... 5-10 detailed improvements
+  ],
+
+  "issues": [
+    {{
+      "category": "<dimension name from rubric>",
+      "span": "<exact quote from answer (20-30 words minimum)>",
+      "problem": "<specific explanation of what's wrong>",
+      "fix": "<detailed actionable fix showing HOW to correct it>",
+      "severity_1to5": <integer 1-5>,
+      "why_it_matters": "<explanation tied to rubric criterion>",
+      "how_to_verify": "<what to check to confirm the fix>",
+      "evidence_suggestions": ["<specific source>", "<specific example>"],
+      "impact_points_0to3": <integer 0-3>,
+      "location_hint": "<Intro|Body|Conclusion|etc>"
+    }},
+    ... 15-25 detailed issues minimum
+  ],
+
+  "missing_points": [
+    "<specific point that should have been covered per rubric>",
+    ... 3-8 missing points
+  ],
+
+  "question_requirements": [
+    {{
+      "requirement": "<specific requirement from question>",
+      "expected_approach": "<what high-quality answer needs>",
+      "why_it_matters": "<why this requirement is important>",
+      "met": <boolean: true/false>
+    }},
+    ... 5-10 requirements
+  ],
+
+  "improvement_plan": [
+    {{
+      "focus_area": "<specific area needing work>",
+      "problem": "<what's currently lacking>",
+      "action_steps": "<concrete steps to improve>",
+      "evidence_or_examples": "<specific sources/examples to add>"
+    }},
+    ... 5-10 action items
+  ],
+
+  "model_answer_outline": {{
+    "introduction": {{
+      "key_terms_to_define": ["<term1>", "<term2>", ...],
+      "thesis_statement": "<clear argumentative thesis>",
+      "roadmap": "<how answer will proceed>"
+    }},
+    "background_context": "<brief historical/theoretical background if relevant>",
+    "main_arguments": [
+      {{
+        "argument_number": 1,
+        "heading": "<clear argument heading>",
+        "explanation": "<2-3 sentences explaining the argument>",
+        "example": "<specific example with dates/names/details>",
+        "counterpoint": "<opposing view or critique>",
+        "critical_insight": "<analytical observation>"
+      }},
+      ... 10-12 detailed arguments minimum
+    ],
+    "critical_evaluation": {{
+      "strengths_of_arguments": "<what works well>",
+      "limitations_and_weaknesses": "<what's problematic>",
+      "multiple_perspectives": "<different viewpoints compared>"
+    }},
+    "conclusion": {{
+      "summary_of_arguments": "<brief recap>",
+      "thesis_reaffirmation": "<restate thesis with nuance>",
+      "evaluative_closure": "<final judgment or insight>"
+    }}
+  }},
+
+  "evaluator_final_comments": "<string: Comprehensive 3-5 sentence overall assessment. Include: overall performance level, key strength, major weakness, priority improvement area, and final encouragement/guidance>"
+}}
+
+CRITICAL OUTPUT REQUIREMENTS:
+- ALL quotes in "span" fields must be 20-30 words minimum (not paraphrased)
+- ALL "fix" fields must show HOW to correct (not just "improve X")
+- ALL criterion_evaluator_comments must be 80-120 words each (detailed, not generic)
+- Model answer MUST have 10-12 detailed arguments minimum
+- Issues list MUST have 20-30 items minimum (increased from 15-25)
+- Every comment must reference specific rubric indicators
+- No generic feedback - everything must be question-specific and answer-specific"""
+
+    def _generate_execution_framework(self) -> str:
+        """Generate step-by-step execution instructions."""
+        return """MANDATORY EXECUTION FRAMEWORK (FOLLOW THIS SEQUENCE):
+
+You MUST complete these steps IN ORDER before generating your JSON response:
+
+STEP 1: QUESTION DECOMPOSITION (spend 30 seconds on this)
+════════════════════════════════════════════════════════════════
+Confirm the exact wording of the question provided above. You must evaluate ONLY that wording; do not infer or reuse any prior prompt.
+
+Read the question 3 times and answer:
+a) Is this a multi-part question? (Look for: "compare...and", "analyze...how", "discuss...evaluate")
+b) List EACH part separately:
+   - Part A: [what is being asked]
+   - Part B: [what is being asked]
+   - Part C: [if applicable]
+c) Does any part require LINKING to another part? (Keywords: "how do they", "what does this reveal", "reflect")
+d) Create expected structure: Part A needs X paragraphs, Part B needs Y paragraphs, linking needs Z evidence
+
+Document this in "question_breakdown_detailed" field with:
+- "This question has [NUMBER] parts:"
+- "Part 1: [Description] - requires [specific approach]"
+- "Part 2: [Description] - requires [specific approach]"
+- "Critical requirement: Student must LINK [Part A] TO [Part B] by showing [relationship]"
+
+STEP 2: ANSWER MAPPING (spend 60 seconds on this)
+════════════════════════════════════════════════════════════════
+Read the ENTIRE answer once, then create mental map:
+- Paragraph 1: Covers [topic]
+- Paragraph 2: Covers [topic]
+- Paragraph 3: Covers [topic]
+[etc for all paragraphs]
+
+For each paragraph, note:
+✓ Which question part does it address?
+✓ Does it have specific examples/evidence?
+✓ Is it descriptive (what) or analytical (why/how)?
+✓ Does it link to other parts if required?
+
+STEP 3: PART-BY-PART VERIFICATION (spend 90 seconds on this)
+════════════════════════════════════════════════════════════════
+For EACH part identified in Step 1:
+a) Which paragraphs address this part? [List paragraph numbers]
+b) Is coverage adequate? (Minimum 2-3 substantial paragraphs per part)
+c) Are there specific examples? (Names, dates, events, quotes from scholars)
+d) What's missing? (Compare against rubric indicators)
+e) Rate depth: Surface (0-40%), Descriptive (40-60%), Analytical (60-80%), Critical (80-100%)
+
+Create entry in "question_requirements" for EACH part:
+{{
+  "requirement": "Part 1: <Describe exactly what the question asks>",
+  "expected_approach": "Outline what a high-scoring answer must include for this part (evidence, analysis, comparisons, etc.)",
+  "why_it_matters": "<Link this requirement to the relevant rubric indicators>",
+  "met": false  // Set based on your verification
+}}
+
+STEP 4: LINKING ANALYSIS (spend 60 seconds on this - CRITICAL)
+════════════════════════════════════════════════════════════════
+If question requires connecting parts (e.g., "How do crises REFLECT weaknesses"):
+a) Does student have transition sentences? (Look for: "This reveals", "This demonstrates", "This reflects")
+b) Does student explicitly state: Crisis X → Weakness Y?
+c) Is the link just listed or actually EXPLAINED with reasoning?
+
+Examples of what to check:
+✗ BAD: "Event happened. Institutions were weak." (No link)
+✓ GOOD: "This event revealed institutional weakness BECAUSE the governing framework lacked mechanisms for civilian transfer of power."
+
+Count how many explicit links student provides. Minimum required: 3-5 clear links.
+If fewer than 3 links found, this is a MAJOR issue - add to issues list with severity 5.
+
+STEP 5: PARAGRAPH-BY-PARAGRAPH ISSUE EXTRACTION (spend 120 seconds - THIS IS WHERE YOU FIND 20-30 ISSUES)
+════════════════════════════════════════════════════════════════
+Go through answer paragraph by paragraph. For EACH paragraph:
+
+Paragraph [N] - [Topic it covers]:
+- Claim made: "[Quote exact sentence]"
+  └→ Issue: [If any - check against indicators]
+- Evidence provided: "[What evidence/example]"
+  └→ Issue: [If insufficient, generic, or inaccurate]
+- Analysis depth: [Surface/Descriptive/Analytical/Critical]
+  └→ Issue: [If just descriptive when should be analytical]
+- Terminology: [Check for correct terms]
+  └→ Issue: [If terms misused]
+- Structure: [Check paragraph flow]
+  └→ Issue: [If disorganized or off-topic]
+
+For EACH issue found, immediately create entry:
+{{
+  "category": "[Dimension from rubric]",
+  "span": "[Exact 20-30 word quote from answer]",
+  "problem": "[Specific explanation: Student says X but this is wrong because Y]",
+  "fix": "[Detailed fix: Instead write: 'Z with evidence A, B, C']",
+  "severity_1to5": [1-5],
+  "why_it_matters": "[Tied to rubric indicator]",
+  "how_to_verify": "[What to check]",
+  "evidence_suggestions": ["[Specific source/example]"],
+  "impact_points_0to3": [0-3],
+  "location_hint": "[Paragraph number or section]"
+}}
+
+TARGET: Minimum 20-30 issues. Look for:
+- Missing examples (5-8 issues)
+- Superficial analysis (3-5 issues)
+- Terminology errors (2-4 issues)
+- Missing links between parts (3-5 issues)
+- Structural problems (2-3 issues)
+- Factual inaccuracies (3-5 issues)
+- Missing question parts (1-2 issues)
+- Weak conclusions (1-2 issues)
+
+STEP 6: CRITERION SCORING WITH DETAILED COMMENTS (spend 90 seconds)
+════════════════════════════════════════════════════════════════
+For EACH of the {self.rubric.total_indicators} dimensions:
+a) Review indicators for this dimension from rubric
+b) Check which indicators student satisfied (✓) and which not (✗)
+c) Assign score based on indicators met (be strict!)
+d) Write 80-120 word comment explaining:
+   - Which indicators were met (mention specific ones)
+   - Which indicators were NOT met (mention specific ones)
+   - Exact examples from answer (quote 15-20 words)
+   - What would be needed for higher score
+
+Example comment (120 words):
+"For Understanding of Question dimension, student references both required themes (✓ Indicator 1.2) with separate sections. However, student fails to identify that the question demands a CAUSAL link between the themes (✗ Indicator 1.1). Introduction states 'both contexts faced setbacks' but body paragraphs treat them as isolated descriptive accounts. Student writes 'Policy collapsed' and 'Institutions were weak' but never connects the two with explicit reasoning. To meet all indicators: restructure answer to show how Part A leads to Outcome X (with mechanism) and how Part B leads to Outcome Y. Add transitions such as: 'This development reveals a structural weakness because…'. Current score: 2/4 marks. Could reach 3-4/4 with clear causal linkage and supporting evidence."
+
+STEP 7: GENERATE COMPREHENSIVE MODEL ANSWER OUTLINE (spend 90 seconds)
+════════════════════════════════════════════════════════════════
+Create 10-12 detailed arguments showing EXACTLY how to answer question correctly:
+
+Argument 1: [Clear heading related to first part of question]
+- Explanation: [2-3 sentences with analytical depth]
+- Example: [Specific evidence: dates, names, events, data]
+- Link: [If multi-part, show connection to other parts]
+
+[Repeat for 10-12 arguments]
+
+Each argument must be SUBSTANTIAL (50-80 words) and show the level of detail expected.
+
+STEP 8: FINAL COMMENT SYNTHESIS (spend 30 seconds)
+════════════════════════════════════════════════════════════════
+Write 4-5 sentence overall assessment covering:
+1. Overall performance level and score justification
+2. Single biggest strength with specific example
+3. Single biggest weakness with specific example
+4. Priority action item for improvement
+5. Encouraging but honest closing remark
+
+═══════════════════════════════════════════════════════════════════
+AFTER COMPLETING ALL 8 STEPS, generate your JSON response.
+DO NOT skip any steps. DO NOT rush through steps.
+Your evaluation quality depends on following this framework methodically.
+═══════════════════════════════════════════════════════════════════"""
+
+    def _generate_strictness_reminder(self) -> str:
+        """Final reminder about strictness."""
+        return f"""FINAL STRICTNESS REMINDER:
+
+- Be MORE CRITICAL than lenient
+- Maximum achievable: {self.STRICT_MAX_20_MARKS}/{self.rubric.total_marks} marks
+- Average CSS answers: {int(self.rubric.total_marks * 0.5)}-{int(self.rubric.total_marks * 0.65)} marks
+- Only truly exceptional work reaches {int(self.STRICT_MAX_20_MARKS * 0.9)}-{self.STRICT_MAX_20_MARKS}
+- Follow ALL {self.rubric.total_indicators} indicators rigorously
+- Provide SPECIFIC examples with EXACT quotes for everything
+- Generate comprehensive model answer with 10-12 detailed arguments
+
+Remember: CSS pass rate is <5%. Maintain exceptionally high standards.
+Be thorough, precise, and uncompromisingly strict in your assessment."""
+
+    @staticmethod
+    def _dimension_to_key(dimension_name: str) -> str:
+        """
+        Convert dimension name to JSON key format.
+
+        Examples:
+            "Understanding of Question and Relevance" -> "understanding_0to4"
+            "Conceptual Clarity and Theoretical Depth" -> "conceptual_clarity_0to5"
+        """
+        # Take first word or first two words
+        words = dimension_name.lower().split()
+
+        if len(words) == 1:
+            key_base = words[0]
+        else:
+            # Use first two words for clarity, or just first if it's descriptive enough
+            key_base = "_".join(words[:2]) if len(words[0]) < 8 else words[0]
+
+        # Clean up
+        key_base = key_base.replace("&", "and").replace("-", "_")
+        key_base = ''.join(c for c in key_base if c.isalnum() or c == '_')
+
+        return key_base
+
+
+    def generate_json_schema(self) -> Dict[str, Any]:
+        """
+        Generate dynamic JSON schema for LLM response validation.
+
+        Returns:
+            JSON schema dict compatible with Groq/OpenAI structured outputs
+        """
+        # Build dynamic score properties
+        score_properties = {}
+        score_required = []
+
+        for dim in self.rubric.dimensions:
+            key_name = self._dimension_to_key(dim.name)
+            max_marks = int(dim.max_marks)
+
+            score_properties[key_name] = {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": max_marks,
+                "description": f"{dim.name} (max {max_marks} marks)"
+            }
+            score_required.append(key_name)
+
+        # Build complete schema
+        schema = {
+            "name": f"{self.rubric.subject}_evaluation_schema",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "question_breakdown_detailed": {
+                        "type": "string",
+                        "description": "Comprehensive explanation of what an ideal answer should cover"
+                    },
+                    "question_summary": {
+                        "type": "string",
+                        "description": "Brief summary of question focus"
+                    },
+                    "answer_summary": {
+                        "type": "string",
+                        "description": "Brief summary of what answer covered"
+                    },
+                    "scores": {
+                        "type": "object",
+                        "properties": score_properties,
+                        "required": score_required,
+                        "additionalProperties": False
+                    },
+                    f"content_score_{self.rubric.total_marks}": {
+                        "type": "number",
+                        "description": f"Sum of all dimension scores (max {self.rubric.total_marks})"
+                    },
+                    "criterion_evaluator_comments": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": len(self.rubric.dimensions),
+                        "maxItems": len(self.rubric.dimensions),
+                        "description": f"Detailed comments for each of the {len(self.rubric.dimensions)} criteria"
+                    },
+                    "strengths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 3,
+                        "maxItems": 10,
+                        "description": "Specific strengths with exact quotes"
+                    },
+                    "improvements": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 5,
+                        "maxItems": 15,
+                        "description": "Specific improvements with actionable fixes"
+                    },
+                    "issues": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "category": {"type": "string"},
+                                "span": {"type": "string"},
+                                "problem": {"type": "string"},
+                                "fix": {"type": "string"},
+                                "severity_1to5": {"type": "integer", "minimum": 1, "maximum": 5},
+                                "why_it_matters": {"type": "string"},
+                                "how_to_verify": {"type": "string"},
+                                "evidence_suggestions": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "impact_points_0to3": {"type": "integer", "minimum": 0, "maximum": 3},
+                                "location_hint": {"type": "string"}
+                            },
+                            "required": ["category", "span", "problem", "fix", "severity_1to5"],
+                            "additionalProperties": False
+                        },
+                        "minItems": 15,
+                        "maxItems": 30,
+                        "description": "Detailed issues with quotes and fixes"
+                    },
+                    "missing_points": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Key points that should have been covered"
+                    },
+                    "question_requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "requirement": {"type": "string"},
+                                "expected_approach": {"type": "string"},
+                                "why_it_matters": {"type": "string"},
+                                "met": {"type": "boolean"}
+                            },
+                            "required": ["requirement", "expected_approach"],
+                            "additionalProperties": False
+                        }
+                    },
+                    "improvement_plan": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "focus_area": {"type": "string"},
+                                "problem": {"type": "string"},
+                                "action_steps": {"type": "string"},
+                                "evidence_or_examples": {"type": "string"}
+                            },
+                            "required": ["focus_area", "action_steps"],
+                            "additionalProperties": False
+                        }
+                    },
+                    "model_answer_outline": {
+                        "type": "object",
+                        "properties": {
+                            "introduction": {
+                                "type": "object",
+                                "properties": {
+                                    "key_terms_to_define": {
+                                        "type": "array",
+                                        "items": {"type": "string"}
+                                    },
+                                    "thesis_statement": {"type": "string"},
+                                    "roadmap": {"type": "string"}
+                                },
+                                "required": ["thesis_statement"],
+                                "additionalProperties": False
+                            },
+                            "background_context": {"type": "string"},
+                            "main_arguments": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "argument_number": {"type": "integer"},
+                                        "heading": {"type": "string"},
+                                        "explanation": {"type": "string"},
+                                        "example": {"type": "string"},
+                                        "counterpoint": {"type": "string"},
+                                        "critical_insight": {"type": "string"}
+                                    },
+                                    "required": ["argument_number", "heading", "explanation"],
+                                    "additionalProperties": False
+                                },
+                                "minItems": 10,
+                                "maxItems": 15,
+                                "description": "10-12 detailed arguments minimum"
+                            },
+                            "critical_evaluation": {
+                                "type": "object",
+                                "properties": {
+                                    "strengths_of_arguments": {"type": "string"},
+                                    "limitations_and_weaknesses": {"type": "string"},
+                                    "multiple_perspectives": {"type": "string"}
+                                },
+                                "additionalProperties": False
+                            },
+                            "conclusion": {
+                                "type": "object",
+                                "properties": {
+                                    "summary_of_arguments": {"type": "string"},
+                                    "thesis_reaffirmation": {"type": "string"},
+                                    "evaluative_closure": {"type": "string"}
+                                },
+                                "required": ["thesis_reaffirmation"],
+                                "additionalProperties": False
+                            }
+                        },
+                        "required": ["introduction", "main_arguments", "conclusion"],
+                        "additionalProperties": False
+                    },
+                    "evaluator_final_comments": {
+                        "type": "string",
+                        "description": "Comprehensive 3-5 sentence overall assessment"
+                    }
+                },
+                "required": [
+                    "question_breakdown_detailed",
+                    "scores",
+                    f"content_score_{self.rubric.total_marks}",
+                    "criterion_evaluator_comments",
+                    "issues",
+                    "model_answer_outline",
+                    "evaluator_final_comments"
+                ],
+                "additionalProperties": False
+            }
+        }
+
+        return schema
+
+
+# ======================== Convenience Functions ========================
+
+def generate_prompt_for_subject(subject: str) -> str:
+    """
+    Generate evaluation prompt for a subject (convenience function).
+
+    Args:
+        subject: Subject name (e.g., "Political Science")
+
+    Returns:
+        Complete system prompt string
+
+    Example:
+        >>> prompt = generate_prompt_for_subject("Political Science")
+        >>> # Use with Groq or other LLM
+    """
+    from .rubric_parser import load_rubric
+
+    rubric = load_rubric(subject)
+    generator = PromptGenerator(rubric)
+    return generator.generate_system_prompt()
+
+
+def generate_schema_for_subject(subject: str) -> Dict[str, Any]:
+    """
+    Generate JSON schema for a subject (convenience function).
+
+    Args:
+        subject: Subject name (e.g., "Political Science")
+
+    Returns:
+        JSON schema dict
+    """
+    from .rubric_parser import load_rubric
+
+    rubric = load_rubric(subject)
+    generator = PromptGenerator(rubric)
+    return generator.generate_json_schema()
+
+
+def generate_user_prompt(question: str, answer: str, subject: Optional[str] = None) -> str:
+    """
+    Generate user prompt with question and answer.
+
+    Args:
+        question: The question text
+        answer: The student's answer text
+        subject: Optional subject name for context
+
+    Returns:
+        User prompt string
+    """
+    context = f" for CSS {subject}" if subject else ""
+
+    return f"""Evaluate this answer{context} following the rubric criteria exactly.
+
+QUESTION (treat this wording as the ONLY authoritative prompt; do NOT infer or reuse any previous question):
+{question}
+
+STUDENT'S ANSWER (judge strictly against the question above):
+{answer}
+
+Provide a comprehensive evaluation in JSON format as specified in the system prompt.
+Remember: Be exceptionally strict, follow all indicators, provide specific examples with exact quotes."""
