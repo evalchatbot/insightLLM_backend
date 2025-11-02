@@ -110,7 +110,7 @@ class RubricParser:
             # This file is in: backend/utils/rubric_parser.py
             # Rubrics is at: backend/Rubrics/
             backend_dir = Path(__file__).resolve().parents[1]
-            rubrics_base_dir = backend_dir.parent / "Rubrics"
+            rubrics_base_dir = backend_dir / "Rubrics"
 
         self.rubrics_base_dir = Path(rubrics_base_dir)
 
