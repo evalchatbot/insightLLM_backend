@@ -233,7 +233,7 @@ async def debug_rubrics():
 
         # Calculate Rubrics path (same logic as rubric_parser)
         backend_dir = Path(__file__).resolve().parents[1]
-        rubrics_dir = backend_dir.parent / "Rubrics"
+        rubrics_dir = backend_dir / "Rubrics"
 
         debug_info["rubrics_path"] = str(rubrics_dir)
         debug_info["rubrics_exists"] = rubrics_dir.exists()
