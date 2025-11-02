@@ -192,17 +192,30 @@ async def get_subjects():
     Get all available subjects from rubric folders.
     Returns dynamically based on Rubrics folder contents.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
+        logger.info("Attempting to load subjects...")
         subjects = get_all_available_subjects()
+        logger.info(f"Successfully loaded {len(subjects)} subjects")
         return {
             "subjects": subjects,
             "count": len(subjects)
         }
+    except ImportError as e:
+        logger.error(f"Import error loading subjects: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Import error: {e}")
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Failed to load subjects: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to load subjects: {e}")
+        # Return detailed error info for debugging
+        import traceback
+        error_detail = {
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }
+        raise HTTPException(status_code=500, detail=str(error_detail))
 
 @router.get("/debug/rubrics")
 async def debug_rubrics():
