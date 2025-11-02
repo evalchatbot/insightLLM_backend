@@ -199,4 +199,58 @@ async def get_subjects():
             "count": len(subjects)
         }
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to load subjects: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to load subjects: {e}")
+
+@router.get("/debug/rubrics")
+async def debug_rubrics():
+    """
+    Debug endpoint to check Rubrics folder status.
+    Returns information about the Rubrics directory and files.
+    """
+    from pathlib import Path
+    import os
+
+    debug_info = {
+        "python_docx_available": False,
+        "rubrics_path": None,
+        "rubrics_exists": False,
+        "rubrics_files": [],
+        "cwd": os.getcwd(),
+        "file_location": str(Path(__file__).resolve()),
+        "error": None
+    }
+
+    try:
+        # Check python-docx
+        try:
+            import docx
+            debug_info["python_docx_available"] = True
+        except ImportError:
+            debug_info["error"] = "python-docx not installed"
+
+        # Calculate Rubrics path (same logic as rubric_parser)
+        backend_dir = Path(__file__).resolve().parents[1]
+        rubrics_dir = backend_dir.parent / "Rubrics"
+
+        debug_info["rubrics_path"] = str(rubrics_dir)
+        debug_info["rubrics_exists"] = rubrics_dir.exists()
+
+        if rubrics_dir.exists():
+            # List all .docx files
+            docx_files = list(rubrics_dir.glob("**/*.docx"))
+            debug_info["rubrics_files"] = [str(f.relative_to(rubrics_dir)) for f in docx_files]
+            debug_info["rubrics_count"] = len(docx_files)
+        else:
+            # Try to list what's in the parent directory
+            parent_contents = list(backend_dir.parent.iterdir()) if backend_dir.parent.exists() else []
+            debug_info["parent_directory_contents"] = [str(p.name) for p in parent_contents]
+
+    except Exception as e:
+        import traceback
+        debug_info["error"] = str(e)
+        debug_info["traceback"] = traceback.format_exc()
+
+    return debug_info
