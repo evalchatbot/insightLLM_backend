@@ -16,6 +16,5 @@ PyPDF2==3.0.1
 uvicorn[standard]
 python-multipart==0.0.20
 langsmith==0.4.14
-azure-ai-documentintelligence==1.0.2
-groq==0.13.0
+requests==2.32.3
 python-docx

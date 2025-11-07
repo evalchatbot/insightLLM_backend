@@ -1,47 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 v6: "Detailed Issues"
 - Issues now include: why_it_matters, how_to_verify, evidence_suggestions[], impact_points_0to3, location_hint.
 - Issues page renders these fields with clear subheadings and bullets.
 - Preserves v5: dynamic overlay sizing, bold red final score, 'Evaluation — Question N' title, nested outline.
-
 Install:
   pip install azure-ai-documentintelligence==1.0.2 python-dotenv==1.0.1 \
               groq==0.13.0 PyMuPDF==1.26.4
-
 .env:
   AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=...
   AZURE_DOCUMENT_INTELLIGENCE_API_KEY=...
   GROQ_API_KEY=...
 """
-
 import argparse, html, json, os, re, sys, time, math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple, Any
-
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError, ServiceRequestError
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from groq import Groq
 import fitz  # PyMuPDF
-
-
 # --------------------------- Config & Constants --------------------------- #
-
 SUPPORTED_SCHEMA_MODELS = {
     "openai/gpt-oss-20b","openai/gpt-oss-120b",
     "moonshotai/kimi-k2-instruct","moonshotai/kimi-k2-instruct-0905",
     "meta-llama/llama-4-maverick-17b-128e-instruct","meta-llama/llama-4-scout-17b-16e-instruct",
 }
-
 ISSUE_TYPES = ["Spelling","Grammar","Punctuation","Sentence Structure"]
-
 DEFAULT_MIN_WORD_COUNT = 800
-
 DATE_WORDS = {"january","february","march","april","may","june","july","august",
               "september","october","november","december","jan","feb","mar","apr",
               "jun","jul","aug","sep","sept","oct","nov","dec","bc","ad","ce","bce"}
@@ -54,7 +43,6 @@ DATE_REGEXES = [
     re.compile(r"\b\d{1,2}\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{2,4}\b", re.I),
     re.compile(r"\b\d{4}\s*[\u2013\-–]\s*\d{4}\b"),
 ]
-
 QUESTION_STRICT = re.compile(
     r"""^\s*
         (?:
@@ -69,10 +57,7 @@ QUESTION_STRICT = re.compile(
 )
 OUTLINE_LINE = re.compile(r"^\s*outline\b", re.I)
 LONE_QUESTION = re.compile(r"^\s*question\s*$", re.I)
-
-
 # ------------------------------ Data Types -------------------------------- #
-
 @dataclass
 class QAItem:
     number: int
@@ -80,14 +65,12 @@ class QAItem:
     answer: str
     start_page: int
     end_page: int
-
 @dataclass
 class IssueRow:
     type: str
     issue: str
     suggestion: str
     explanation: str
-
 @dataclass
 class QAReportDetailed:
     number: int
@@ -116,18 +99,13 @@ class QAReportDetailed:
     score_max: float = 20.0
     final_score_cap: float = 20.0
     criterion_labels: Optional[List[Dict[str, Any]]] = field(default_factory=list)
-
     # NEW FIELDS for rubric-based evaluation (added 2025-11-01)
     question_breakdown_detailed: str = ""  # What ideal answer should cover (conceptual scope, themes, requirements)
     evaluator_final_comments: str = ""     # Overall assessment paragraph
     model_answer_outline: Dict[str, Any] = field(default_factory=dict)  # Structured model with 10-12 arguments
     criterion_evaluator_comments: List[str] = field(default_factory=list)  # Per-criterion detailed feedback
-
-
 # --------------------------- Env & Utilities --------------------------- #
-
 def eprint(*args, **kwargs): print(*args, file=sys.stderr, **kwargs)
-
 def load_env() -> Tuple[str, str, str]:
     load_dotenv()
     endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
@@ -138,7 +116,6 @@ def load_env() -> Tuple[str, str, str]:
     if not groq_key:
         raise RuntimeError("Missing GROQ_API_KEY in .env")
     return endpoint, key, groq_key
-
 def ensure_pdf_output_path(input_pdf: Path, requested: Optional[str]) -> Path:
     if requested:
         out_path = Path(requested).expanduser().resolve()
@@ -148,20 +125,15 @@ def ensure_pdf_output_path(input_pdf: Path, requested: Optional[str]) -> Path:
             out_path = out_path.with_suffix(".pdf")
         return out_path
     return input_pdf.with_name(f"{input_pdf.stem}_annotated.pdf")
-
-
 # -------------------------------- OCR ---------------------------------- #
-
 def _save_extracted_text_debug(pdf_path: Path, page_texts: List[str]) -> None:
     """Save extracted OCR text to a local file for quality verification (temporary debug feature)."""
     try:
         # Create debug output directory if it doesn't exist
         debug_dir = pdf_path.parent / "ocr_debug_output"
         debug_dir.mkdir(exist_ok=True)
-
         # Generate output filename based on input PDF
         output_file = debug_dir / f"{pdf_path.stem}_extracted_text.txt"
-
         # Write extracted text with page separators
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(f"OCR Extraction Debug Output\n")
@@ -170,23 +142,19 @@ def _save_extracted_text_debug(pdf_path: Path, page_texts: List[str]) -> None:
             f.write(f"Total Pages: {len(page_texts)}\n")
             f.write(f"Mode: Base OCR (no premium features)\n")
             f.write("=" * 80 + "\n\n")
-
             for page_num, text in enumerate(page_texts, start=1):
                 f.write(f"\n{'=' * 80}\n")
                 f.write(f"PAGE {page_num} / {len(page_texts)}\n")
                 f.write(f"{'=' * 80}\n\n")
                 f.write(text if text else "(Empty page)")
                 f.write("\n\n")
-
             f.write(f"\n{'=' * 80}\n")
             f.write(f"END OF EXTRACTION\n")
             f.write(f"Character Count: {sum(len(t) for t in page_texts)}\n")
             f.write(f"{'=' * 80}\n")
-
         eprint(f"[Debug] Extracted text saved to: {output_file}")
     except Exception as e:
         eprint(f"[Debug] Failed to save extracted text: {e}")
-
 def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 120, max_retries: int = 3) -> List[str]:
     """Azure Document Intelligence 'prebuilt-read' (printed + handwritten)."""
     endpoint, key, _ = load_env()
@@ -195,7 +163,6 @@ def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 
     # Previous cost: 6 pages × 2 (base + feature) = 12 billed pages
     # New cost: 6 pages × 1 (base only) = 6 billed pages (50% savings)
     # features = [DocumentAnalysisFeature.OCR_HIGH_RESOLUTION]  # DISABLED for cost savings
-
     attempt = 0
     while True:
         try:
@@ -210,7 +177,6 @@ def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 
             backoff = 2 ** attempt
             eprint(f"[Azure OCR] transient: {ex}; retrying in {backoff}s ({attempt}/{max_retries})")
             time.sleep(backoff)
-
     page_texts: List[str] = []
     if getattr(result, "pages", None):
         lines_by_page: Dict[int, List[str]] = {p.page_number: [] for p in result.pages}
@@ -227,23 +193,16 @@ def run_ocr_with_retries(pdf_path: Path, pages: Optional[str], timeout_s: int = 
             page_texts.append("\n".join(lines_by_page[pnum]).strip())
     else:
         page_texts = [getattr(result, "content", "") or ""]
-
     # Save extracted text to local file for quality verification
     _save_extracted_text_debug(pdf_path, page_texts)
-
     return page_texts
-
-
 # ------------------------- Question Segmentation ----------------------- #
-
 def _looks_like_question(line: str) -> Optional[re.Match]:
     return QUESTION_STRICT.match(line) if line else None
-
 def _join_q_line(prev: str, nxt: str) -> str:
     if prev.rstrip().endswith('-'):
         return prev.rstrip()[:-1] + nxt.lstrip()
     return prev.rstrip() + " " + nxt.lstrip()
-
 def _capture_full_question(lines: List[str], start_i: int) -> (str, int):
     """
     Capture until:
@@ -273,12 +232,10 @@ def _capture_full_question(lines: List[str], start_i: int) -> (str, int):
                 break
         j += 1
     return q.strip(), j
-
 def segment_questions(page_texts: List[str]) -> List[QAItem]:
     qas: List[QAItem] = []
     current = None
     qnum = 0
-
     for p_idx, page_text in enumerate(page_texts, start=1):
         lines = page_text.splitlines()
         i = 0
@@ -295,7 +252,6 @@ def segment_questions(page_texts: List[str]) -> List[QAItem]:
                 else:
                     i += 1
                 continue
-
             m = _looks_like_question(line)
             if m:
                 if current:
@@ -318,7 +274,6 @@ def segment_questions(page_texts: List[str]) -> List[QAItem]:
                         continue
                     current["ans"].append(line)
             i += 1
-
     if current:
         qnum += 1
         qas.append(QAItem(
@@ -329,10 +284,7 @@ def segment_questions(page_texts: List[str]) -> List[QAItem]:
             end_page=len(page_texts)
         ))
     return qas
-
-
 # ----------------------- Question Alignment Helpers --------------------- #
-
 QUESTION_KEYWORD_STOPWORDS = {
     "what", "which", "whose", "where", "when", "why", "how",
     "does", "do", "did", "was", "were", "is", "are", "am",
@@ -341,8 +293,6 @@ QUESTION_KEYWORD_STOPWORDS = {
     "discuss", "explain", "compare", "evaluate", "critically",
     "analyze", "analysis", "examine", "assess"
 }
-
-
 def _question_keyword_overlap(question: str, answer: str, min_len: int = 5) -> Tuple[float, List[str]]:
     """
     Estimate lexical overlap between question keywords and answer content.
@@ -350,7 +300,6 @@ def _question_keyword_overlap(question: str, answer: str, min_len: int = 5) -> T
     """
     if not question or not answer:
         return 1.0, []
-
     q_tokens = re.findall(r"[a-z]+", question.lower())
     keywords: List[str] = []
     seen = set()
@@ -363,18 +312,13 @@ def _question_keyword_overlap(question: str, answer: str, min_len: int = 5) -> T
             continue
         seen.add(tok)
         keywords.append(tok)
-
     if not keywords:
         return 1.0, []
-
     answer_tokens = set(re.findall(r"[a-z]+", answer.lower()))
     missing = [tok for tok in keywords if tok not in answer_tokens]
     ratio = 1.0 - (len(missing) / len(keywords))
     return max(0.0, ratio), missing[:6]
-
-
 # ---------------------- Groq helpers (JSON modes) ---------------------- #
-
 GROQ_SYSTEM_WRITING = (
     "You are an expert proofreader for student quizzes. "
     "Categories: Spelling, Grammar, Punctuation, Sentence Structure. "
@@ -384,7 +328,6 @@ GROQ_SYSTEM_WRITING = (
     "3) Quote exact fragment in 'issue', and provide a minimal 'suggestion'.\n"
     "Return ONLY JSON."
 )
-
 GROQ_SYSTEM_CSS_DETAILED = (
     "You are a senior examiner for Pakistan's CSS-style answers. Be strict and evidence-based.\n"
     "Score with FULL scale and list concrete problems (quote + why + how to fix).\n"
@@ -404,7 +347,6 @@ GROQ_SYSTEM_CSS_DETAILED = (
     "For 'suggested_outline', return 8–14 objects {heading, bullets[2–4]} with concrete, exam-grade bullets.\n"
     "Return ONLY JSON."
 )
-
 DEFAULT_EVAL_CRITERIA = [
     {
         "json_key": "relevance_0to4",
@@ -442,7 +384,6 @@ DEFAULT_EVAL_CRITERIA = [
         "detail_text": "Intro→Body→Conclusion, transitions.",
     },
 ]
-
 JSON_SCHEMA_WRITING = {
     "name": "page_issues_schema",
     "strict": True,
@@ -468,7 +409,6 @@ JSON_SCHEMA_WRITING = {
         "additionalProperties": False
     }
 }
-
 JSON_SCHEMA_CSS_DETAILED = {
     "name": "qa_css_detailed_schema",
     "strict": True,
@@ -558,7 +498,6 @@ JSON_SCHEMA_CSS_DETAILED = {
         "additionalProperties": False
     }
 }
-
 def _parse_json_loose(text: str) -> Optional[dict]:
     try: return json.loads(text)
     except Exception:
@@ -567,7 +506,6 @@ def _parse_json_loose(text: str) -> Optional[dict]:
             try: return json.loads(m.group(0))
             except Exception: return None
     return None
-
 def groq_call_json(client: Groq, model: str, system: str, user: str,
                    schema: Optional[dict], timeout_s: int = 60, max_retries: int = 3) -> dict:
     """Prefer JSON Schema when supported; else json_object fallback."""
@@ -600,10 +538,7 @@ def groq_call_json(client: Groq, model: str, system: str, user: str,
             backoff = 2 ** attempt
             eprint(f"[Groq] transient / JSON error: {ex}. retry in {backoff}s ({attempt}/{max_retries})")
             time.sleep(backoff)
-
-
 # -------------------- Writing QA (page & answer texts) ------------------ #
-
 def drop_ignorable_issues(issues: List[dict]) -> List[dict]:
     cleaned = []
     for it in (issues or []):
@@ -617,7 +552,6 @@ def drop_ignorable_issues(issues: List[dict]) -> List[dict]:
             if any(r.search(frag) for r in DATE_REGEXES): continue
         cleaned.append(it)
     return cleaned
-
 def writing_issues_for_page(groq_client: Groq, model: str, page_text: str) -> List[IssueRow]:
     payload = (
         "Return JSON matching:\n"
@@ -633,7 +567,6 @@ def writing_issues_for_page(groq_client: Groq, model: str, page_text: str) -> Li
                      (it.get("suggestion") or "").strip(),
                      (it.get("explanation") or "").strip())
             for it in issues if it.get("type") and it.get("issue")]
-
 def writing_issues_for_text(groq_client: Groq, model: str, text: str) -> List[IssueRow]:
     payload = (
         "Return JSON matching:\n"
@@ -649,7 +582,6 @@ def writing_issues_for_text(groq_client: Groq, model: str, text: str) -> List[Is
                      (it.get("suggestion") or "").strip(),
                      (it.get("explanation") or "").strip())
             for it in issues if it.get("type") and it.get("issue")]
-
 def writing_score_bins_value_and_label(answer_issues: List[IssueRow]) -> (float, str):
     s = sum(1 for x in answer_issues if x.type.lower()=="spelling")
     g = sum(1 for x in answer_issues if x.type.lower()=="grammar")
@@ -660,10 +592,7 @@ def writing_score_bins_value_and_label(answer_issues: List[IssueRow]) -> (float,
     if 11 <= t <= 20: return 1.0, "1.0 /2 (11–20 mistakes)"
     if 21 <= t <= 25: return 0.5, "0.5 /2 (21–25 mistakes)"
     return 0.0, "0.0 /2 (>25 mistakes)"
-
-
 # --------------- CSS-style Question→Answer Evaluation ------------------ #
-
 def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> str:
     if profile:
         criteria = profile.get("criteria", [])
@@ -743,7 +672,6 @@ def _css_user_prompt(qa: QAItem, profile: Optional[Dict[str, Any]] = None) -> st
         "STUDENT ANSWER (evaluate strictly against the question above):\n"
         f"{qa.answer[:12000]}"
     )
-
 def evaluate_qa_detailed(
     groq_client: Groq,
     model: str,
@@ -757,14 +685,11 @@ def evaluate_qa_detailed(
     system_prompt = profile.get("system_prompt", GROQ_SYSTEM_CSS_DETAILED)
     schema = profile.get("schema", JSON_SCHEMA_CSS_DETAILED)
     user_prompt = _css_user_prompt(qa, profile if subject_profile else None)
-
     data = groq_call_json(groq_client, model, system_prompt, user_prompt, schema)
-
     def _to_int(x, lo, hi):
         try: v = int(x)
         except Exception: v = 0
         return max(lo, min(hi, v))
-
     question_summary = str(data.get("question_summary", "")).strip()
     answer_summary = str(data.get("answer_summary", "")).strip()
     raw_requirements = data.get("question_requirements") or []
@@ -783,7 +708,6 @@ def evaluate_qa_detailed(
             "met": bool(req.get("met", False)),
         }
         question_requirements.append(entry)
-
     raw_plan = data.get("improvement_plan") or []
     improvement_plan: List[Dict[str, Any]] = []
     for step in raw_plan:
@@ -799,7 +723,6 @@ def evaluate_qa_detailed(
             "action_steps": actions,
             "evidence_or_examples": str(step.get("evidence_or_examples", "")).strip(),
         })
-
     scores = data.get("scores", {}) or {}
     attr_values: Dict[str, int] = {}
     criterion_info: List[Dict[str, Any]] = []
@@ -824,13 +747,11 @@ def evaluate_qa_detailed(
             "max": max_points,
             "detail": detail,
         })
-
     rel = int(attr_values.get("relevance", 0))
     cov = int(attr_values.get("coverage", 0))
     acc = int(attr_values.get("accuracy", 0))
     ana = int(attr_values.get("analysis", 0))
     org = int(attr_values.get("organization", 0))
-
     # Detailed issues
     detailed_issues = []
     raw_issues = data.get("issues") or []
@@ -861,11 +782,8 @@ def evaluate_qa_detailed(
             "impact_points_0to3": 2,
             "location_hint": "Body"
         })
-
     improvements = [str(s) for s in (data.get("improvements") or [])][:10]
-
     missing_points = [str(x) for x in (data.get("missing_points") or [])][:18]
-
     min_word_requirement = int(profile.get("min_word_count", DEFAULT_MIN_WORD_COUNT))
     word_count = len(re.findall(r"[A-Za-z0-9']+", qa.answer or ""))
     word_ratio = (word_count / min_word_requirement) if min_word_requirement else 1.0
@@ -899,7 +817,6 @@ def evaluate_qa_detailed(
         if word_improvement not in improvements:
             improvements.append(word_improvement)
         content_penalty_limit = min(content_penalty_limit or content_target, content_target * max(word_ratio, 0.3))
-
     for mp in missing_points:
         text_mp = mp.strip()
         if not text_mp:
@@ -918,17 +835,14 @@ def evaluate_qa_detailed(
                 "impact_points_0to3": 2,
                 "location_hint": "Body"
             })
-
     # Stricter deductions based on severity + missing points (like v5)
     severe = sum(1 for it in detailed_issues if it["severity_1to5"] >= 4)
     ded_issues = min(3, severe)
     ded_missing = 1 if len(missing_points)>=1 else 0
     ded_missing += 1 if len(missing_points)>=3 else 0
     ded_missing += 1 if len(missing_points)>=5 else 0
-
     content_cap = float(profile.get("content_cap", total_cap or 18))
     content_target = float(profile.get("content_target", content_cap))
-
     overlap_ratio, missing_keywords = _question_keyword_overlap(qa.question or "", qa.answer or "")
     content_penalty_limit = None
     if (qa.question or "") and overlap_ratio < 0.30:
@@ -999,7 +913,6 @@ def evaluate_qa_detailed(
         if core_improvement not in improvements:
             improvements.insert(0, core_improvement)
         improvements = improvements[:10]
-
     penalty_keywords = {
         "relevance": ("relevance", "understanding"),
         "coverage": ("coverage", "breadth", "depth"),
@@ -1021,7 +934,6 @@ def evaluate_qa_detailed(
                     style_penalty += penalty
                 else:
                     attr_penalties[attr] += penalty
-
     for crit in criterion_info:
         attr = crit.get("attr")
         if not attr or attr == "relevance":
@@ -1036,9 +948,6 @@ def evaluate_qa_detailed(
             crit["value"] = new_val
             detail_text = (crit.get("detail") or "").strip()
             crit["detail"] = f"{detail_text} Penalties applied due to multiple high-severity issues.".strip()
-
-
-
     base_content = sum(int(attr_values.get(crit.get("attr"), 0)) for crit in criteria)
     raw_content = base_content - ded_issues - ded_missing
     content_clamped = max(0.0, min(content_cap, float(raw_content)))
@@ -1049,7 +958,6 @@ def evaluate_qa_detailed(
     if content_penalty_limit is not None:
         content = round(min(content, content_penalty_limit), 1)
     content = min(content, 16.0)
-
     strengths = [] if ((qa.question or "") and overlap_ratio < 0.30) or rel <= 0 else [str(s) for s in (data.get("strengths") or [])][:10]
     if (qa.question or "") and overlap_ratio < 0.30:
         focus_improvement = f"Refocus the answer on the actual question prompt: \"{qa.question[:140]}\"."
@@ -1058,7 +966,6 @@ def evaluate_qa_detailed(
         if focus_improvement not in improvements:
             improvements.insert(0, focus_improvement)
         improvements = improvements[:10]
-
     writing_max = float(profile.get("writing_max", 2.0))
     writing_value = max(0.0, min(writing_max, float(writing_value)))
     if style_penalty > 0 and writing_max > 0:
@@ -1069,7 +976,6 @@ def evaluate_qa_detailed(
     achievable_cap = float(profile.get("achievable_max", score_max_display))
     achievable_cap = min(achievable_cap, 16.0)
     final = round(max(0.0, min(achievable_cap, content + writing_value)), 1)
-
     if rel <= 0:
         penalty_note_zero = "Zero relevance automatically zeroes other criteria."
         for crit in criterion_info:
@@ -1105,7 +1011,6 @@ def evaluate_qa_detailed(
             })
         content_penalty_limit = 0.0
         final = 0.0
-
     # Outline
     raw_outline = data.get("suggested_outline") or []
     outline: List[Union[str, dict]] = []
@@ -1116,7 +1021,6 @@ def evaluate_qa_detailed(
             outline.append({"heading": heading, "bullets": bullets})
         else:
             outline.append(str(item))
-
     report = QAReportDetailed(
         number=qa.number, question=qa.question, answer_full=qa.answer,
         relevance=rel, coverage=cov, accuracy=acc, analysis=ana, organization=org,
@@ -1137,10 +1041,7 @@ def evaluate_qa_detailed(
     setattr(report, "answer_word_count", word_count)
     setattr(report, "minimum_word_count", min_word_requirement)
     return report, writing_label
-
-
 # ----------------------------- Report Pages ---------------------------- #
-
 def html_escape(s) -> str:
     """Escape HTML, handling both strings and lists."""
     if isinstance(s, list):
@@ -1149,11 +1050,9 @@ def html_escape(s) -> str:
     if not isinstance(s, str):
         s = str(s) if s is not None else ""
     return html.escape((s or "").replace("\u00AD",""))
-
 def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[str]:
     """
     Build CSS evaluation report - NEW 8-section format.
-
     Routes to new report builder for comprehensive feedback.
     Falls back to legacy builder if new one unavailable.
     """
@@ -1170,7 +1069,6 @@ def build_report_html_pages(rep: QAReportDetailed, writing_label: str) -> List[s
             eprint(f"[Error] Legacy report builder also failed: {legacy_err}")
             eprint(f"[Debug] Legacy traceback: {traceback.format_exc()}")
             raise
-
 def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) -> List[str]:
     """LEGACY report builder - kept for backwards compatibility."""
     # Summary page — bigger red final score
@@ -1178,7 +1076,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
     content_max = getattr(rep, "content_score_max", 18.0)
     writing_max = getattr(rep, "writing_score_max", 2.0)
     score_cap = getattr(rep, "final_score_cap", score_max)
-
     def _fmt_num(value: float) -> str:
         try:
             num = float(value)
@@ -1187,7 +1084,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
         if abs(num - round(num)) < 1e-6:
             return str(int(round(num)))
         return f"{num:.1f}"
-
     default_criteria = [
         {
             "label": "Relevance",
@@ -1224,12 +1120,10 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
     score_rows = []
     # Check if this is qualitative (check if max points are 0)
     is_qual = all(crit.get("max", 0) == 0 for crit in criterion_data)
-
     for crit in criterion_data:
         label = html_escape(str(crit.get("label", "Criterion")))
         detail_raw = str(crit.get("detail", "")).strip()
         detail = html_escape(detail_raw) if detail_raw else ""
-
         if is_qual:
             # Qualitative evaluation - show remark instead of numeric score
             remark = str(crit.get("value", "N/A"))
@@ -1258,7 +1152,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
                 f"<td style='padding:5pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;'>{detail}</td>"
                 f"</tr>"
             )
-
     # Only add writing row for numeric evaluations
     if not is_qual and writing_max > 0:
         score_rows.append(
@@ -1269,7 +1162,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
             f"<td style='padding:5pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;'>Grammar, spelling, sentence structure.</td>"
             f"</tr>"
         )
-
     summary_points = []
     if rep.question_summary:
         summary_points.append(f"<li><b>Question focus:</b> {html_escape(rep.question_summary)}</li>")
@@ -1282,7 +1174,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
         headline_action = html_escape(rep.improvement_plan[0].get("action_steps", "")) or html_escape(rep.improvement_plan[0].get("focus_area", "Introduce stronger evidence."))
         summary_points.append(f"<li><b>Highest priority fix:</b> {headline_action}</li>")
     summary_html = "<ul style='list-style:disc; padding-left:20pt; margin:6pt 0 0 0; font-size:12.5pt;'>" + "".join(summary_points) + "</ul>" if summary_points else ""
-
     req_items = []
     for req in rep.question_requirements or []:
         requirement = html_escape(req.get("requirement", ""))
@@ -1310,13 +1201,10 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
         req_items.append(
             f"<li style='margin-bottom:8pt;'><b>Core demand:</b> {html_escape(rep.question_summary)}</li>"
         )
-
     # Check if this is a qualitative evaluation (Essay Outline)
     is_qualitative = score_max == 0.0 or (hasattr(rep, 'is_qualitative') and rep.is_qualitative)
-
     # Determine subject type for header
     subject_type = "English Essay Outline — CSS Examination" if is_qualitative else "Political Science — CSS Examination"
-
     # Simplified HTML for better rendering in PyMuPDF
     if is_qualitative:
         # Qualitative evaluation - show overall remark instead of numeric score
@@ -1327,17 +1215,14 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
             'Average': '#f80',
             'Weak': '#c00'
         }.get(overall_remark, '#666')
-
         page_a = f"""<html><body style="font-family:Helvetica;font-size:11pt;margin:20pt;">
 <h1 style="text-align:center;font-size:18pt;margin-bottom:10pt;">Evaluation Report</h1>
 <p style="text-align:center;font-size:12pt;color:#666;margin-bottom:20pt;">{subject_type}</p>
-
 <div style="background:#f0f0f0;padding:15pt;margin-bottom:15pt;text-align:center;">
 <p style="font-size:13pt;color:#666;margin:0 0 5pt 0;">Overall Assessment</p>
 <p style="font-size:32pt;font-weight:bold;color:{remark_color};margin:0 0 5pt 0;">{overall_remark}</p>
 <p style="font-size:12pt;color:#666;margin:0;">Qualitative Evaluation</p>
 </div>
-
 <h2 style="font-size:14pt;border-bottom:1px solid #ccc;padding-bottom:4pt;margin:15pt 0 8pt 0;">Criteria Assessment</h2>
 <table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:15pt;">
 <tr style="background-color:#f5f5f5;">
@@ -1352,13 +1237,11 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
         page_a = f"""<html><body style="font-family:Helvetica;font-size:11pt;margin:20pt;">
 <h1 style="text-align:center;font-size:18pt;margin-bottom:10pt;">Evaluation Report</h1>
 <p style="text-align:center;font-size:12pt;color:#666;margin-bottom:20pt;">{subject_type}</p>
-
 <div style="background:#f0f0f0;padding:15pt;margin-bottom:15pt;text-align:center;">
 <p style="font-size:13pt;color:#666;margin:0 0 5pt 0;">Total Score Obtained</p>
 <p style="font-size:32pt;font-weight:bold;color:#c00;margin:0 0 5pt 0;">{rep.final_score_20:.1f}</p>
 <p style="font-size:14pt;color:#666;margin:0;">out of {_fmt_num(score_max)}</p>
 </div>
-
 <h2 style="font-size:14pt;border-bottom:1px solid #ccc;padding-bottom:4pt;margin:15pt 0 8pt 0;">Score Breakdown</h2>
 <table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:15pt;">
 <tr style="background-color:#f5f5f5;">
@@ -1375,25 +1258,19 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
 <td style="padding:6pt 8pt;border:1px solid #ddd;font-size:9pt;color:#666;">Content + Writing</td>
 </tr>
 </table>"""
-
     # Continue with common sections
     page_a += f"""
-
 <h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Question</h2>
 <p style="font-style:italic;padding:8pt;background:#f9f9f9;border-left:3pt solid #36c;margin:0 0 12pt 0;">{html_escape(rep.question)}</p>
-
 <h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Executive Summary</h2>
 {summary_html or "<p>No summarised insights were generated.</p>"}
-
 <h2 style="font-size:13pt;margin:15pt 0 6pt 0;">Key Requirements</h2>
 <ul style="margin:0 0 12pt 15pt;line-height:1.4;">
 {''.join(req_items) if req_items else "<li>No explicit requirements were extracted.</li>"}
 </ul>
-
 {("<h2 style='font-size:13pt;margin:15pt 0 6pt 0;'>Strengths</h2><ul style='margin:0 0 12pt 15pt;line-height:1.4;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.strengths) + "</ul>") if rep.strengths else ""}
 {("<h2 style='font-size:13pt;margin:15pt 0 6pt 0;'>Areas for Improvement</h2><ul style='margin:0 0 12pt 15pt;line-height:1.4;'>" + "".join(f"<li>{html_escape(s)}</li>" for s in rep.improvements) + "</ul>") if rep.improvements else ""}
 </body></html>"""
-
     items = []
     for i, it in enumerate(rep.issues, start=1):
         cat = html_escape(it.get('category','Issue'))
@@ -1421,7 +1298,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
             {("<div style='font-weight:600; color:#111;'>Helpful evidence/examples</div><ul style='margin:6pt 0 0 20pt; color:#374151; font-size:12pt;'>"+ev_html+"</ul>") if ev_html else ""}
           </div>
         </div>""")
-
     for req in unmet_requirements:
         requirement = html_escape(req.get("requirement", "Prompt requirement"))
         expected = html_escape(req.get("expected_approach", "Add detailed coverage."))
@@ -1440,14 +1316,12 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
             {"<div style='font-weight:600; color:#111;'>Why it matters</div><p style='margin:4pt 0 0 0; color:#374151;'>"+why+"</p>" if why else ""}
           </div>
         </div>""")
-
     page_b = f"""
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
       <h1 style="margin:0 0 12pt 0; font-size:20pt;">Key Problems & How to Fix Them</h1>
       {''.join(items) if items else '<p>No critical problems detected.</p>'}
       {"<h2 style='margin-top:18pt; font-size:16pt;'>Missing Key Points</h2><ul style='margin:8pt 0 0 20pt; font-size:12.5pt;'>"+ "".join(f"<li>{html_escape(x)}</li>" for x in rep.missing_points) + "</ul>" if rep.missing_points else ""}
     </div>"""
-
     def outline_block():
         if not rep.suggested_outline:
             return "<li>—</li>"
@@ -1463,7 +1337,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
             else:
                 out.append(f"<li>{html_escape(str(item))}</li>")
         return "".join(out)
-
     improvement_html = []
     for step in rep.improvement_plan or []:
         focus = html_escape(step.get("focus_area", "Improvement"))
@@ -1484,7 +1357,6 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
         improvement_html.append(
             "<ul style='margin:6pt 0 0 20pt; font-size:12.5pt;'>" + "".join(f"<li>{html_escape(x)}</li>" for x in rep.improvements) + "</ul>"
         )
-
     page_c = f"""
     <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height:1.55; font-size:13pt; color:#111;">
       <h1 style="margin:0 0 12pt 0; font-size:20pt;">Improvement Roadmap</h1>
@@ -1492,14 +1364,9 @@ def build_report_html_pages_legacy(rep: QAReportDetailed, writing_label: str) ->
       <h2 style="margin-top:18pt; font-size:16pt;">Suggested High-Scoring Outline</h2>
       <ol style="margin:8pt 0 0 20pt; font-size:12.5pt;">{outline_block()}</ol>
     </div>"""
-
     # Removed page_d (Full OCR'd Answer) - not needed in report
-
     return [page_a, page_b, page_c]
-
-
 # ------------------------- Overlay & Save PDF -------------------------- #
-
 def issues_panel_html(page_no: int, rows: List[IssueRow], max_rows: int) -> str:
     if not rows:
         return f"""
@@ -1514,7 +1381,6 @@ def issues_panel_html(page_no: int, rows: List[IssueRow], max_rows: int) -> str:
     items = [f"<li><b>{html.escape(r.type)}:</b> {html.escape(r.suggestion or r.issue)}</li>" for r in rows[:max_rows]]
     more = f"<div style='font-size:8pt; color:#333; margin-top:4pt;'>… plus {len(rows) - max_rows} more</div>" if len(rows) > max_rows else ""
     return head + "\n".join(items) + more + "</ul></div>"
-
 def insert_html_page(doc: fitz.Document, html_text: str, base_rect: fitz.Rect):
     """Insert a new page with HTML content at the beginning of the document."""
     page = doc.new_page(pno=0, width=base_rect.width, height=base_rect.height)
@@ -1526,14 +1392,12 @@ def insert_html_page(doc: fitz.Document, html_text: str, base_rect: fitz.Rect):
     except Exception as e:
         # Fallback: insert as plain text if HTML fails
         page.insert_textbox(panel, html_text, fontsize=10, fontname="helv", color=(0, 0, 0))
-
 def _auto_panel_height(rect: fitz.Rect, rows_count: int, base_header_h: float, row_line_h: float,
                        extras: float, height_max_ratio: float) -> float:
     natural_h = base_header_h + rows_count * row_line_h + extras
     cap = rect.height * height_max_ratio
     min_h = 120.0
     return max(min_h, min(natural_h, cap))
-
 def annotate_pdf_with_report(input_pdf: Path,
                              page_issues: List[List[IssueRow]],
                              qa_reports_with_labels: List[tuple],
@@ -1548,43 +1412,35 @@ def annotate_pdf_with_report(input_pdf: Path,
                              shadow_alpha: float = 0.18):
     doc = fitz.open(input_pdf)
     base_rect = doc[0].rect if len(doc) else fitz.Rect(0, 0, 595, 842)
-
     # Insert report pages first
     report_pages_html: List[str] = []
     for rep, label in qa_reports_with_labels:
         pages = build_report_html_pages(rep, label)
         report_pages_html.extend(pages)
         eprint(f"[PDF] Generated {len(pages)} report pages for question {rep.number}")
-
     eprint(f"[PDF] Total report pages to insert: {len(report_pages_html)}")
-
     for idx, html_text in enumerate(reversed(report_pages_html)):
         eprint(f"[PDF] Inserting report page {idx + 1}/{len(report_pages_html)}")
         insert_html_page(doc, html_text, base_rect)
-
     # Overlay per original page (dynamic height)
     shift = len(report_pages_html)
     for i in range(shift, len(doc)):
         page = doc[i]
         rows = page_issues[i - shift] if (i - shift) < len(page_issues) else []
         panel_html = issues_panel_html(i - shift + 1, rows, max_rows=max_rows_per_page)
-
         margin = 18
         rect = page.rect
         panel_w = max(120, rect.width * max(0.15, min(0.5, panel_width_ratio)))
-
         shown = min(len(rows), max_rows_per_page)
         base_header_h = 28.0
         row_line_h = 16.0
         extras = 18.0
         panel_h = _auto_panel_height(rect, shown, base_header_h, row_line_h, extras, height_max_ratio)
-
         x1 = rect.x1 - margin
         x0 = x1 - panel_w
         y0 = margin
         y1 = y0 + panel_h
         box = fitz.Rect(x0, y0, x1, y1)
-
         # Shadow
         if shadow_alpha > 0:
             shadow_box = fitz.Rect(x0+2, y0+2, x1+2, y1+2)
@@ -1593,7 +1449,6 @@ def annotate_pdf_with_report(input_pdf: Path,
             shape_shadow.finish(width=0, color=(0,0,0), fill=(0,0,0),
                                 stroke_opacity=0.0, fill_opacity=max(0.0, min(1.0, shadow_alpha)))
             shape_shadow.commit()
-
         # Panel
         shape = page.new_shape()
         shape.draw_rect(box, radius=0.04)
@@ -1603,16 +1458,11 @@ def annotate_pdf_with_report(input_pdf: Path,
             fill_opacity=max(0.0, min(1.0, panel_fill_alpha)),
         )
         shape.commit()
-
         # HTML
         page.insert_htmlbox(box, panel_html, scale_low=0.80, overlay=True)
-
     doc.save(str(out_pdf), deflate=True)
     doc.close()
-
-
 # --------------------------------- Main -------------------------------- #
-
 def main():
     ap = argparse.ArgumentParser(description="OCR + strict content eval + detailed issues + dynamic overlay + nested outline.")
     ap.add_argument("pdf", help="Input PDF path")
@@ -1628,26 +1478,20 @@ def main():
     ap.add_argument("--panel-stroke-alpha", type=float, default=0.70, help="Panel border opacity 0..1")
     ap.add_argument("--shadow-alpha", type=float, default=0.18, help="Drop shadow opacity 0..1")
     args = ap.parse_args()
-
     in_pdf = Path(args.pdf).expanduser().resolve()
     if not in_pdf.exists(): raise FileNotFoundError(in_pdf)
     out_pdf = ensure_pdf_output_path(in_pdf, args.output)
-
     # 1) OCR
     page_texts = run_ocr_with_retries(in_pdf, pages=args.pages, timeout_s=args.timeout)
-
     # 2) Q/A segmentation
     qas = segment_questions(page_texts)
     if not qas:
         eprint("[warn] No strict Question markers found. Report will be empty; overlays still rendered.")
-
     # 3) Groq
     _, _, groq_key = load_env()
     groq_client = Groq(api_key=groq_key)
-
     # 4) Page-wise writing issues (overlay)
     page_issues: List[List[IssueRow]] = [writing_issues_for_page(groq_client, args.model, t or "") for t in page_texts]
-
     # 5) QA evaluation + writing bins
     qa_reports_with_labels = []
     for qa in qas:
@@ -1655,7 +1499,6 @@ def main():
         w_val, w_label = writing_score_bins_value_and_label(ans_issues)
         rep, label = evaluate_qa_detailed(groq_client, args.model, qa, w_val, w_label)
         qa_reports_with_labels.append((rep, label))
-
     # 6) Render
     annotate_pdf_with_report(
         in_pdf, page_issues, qa_reports_with_labels, out_pdf,
@@ -1667,7 +1510,5 @@ def main():
         shadow_alpha=args.shadow_alpha,
     )
     print(f"✓ Annotated PDF with detailed report written: {out_pdf}")
-
-
 if __name__ == "__main__":
     main()

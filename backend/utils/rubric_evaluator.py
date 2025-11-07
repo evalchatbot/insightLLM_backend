@@ -1,32 +1,23 @@
 #!/usr/bin/env python3
 """
 Rubric-Based Evaluator - Conduct LLM evaluation using rubric criteria.
-
 Uses dynamic prompts and schemas generated from rubric structure.
 """
-
 from typing import Dict, Any, Tuple, Optional
 import logging
-
 from groq import Groq
-
 from .rubric_parser import RubricStructure, load_rubric
 from .prompt_generator import PromptGenerator, generate_user_prompt
 from .ocr import QAReportDetailed, QAItem, IssueRow
-
 logger = logging.getLogger(__name__)
-
-
 class RubricEvaluator:
     """Evaluate answers using rubric-based prompts and strict marking."""
-
     # Supported models for JSON schema mode
     # Note: Most Groq models don't actually support json_schema, only json_object
     SCHEMA_MODELS = {
         "openai/gpt-4o",
         "openai/gpt-4o-mini"
     }
-
     def __init__(
         self,
         groq_client: Groq,
@@ -35,7 +26,6 @@ class RubricEvaluator:
     ):
         """
         Initialize evaluator for a subject.
-
         Args:
             groq_client: Groq API client
             subject: Subject name (e.g., "Political Science")
@@ -44,23 +34,19 @@ class RubricEvaluator:
         self.groq_client = groq_client
         self.model = model
         self.subject = subject
-
         # Load rubric and generate prompts/schema
         self.rubric = load_rubric(subject)
         self.prompt_generator = PromptGenerator(self.rubric)
         self.system_prompt = self.prompt_generator.generate_system_prompt()
         self.json_schema = self.prompt_generator.generate_json_schema()
-
         # Check if model supports JSON schema
         self.use_schema = model in self.SCHEMA_MODELS
-
         logger.info(
             f"RubricEvaluator initialized for {subject}: "
             f"{len(self.rubric.dimensions)} dimensions, "
             f"{self.rubric.total_indicators} indicators, "
             f"schema_mode={self.use_schema}"
         )
-
     def evaluate_answer(
         self,
         qa: QAItem,
@@ -69,12 +55,10 @@ class RubricEvaluator:
     ) -> Tuple[QAReportDetailed, str]:
         """
         Evaluate answer using rubric criteria.
-
         Args:
             qa: Question and answer item
             writing_value: Writing score value
             writing_label: Writing score label
-
         Returns:
             (QAReportDetailed, writing_label)
         """
@@ -84,28 +68,21 @@ class RubricEvaluator:
             qa.answer,
             self.rubric.subject_display_name
         )
-
         # Call LLM with rubric-based evaluation
         logger.info(f"Evaluating answer for Q{qa.number} using {self.model}")
-
         evaluation_data = self._call_llm(user_prompt)
-
         # Extract scores from dynamic dimension keys
         scores_dict = evaluation_data.get("scores", {})
         dimension_scores = self._extract_dimension_scores(scores_dict)
-
         # Calculate content score
         content_score = sum(dimension_scores.values())
-
         # Apply strict marking cap (16/20 for 20-mark questions)
         achievable_max = self.prompt_generator.STRICT_MAX_20_MARKS
         if self.rubric.total_marks == 20:
             content_score = min(content_score, achievable_max)
-
         # Calculate final score
         writing_max = 0.0  # Writing is separate, not included in 20 marks
         final_score = content_score  # For 20-mark questions, no writing component
-
         # Build report
         report = self._build_report(
             qa=qa,
@@ -116,21 +93,16 @@ class RubricEvaluator:
             writing_label=writing_label,
             final_score=final_score
         )
-
         logger.info(
             f"Evaluation complete: Q{qa.number} scored {final_score}/{self.rubric.total_marks} "
             f"(content: {content_score}, {len(report.issues)} issues identified)"
         )
-
         return report, writing_label
-
     def _call_llm(self, user_prompt: str) -> Dict[str, Any]:
         """
         Call Groq LLM with rubric-based prompt.
-
         Args:
             user_prompt: User prompt with question and answer
-
         Returns:
             Parsed JSON response from LLM
         """
@@ -138,7 +110,6 @@ class RubricEvaluator:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-
         try:
             if self.use_schema:
                 # Use JSON schema mode for strict validation
@@ -161,13 +132,10 @@ class RubricEvaluator:
                     temperature=0.1,
                     timeout=120
                 )
-
             content = response.choices[0].message.content or "{}"
-
             # Parse JSON
             import json
             import re
-
             try:
                 data = json.loads(content)
             except json.JSONDecodeError:
@@ -182,30 +150,23 @@ class RubricEvaluator:
                         data = json.loads(match.group(0))
                     else:
                         raise ValueError("No valid JSON found in LLM response")
-
             return data
-
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             # Return minimal valid response
             return self._get_fallback_response()
-
     def _extract_dimension_scores(self, scores_dict: Dict[str, int]) -> Dict[str, int]:
         """
         Extract dimension scores from dynamic score keys.
-
         Args:
             scores_dict: Dict with dynamic keys like "understanding_0to4": 3
-
         Returns:
             Dict mapping dimension_name -> score
         """
         dimension_scores = {}
-
         for dim in self.rubric.dimensions:
             # Find matching key in scores_dict
             key = self.prompt_generator._dimension_to_key(dim.name)
-
             if key in scores_dict:
                 score = scores_dict[key]
                 # Clamp to dimension max
@@ -217,11 +178,8 @@ class RubricEvaluator:
                     if key.lower() in k.lower() or k.lower() in key.lower():
                         score = max(0, min(int(dim.max_marks), int(v)))
                         break
-
             dimension_scores[dim.name] = score
-
         return dimension_scores
-
     def _build_report(
         self,
         qa: QAItem,
@@ -233,7 +191,6 @@ class RubricEvaluator:
         final_score: float
     ) -> QAReportDetailed:
         """Build QAReportDetailed from evaluation data."""
-
         # Extract criterion comments (should match number of dimensions)
         criterion_comments = evaluation_data.get("criterion_evaluator_comments", [])
         if len(criterion_comments) < len(self.rubric.dimensions):
@@ -241,7 +198,6 @@ class RubricEvaluator:
             criterion_comments.extend(
                 [""] * (len(self.rubric.dimensions) - len(criterion_comments))
             )
-
         # Build criterion_labels with scores and comments
         criterion_labels = []
         for i, dim in enumerate(self.rubric.dimensions):
@@ -252,10 +208,8 @@ class RubricEvaluator:
                 "max": dim.max_marks,
                 "detail": criterion_comments[i] if i < len(criterion_comments) else dim.assessment_focus
             })
-
         # Extract model answer outline
         model_outline = evaluation_data.get("model_answer_outline", {})
-
         # Create report
         report = QAReportDetailed(
             number=qa.number,
@@ -289,9 +243,7 @@ class RubricEvaluator:
             model_answer_outline=model_outline,
             criterion_evaluator_comments=criterion_comments
         )
-
         return report
-
     def _get_fallback_response(self) -> Dict[str, Any]:
         """Get minimal valid response for error cases."""
         return {
