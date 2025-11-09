@@ -14,6 +14,10 @@ SUPABASE_AUDIENCE = os.getenv("SUPABASE_AUDIENCE", "authenticated")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CHATBOT_LLM_MODEL = os.getenv("CHATBOT_LLM_MODEL", "llama-3.1-8b-instant")
 
+# Grok API (for OCR/PDF evaluation)
+GROK_API = os.getenv("GROK_API") or os.getenv("Grok_API")
+GROK_API_BASE_URL = os.getenv("GROK_API_BASE_URL", "https://api.x.ai/v1")
+
 # LangSmith Configuration
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "insightLLM")

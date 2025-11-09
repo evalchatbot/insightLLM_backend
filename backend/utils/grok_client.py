@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class GrokError(RuntimeError):
@@ -84,6 +88,14 @@ class GrokClient:
             data = response.json()
         except ValueError as exc:
             raise GrokError(f"Invalid JSON in Grok response: {exc}") from exc
+
+        # Extract token usage from response if available
+        if "usage" in data:
+            data["_token_usage"] = {
+                "prompt_tokens": data["usage"].get("prompt_tokens", 0),
+                "completion_tokens": data["usage"].get("completion_tokens", 0),
+                "total_tokens": data["usage"].get("total_tokens", 0),
+            }
 
         return data
 

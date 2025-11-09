@@ -4,11 +4,12 @@ Streaming LLM client for real-time response generation.
 Provides true streaming capabilities for better user experience.
 """
 from __future__ import annotations
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Tuple
 import httpx
 import json
 import logging
 from backend.rag.telemetry.langsmith_tracer import trace_llm_call
+from backend.utils.usage_tracking import get_token_count
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class StreamingLLMClient:
         temperature: float = 0.4,
         max_tokens: int = 2048,
         system_message: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Tuple[str, Optional[dict]], None]:
         """
         Generate streaming response from LLM.
         
@@ -56,7 +57,9 @@ class StreamingLLMClient:
             system_message: Optional system message override
             
         Yields:
-            str: Incremental response chunks
+            Tuple[str, Optional[dict]]: (content_chunk, token_usage_info)
+            - content_chunk: Incremental response chunk (or None if only token info)
+            - token_usage_info: Dict with 'prompt_tokens' and 'completion_tokens' (only in final chunk)
         """
         
         # Default system message with markdown formatting
@@ -73,6 +76,10 @@ class StreamingLLMClient:
             {"role": "user", "content": prompt}
         ]
         
+        # Calculate input tokens using tiktoken
+        full_prompt = system_message + "\n\n" + prompt
+        input_tokens = get_token_count(full_prompt, model="gpt-4")
+        
         payload = {
             "model": self.model,
             "messages": messages,
@@ -80,6 +87,9 @@ class StreamingLLMClient:
             "max_tokens": int(max_tokens),
             "stream": True  # Enable streaming
         }
+        
+        token_usage = None
+        output_tokens = 0
         
         try:
             async with httpx.AsyncClient(timeout=60) as client:
@@ -109,13 +119,25 @@ class StreamingLLMClient:
                             # Parse the JSON chunk
                             chunk_data = json.loads(line)
                             
+                            # Check for token usage in the chunk (usually in final chunk)
+                            if "usage" in chunk_data:
+                                usage = chunk_data["usage"]
+                                token_usage = {
+                                    "prompt_tokens": usage.get("prompt_tokens", input_tokens),
+                                    "completion_tokens": usage.get("completion_tokens", 0),
+                                    "total_tokens": usage.get("total_tokens", 0)
+                                }
+                                # Yield token usage info with None content
+                                yield (None, token_usage)
+                                continue
+                            
                             # Extract content from the chunk
                             if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
                                 choice = chunk_data["choices"][0]
                                 if "delta" in choice and "content" in choice["delta"]:
                                     content = choice["delta"]["content"]
                                     if content:  # Only yield non-empty content
-                                        yield content
+                                        yield (content, None)
                                         
                         except json.JSONDecodeError:
                             # Skip invalid JSON lines
@@ -124,11 +146,22 @@ class StreamingLLMClient:
                         except Exception as e:
                             logger.error(f"Error processing streaming chunk: {e}")
                             continue
+                    
+                    # If token usage wasn't provided by API, calculate it from collected content
+                    if token_usage is None:
+                        # Note: We can't calculate output tokens here since we're streaming
+                        # The chatbot agent will calculate it from the full response
+                        token_usage = {
+                            "prompt_tokens": input_tokens,
+                            "completion_tokens": 0,  # Will be calculated by agent
+                            "total_tokens": input_tokens
+                        }
+                        yield (None, token_usage)
                             
         except Exception as e:
             logger.error(f"Streaming request failed: {e}")
             # Yield error message as fallback
-            yield f"[Streaming Error: {str(e)}]"
+            yield (f"[Streaming Error: {str(e)}]", None)
 
     async def generate_complete(
         self,
@@ -137,7 +170,7 @@ class StreamingLLMClient:
         temperature: float = 0.4,
         max_tokens: int = 2048,
         system_message: Optional[str] = None
-    ) -> str:
+    ) -> Tuple[str, dict]:
         """
         Generate complete response (non-streaming) for backward compatibility.
         
@@ -148,18 +181,38 @@ class StreamingLLMClient:
             system_message: Optional system message override
             
         Returns:
-            str: Complete response
+            Tuple[str, dict]: (complete_response, token_usage)
+            - complete_response: Full response text
+            - token_usage: Dict with 'prompt_tokens', 'completion_tokens', 'total_tokens'
         """
         chunks = []
-        async for chunk in self.generate_stream(
+        token_usage = None
+        
+        async for chunk, usage_info in self.generate_stream(
             prompt, 
             temperature=temperature, 
             max_tokens=max_tokens,
             system_message=system_message
         ):
-            chunks.append(chunk)
+            if chunk:
+                chunks.append(chunk)
+            if usage_info:
+                token_usage = usage_info
         
-        return "".join(chunks)
+        full_response = "".join(chunks)
+        
+        # If token usage wasn't provided, calculate it
+        if token_usage is None or token_usage.get("completion_tokens", 0) == 0:
+            full_prompt = (system_message or "") + "\n\n" + prompt
+            prompt_tokens = get_token_count(full_prompt, model="gpt-4")
+            completion_tokens = get_token_count(full_response, model="gpt-4")
+            token_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens
+            }
+        
+        return (full_response, token_usage)
 
 
 def get_streaming_llm_client() -> StreamingLLMClient:

@@ -397,6 +397,12 @@ def run_grok_pipeline(
         max_output_tokens=4096,
     )
     content = extract_content_text(response)
+    
+    # Extract token usage from Grok API response
+    token_usage = response.get("_token_usage", {})
+    prompt_tokens = token_usage.get("prompt_tokens", 0)
+    completion_tokens = token_usage.get("completion_tokens", 0)
+    
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -440,6 +446,11 @@ def run_grok_pipeline(
             "answer_word_count": word_count,
             "subject": subject_id,
             "subject_display_name": subject_display_name,
+        },
+        "token_usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
         },
     }
     if original_filename:

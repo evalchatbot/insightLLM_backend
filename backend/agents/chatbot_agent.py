@@ -88,7 +88,7 @@ class ChatbotAgent:
         user_prompt = self._build_user_prompt(cleaned_question, context, analysis)
 
         start = time.time()
-        answer = await self._ensure_streaming_client().generate_complete(
+        answer, token_usage = await self._ensure_streaming_client().generate_complete(
             prompt=user_prompt,
             temperature=0.3,
             max_tokens=3200,
@@ -109,6 +109,7 @@ class ChatbotAgent:
             "context_messages": len(context),
             "response_time": round(time.time() - start, 3),
             "question_analysis": analysis,
+            "token_usage": token_usage,
         }
         if update_info:
             metadata.update({k: v for k, v in update_info.items() if v is not None})
@@ -198,15 +199,29 @@ class ChatbotAgent:
                 self.update_info: Dict[str, Optional[str]] = {}
                 self.context_messages = len(context)
                 self.analysis = analysis
+                self.token_usage: Optional[Dict[str, int]] = None
 
             def __aiter__(self):
                 return self
 
             async def __anext__(self):
                 try:
-                    chunk = await self._iterator.__anext__()
+                    chunk, usage_info = await self._iterator.__anext__()
                 except StopAsyncIteration:
                     self.answer = "".join(self.collected).strip()
+                    
+                    # If token usage wasn't provided, calculate it from the full response
+                    if self.token_usage is None or self.token_usage.get("completion_tokens", 0) == 0:
+                        from backend.utils.usage_tracking import get_token_count
+                        full_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
+                        prompt_tokens = get_token_count(full_prompt, model="gpt-4")
+                        completion_tokens = get_token_count(self.answer, model="gpt-4")
+                        self.token_usage = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens
+                        }
+                    
                     self.update_info = await agent._update_memory(
                         user_id=user_id,
                         session_id=session_id,
@@ -216,8 +231,24 @@ class ChatbotAgent:
                     )
                     raise StopAsyncIteration
                 else:
-                    self.collected.append(chunk)
-                    return chunk
+                    if chunk:
+                        self.collected.append(chunk)
+                        return chunk
+                    elif usage_info:
+                        # Store token usage info
+                        self.token_usage = usage_info
+                        # If we have the full answer collected, we can calculate completion tokens
+                        if self.collected and usage_info.get("completion_tokens", 0) == 0:
+                            from backend.utils.usage_tracking import get_token_count
+                            full_answer = "".join(self.collected)
+                            completion_tokens = get_token_count(full_answer, model="gpt-4")
+                            self.token_usage["completion_tokens"] = completion_tokens
+                            self.token_usage["total_tokens"] = usage_info.get("prompt_tokens", 0) + completion_tokens
+                        # Skip yielding None chunks
+                        return await self.__anext__()
+                    else:
+                        # Both None, skip
+                        return await self.__anext__()
 
         return StreamWrapper()
 
@@ -441,7 +472,7 @@ class ChatbotAgent:
             question=question.strip(),
             answer=answer.strip()[:300],
         )
-        title = await self._ensure_streaming_client().generate_complete(
+        title, _ = await self._ensure_streaming_client().generate_complete(
             prompt=prompt,
             temperature=0.4,
             max_tokens=32,

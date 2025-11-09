@@ -18,3 +18,4 @@ python-multipart==0.0.20
 langsmith==0.4.14
 requests==2.32.3
 python-docx
+tiktoken

@@ -6,6 +6,17 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+class Usage(BaseModel):
+    id: int
+    user_id: str
+    tokens_input: int = 0
+    tokens_output: int = 0
+    pages: int = 0
+    period_start: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class User(BaseModel):
     id: str
     email: str

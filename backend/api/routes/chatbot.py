@@ -124,11 +124,13 @@ async def ask_chatbot_stream(req: ChatbotStreamRequest) -> StreamingResponse:
                 answer = "".join(getattr(stream, "collected", []))
             answer = answer.strip()
             update_info = getattr(stream, "update_info", {}) or {}
+            token_usage = getattr(stream, "token_usage", None) or {}
             metadata = {
                 "mode": "single_llm_stream",
                 "system_prompt": SYSTEM_PROMPT_ID,
                 "response_time": round(time.time() - start, 3),
                 "context_messages": getattr(stream, "context_messages", 0),
+                "token_usage": token_usage,
             }
             metadata.update({k: v for k, v in (update_info or {}).items() if v is not None})
             analysis_meta = getattr(stream, "analysis", None)
