@@ -31,7 +31,8 @@ def get_token_count(text: str, model: str = "gpt-4") -> int:
 async def record_usage(
     user_id: str,
     input_tokens: int = 0,
-    output_tokens: int = 0
+    output_tokens: int = 0,
+    pages: int = 0
 ) -> Optional[Dict[str, Any]]:
     """
     Record token usage for a user via Supabase RPC function.
@@ -40,6 +41,7 @@ async def record_usage(
         user_id: UUID of the user
         input_tokens: Number of input tokens used
         output_tokens: Number of output tokens used
+        pages: Number of pages processed (default: 0, typically not used)
         
     Returns:
         Dict with success status and usage info, or None on error
