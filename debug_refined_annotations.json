@@ -5,151 +5,176 @@
       "rubric_point": "introduction_quality",
       "target_section_id": "Introduction",
       "page": 1,
-      "comment": "The introduction fails to directly respond to the question by merely restating it without demonstrating a clear understanding of the key themes or analytical angle. It lacks a defined scope, such as specifying the time periods or structural weaknesses, and does not present a thesis or outline the structure of the answer. This results in a vague starting point that does not guide the reader effectively."
+      "comment": "The introduction fails to directly respond to the question by comparing political and constitutional crises between 1947-1956 and post-2008, instead presenting only an outline without substantive content. It does not demonstrate a clear understanding of the query's demands, such as identifying key themes or structural weaknesses in governance, nor does it provide a thesis statement or outline the answer's structure. This results in a weak start that leaves the scope undefined and lacks analytical direction."
     },
     {
       "type": "heading_issue",
-      "section_id": "1947-1956: A State Without a stable Political Compass",
+      "section_id": "1947-1956: A State Without a stable",
+      "page": 1,
+      "sentiment": "negative",
+      "comment": "The heading is incomplete and vague, cutting off at 'a stable' without specifying what is lacking, such as 'stable governance' or 'stable institutions'.",
+      "suggestion": "1947-1956: A State Without Stable Governance"
+    },
+    {
+      "type": "heading_issue",
+      "section_id": "a) Leadership Vaccum post independence",
       "page": 1,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Good heading - clear and relevant to the leadership instability after independence."
     },
     {
       "type": "heading_issue",
-      "section_id": "Leadership Vacuum post Independence",
+      "section_id": "b) Constitutional Delay and Institutional paralysis",
       "page": 1,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Correct heading - self-explanatory and directly relevant to constitutional issues."
     },
     {
       "type": "heading_issue",
-      "section_id": "Constitutional Delay and Institutional Paralysis",
-      "page": 1,
-      "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "section_id": "c) Aubitary Executive Authority Undermined Parliment",
+      "page": 2,
+      "sentiment": "negative",
+      "comment": "The heading is not self-explanatory due to awkward phrasing and lacks direct tie to the question's focus on crises.",
+      "suggestion": "Arbitrary Executive Power Undermining Parliament"
     },
     {
       "type": "heading_issue",
-      "section_id": "Arbitrary Executive Authority Undermined Parliament",
+      "section_id": "d) Ethmic disunity due to provincial Mergers forced",
       "page": 2,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Good heading - clear and relevant to ethnic tensions from forced mergers."
     },
     {
       "type": "heading_issue",
-      "section_id": "Ethnic Disunity due to Forced Provincial Mergers",
+      "section_id": "e) Judiciary Enabled Undemocratic Rule the Tamizuddin Case (1955)",
       "page": 2,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Correct heading - self-explanatory and relevant to judicial role in crises."
     },
     {
       "type": "heading_issue",
-      "section_id": "Judiciary Enabled Undemocratic Rule",
-      "page": 2,
-      "sentiment": "positive",
-      "comment": "Correct heading."
+      "section_id": "Post 2008: A Democracy Captured by Power Struggles and Legal Balles",
+      "page": 3,
+      "sentiment": "negative",
+      "comment": "The heading is vague with 'Legal Balles' unclear and not self-explanatory; it should specify battles or issues more precisely.",
+      "suggestion": "Post-2008: Democracy Undermined by Power Struggles and Legal Battles"
     },
     {
       "type": "heading_issue",
-      "section_id": "Post 2008: A Democracy Captured by Power Struggles and Legal Battles",
+      "section_id": "(i) Civil - Military conflict behind democratic Facade",
       "page": 3,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Good heading - clear and relevant to civil-military tensions."
     },
     {
       "type": "heading_issue",
-      "section_id": "Civil-Military Conflict behind Democratic Facade",
+      "section_id": "(ii) Judicial Overreach into political domain",
       "page": 3,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Correct heading - self-explanatory and tied to constitutional crises."
     },
     {
       "type": "heading_issue",
-      "section_id": "Judicial Overreach into Political Domain",
-      "page": 3,
-      "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
-    },
-    {
-      "type": "heading_issue",
-      "section_id": "Weak and Divided Coalition Governments",
+      "section_id": "(iii) Weak and divided Coalition Governments",
       "page": 4,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Good heading - clear and relevant to post-2008 governance issues."
     },
     {
       "type": "heading_issue",
-      "section_id": "Politicized Accountability Undermines Rule of Law",
+      "section_id": "iv) Politicized accountability undermines sule of law",
+      "page": 4,
+      "sentiment": "negative",
+      "comment": "The heading is unclear due to 'sule of law' and not fully self-explanatory regarding accountability's impact.",
+      "suggestion": "Politicized Accountability Undermining Rule of Law"
+    },
+    {
+      "type": "heading_issue",
+      "section_id": "V) Constitutional conflict between Judiciary and Executive",
       "page": 4,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Correct heading - self-explanatory and relevant to executive-judicial tensions."
     },
     {
       "type": "heading_issue",
-      "section_id": "Constitutional Conflict between Judiciary and Executive",
-      "page": 4,
-      "sentiment": "positive",
-      "comment": "Correct heading."
+      "section_id": "(4) Broader Structural Weaknessess in Governance Across Both Eras",
+      "page": 5,
+      "sentiment": "negative",
+      "comment": "The heading is misspelled and slightly vague, not clearly indicating how weaknesses reflect across eras.",
+      "suggestion": "Broader Structural Weaknesses in Governance Across Both Periods"
     },
     {
       "type": "heading_issue",
-      "section_id": "Broader Structural Weaknesses in Governance Across Both Eras",
+      "section_id": "a) Lack of Instutional continuity",
       "page": 5,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Good heading - clear and relevant to institutional issues."
     },
     {
       "type": "heading_issue",
-      "section_id": "Lack of Institutional Continuity",
+      "section_id": "b) Absence of Checks and Balances",
       "page": 5,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Correct heading - self-explanatory and tied to structural weaknesses."
     },
     {
       "type": "heading_issue",
-      "section_id": "Absence of Checks and Balances",
-      "page": 5,
-      "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
-    },
-    {
-      "type": "heading_issue",
-      "section_id": "Overdependence on Unelected Institutions",
-      "page": 5,
-      "sentiment": "positive",
-      "comment": "Correct heading."
-    },
-    {
-      "type": "heading_issue",
-      "section_id": "Weak Local Government System",
+      "section_id": "(c) Overdependence on Unelected institutions",
       "page": 6,
       "sentiment": "positive",
-      "comment": "Good heading - clear and relevant."
+      "comment": "Good heading - clear and relevant to unelected influences."
     },
     {
       "type": "heading_issue",
-      "section_id": "Critical Appraisal",
+      "section_id": "d) Weak local Government systam",
       "page": 6,
       "sentiment": "negative",
-      "comment": "Vague and not self-explanatory; does not clearly indicate the content or contribution to the question.",
-      "suggestion": "Critical Analysis of Structural Weaknesses"
+      "comment": "The heading is vague and not self-explanatory about the local government system's role in weaknesses.",
+      "suggestion": "Weak Local Government System Ignoring Grassroots Democracy"
     },
     {
       "type": "heading_issue",
-      "section_id": "Conclusion",
+      "section_id": "5- Critical Appraisal",
       "page": 6,
       "sentiment": "positive",
-      "comment": "Correct heading."
+      "comment": "Correct heading - clear for evaluative section."
+    },
+    {
+      "type": "heading_issue",
+      "section_id": "6. Conclusion",
+      "page": 6,
+      "sentiment": "positive",
+      "comment": "Good heading - clear and relevant for summarizing."
+    },
+    {
+      "type": "factual_error",
+      "page": 1,
+      "target_sentence": "Quaid-e-Azam death 11948).",
+      "target_sentence_start": "Quaid-e-Azam death 11948",
+      "context_before": "a) Leadership Vaccum post independence",
+      "context_after": "After Liaqat Ali Khan's",
+      "correction": "Quaid-e-Azam's death in 1948",
+      "comment": "The year is incorrectly written as 11948; it should be 1948."
+    },
+    {
+      "type": "factual_error",
+      "page": 1,
+      "target_sentence": "four Prime Ministers in just four years.",
+      "target_sentence_start": "four Prime Ministers in",
+      "context_before": "with",
+      "context_after": "(M.R. Kazmi; A Concise",
+      "correction": "five Prime Ministers in about five years (1951-1956)",
+      "comment": "After Liaquat's assassination in 1951, there were actually five Prime Ministers by 1956, spanning roughly five years."
     },
     {
       "type": "factual_error",
       "page": 5,
-      "target_sentence": "Ex: 14 prime ministers have been changed between 1947-2025",
-      "target_sentence_start": "Ex: 14 prime ministers",
-      "context_before": "sustainability Ex:",
+      "target_sentence": "14 prime ministers have been changed between 1947-2025",
+      "target_sentence_start": "14 prime ministers have",
+      "context_before": "Ex:",
       "context_after": "b) Absence of Checks",
-      "correction": "Approximately 23 prime ministers have served between 1947 and 2023",
-      "comment": "The number is inaccurate; Pakistan has had more than 14 prime ministers since independence."
+      "correction": "24 Prime Ministers since 1947",
+      "comment": "Pakistan has had 24 Prime Ministers from 1947 to 2024, not 14."
     },
     {
       "type": "grammar_language",
@@ -210,6 +235,13 @@
     {
       "type": "grammar_language",
       "page": 3,
+      "target_word_or_sentence": "Balles",
+      "correction": "Battles",
+      "rubric_point": "grammar_language"
+    },
+    {
+      "type": "grammar_language",
+      "page": 3,
       "target_word_or_sentence": "Memogale",
       "correction": "Memogate",
       "rubric_point": "grammar_language"
@@ -244,14 +276,21 @@
     },
     {
       "type": "grammar_language",
-      "page": 5,
-      "target_word_or_sentence": "Weaknessess",
-      "correction": "Weaknesses",
+      "page": 6,
+      "target_word_or_sentence": "flience",
+      "correction": "influence",
       "rubric_point": "grammar_language"
     },
     {
       "type": "grammar_language",
-      "page": 5,
+      "page": 6,
+      "target_word_or_sentence": "aver",
+      "correction": "over",
+      "rubric_point": "grammar_language"
+    },
+    {
+      "type": "grammar_language",
+      "page": 6,
       "target_word_or_sentence": "systam",
       "correction": "system",
       "rubric_point": "grammar_language"
@@ -276,55 +315,55 @@
       "id": "introduction_quality",
       "name": "Introduction Quality",
       "rating": "weak",
-      "comment": "The introduction is brief and merely restates the question without a clear thesis or structural outline. It does not define the scope or demonstrate understanding of key themes. This leaves the answer directionless from the start."
+      "comment": "The introduction is merely an outline without substantive content, failing to address the question directly or provide a thesis. It does not define scope, key themes, or structure, showing poor understanding of requirements. This leaves the response directionless from the start."
     },
     {
       "id": "headings_subheadings",
       "name": "Headings & Subheadings",
-      "rating": "good",
-      "comment": "Most headings are self-explanatory and relevant to the question's themes of crises and structural weaknesses. They guide the reader through comparisons across eras effectively. One heading for critical appraisal is vague and could be more precise."
+      "rating": "average",
+      "comment": "Most headings are relevant and somewhat self-explanatory, guiding the reader through crises in both eras. However, some are incomplete, vague, or awkwardly phrased, reducing clarity. Overall, they reflect question themes but could better contribute to the analysis."
     },
     {
       "id": "argumentation_quality",
       "name": "Argumentation Quality",
-      "rating": "average",
-      "comment": "Arguments are logically developed with claims supported by examples, but some sections rely on narration without deep cause-effect analysis. Critical thinking is present in comparisons but lacks consistent linkage to the thesis. Overall, it addresses the question but could show more analytical depth."
+      "rating": "good",
+      "comment": "Arguments are logically developed with claims supported by examples and evidence from both periods. Cause-effect relationships are shown, such as leadership vacuums leading to instability. Some narration lacks deeper critical thinking or ties back to the thesis."
     },
     {
       "id": "factual_accuracy",
       "name": "Factual Accuracy",
-      "rating": "good",
-      "comment": "Most facts, dates, and events are correct and verifiable from historical records. Examples like the One Unit scheme and Panama case are accurately presented. One inaccuracy in the count of prime ministers slightly undermines credibility."
+      "rating": "average",
+      "comment": "Most facts, dates, and references are correct and verifiable, drawing from reliable sources like historical texts. Minor inaccuracies exist, such as the number of Prime Ministers and a typographical error in a death year. These weaken credibility slightly but do not undermine the overall analysis."
     },
     {
       "id": "grammar_language",
       "name": "Grammar & Language",
       "rating": "weak",
-      "comment": "Numerous spelling errors due to handwriting, such as 'Vaccum' and 'Aubitary', affect readability. Sentences are mostly clear but informal in places. Punctuation is inconsistent, distracting from the content."
+      "comment": "Numerous spelling errors distract from readability, including 'Vaccum', 'Aubitary', and 'systam'. Sentence structure is often fragmented, with inconsistent punctuation. The formal tone is attempted but undermined by informal phrasing and OCR noise."
     },
     {
       "id": "presentation_quality",
       "name": "Presentation Quality",
       "rating": "average",
-      "comment": "Handwriting appears legible from OCR, with clear paragraph spacing. No visuals are used, which is appropriate. Organization via headings aids readability, though some pages feel crowded."
+      "comment": "Handwriting appears legible from OCR, with clear paragraph spacing and section breaks. No visuals are used, which is appropriate. Organization via headings aids readability, though some inconsistencies in formatting exist."
     },
     {
       "id": "contemporary_relevance",
       "name": "Contemporary Relevance",
-      "rating": "excellent",
-      "comment": "The post-2008 section effectively connects to recent events like the 2023 election deadlock and PDM alliance. It uses current examples to show ongoing structural issues. This demonstrates understanding of the topic's present-day implications."
+      "rating": "good",
+      "comment": "The post-2008 section connects crises to recent events like the 2023 election deadlock and PDM alliance, using current data from HRCP. This shows understanding of ongoing structural issues. Earlier period relies more on historical facts without modern scholarly views."
     },
     {
       "id": "length_completeness",
       "name": "Length & Completeness",
       "rating": "good",
-      "comment": "The answer spans 6 pages, suitable for a 20-mark question, covering both eras and structural weaknesses. All question demands are addressed without major gaps. It maintains focus without excessive irrelevance."
+      "comment": "The response spans 6 pages, suitable for a 20-mark question, covering both eras and structural weaknesses. All question demands are addressed, though the introduction and conclusion are underdeveloped. No major parts are omitted."
     },
     {
       "id": "repetitiveness",
       "name": "Repetitiveness",
       "rating": "average",
-      "comment": "Some ideas like institutional weakness are echoed across sections without adding new depth. Examples are mostly unique, but the conclusion restates earlier points. Overall progression is logical with minor redundancy."
+      "comment": "Some ideas, like military influence, recur across sections without adding depth. Paragraphs generally progress with new points, but structural weaknesses overlap slightly. Overall, it avoids excessive redundancy."
     }
   ]
 }

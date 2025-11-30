@@ -17,7 +17,8 @@ import json
 import os
 import re
 import sys
-from typing import Any, Dict, List, Tuple, Optional
+from functools import lru_cache
+from typing import Any, Dict, List, Tuple, Optional, Set
 
 import requests
 from dotenv import load_dotenv
@@ -297,23 +298,82 @@ def _load_docx_text(path: str) -> str:
     return "\n".join(parts)
 
 
+def _normalize_subject_key(value: str) -> str:
+    """
+    Convert any subject identifier (dropdown id, folder name, filename) into a
+    comparable slug so "Political Science Rubric" and "political-science" match.
+    """
+    if not value:
+        return ""
+    key = value.lower().strip()
+    key = re.sub(r"[\s_]+", "-", key)
+    key = re.sub(r"[^a-z0-9-]", "", key)
+    key = re.sub(r"-{2,}", "-", key)
+    return key.strip("-")
+
+
+def _subject_key_variants(value: str) -> Set[str]:
+    """
+    Generate slug variants for matching; we also accept subjects without the
+    trailing "-rubric" suffix because some folders include that word.
+    """
+    base = _normalize_subject_key(value)
+    variants: Set[str] = set()
+    if base:
+        variants.add(base)
+        if base.endswith("-rubric"):
+            trimmed = base[: -len("-rubric")].strip("-")
+            if trimmed:
+                variants.add(trimmed)
+    return variants
+
+
+def _subject_keys_match(candidate: str, target_variants: Set[str]) -> bool:
+    candidate_variants = _subject_key_variants(candidate)
+    return any(var in target_variants for var in candidate_variants)
+
+
 def find_subject_rubric_path(subject: str) -> Optional[str]:
     """
-    Search under ./20marks_Rubrics for a .docx matching subject name (filename).
+    Search under ./20marks_Rubrics for a .docx whose folder or filename matches
+    the provided subject id (case/spacing insensitive).
     """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     rubrics_root = os.path.join(base_dir, "20marks_Rubrics")
     if not os.path.isdir(rubrics_root):
         return None
 
-    target = subject.lower().strip()
-    for root, _, files in os.walk(rubrics_root):
-        for fname in files:
-            if not fname.lower().endswith(".docx"):
-                continue
-            name_no_ext = os.path.splitext(fname)[0].lower().strip()
-            if name_no_ext == target:
-                return os.path.join(root, fname)
+    target_variants = _subject_key_variants(subject)
+    if not target_variants:
+        return None
+
+    # Prefer matches where the directory name (subject folder) aligns with the
+    # requested id; fall back to filename matches if needed.
+    for entry in sorted(os.listdir(rubrics_root)):
+        entry_path = os.path.join(rubrics_root, entry)
+        if not os.path.isdir(entry_path):
+            continue
+
+        docx_files = sorted(
+            f for f in os.listdir(entry_path) if f.lower().endswith(".docx")
+        )
+        if not docx_files:
+            continue
+
+        dir_matches = _subject_keys_match(entry, target_variants)
+        for fname in docx_files:
+            stem = os.path.splitext(fname)[0]
+            if dir_matches or _subject_keys_match(stem, target_variants):
+                return os.path.join(entry_path, fname)
+
+    # Handle DOCX files that might live directly under the root.
+    for fname in sorted(os.listdir(rubrics_root)):
+        if not fname.lower().endswith(".docx"):
+            continue
+        stem = os.path.splitext(fname)[0]
+        if _subject_keys_match(stem, target_variants):
+            return os.path.join(rubrics_root, fname)
+
     return None
 
 
@@ -970,11 +1030,42 @@ def call_grok_for_refined_rubric_annotations(
 # -----------------------------
 
 
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+_FONTS_DIR = os.path.join(_MODULE_DIR, "fonts")
+_FONT_CANDIDATES = [
+    os.environ.get("OCR_FONT_PATH"),
+    os.path.join(_FONTS_DIR, "ReportFont.ttf"),
+    os.path.join(_FONTS_DIR, "NotoSans-Regular.ttf"),
+    os.path.join(_FONTS_DIR, "DejaVuSans.ttf"),
+    "arial.ttf",
+    "Arial.ttf",
+    "LiberationSans-Regular.ttf",
+    "DejaVuSans.ttf",
+]
+
+
+def _iter_font_candidates() -> List[str]:
+    seen: Set[str] = set()
+    ordered: List[str] = []
+    for candidate in _FONT_CANDIDATES:
+        if not candidate:
+            continue
+        norm = os.path.normpath(candidate) if os.path.isabs(candidate) else candidate
+        if norm in seen:
+            continue
+        seen.add(norm)
+        ordered.append(candidate)
+    return ordered
+
+
+@lru_cache(maxsize=32)
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    try:
-        return ImageFont.truetype("arial.ttf", size)
-    except Exception:
-        return ImageFont.load_default()
+    for candidate in _iter_font_candidates():
+        try:
+            return ImageFont.truetype(candidate, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
 
 
 def _wrap_text(
