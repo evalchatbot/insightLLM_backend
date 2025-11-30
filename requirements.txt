@@ -6,7 +6,7 @@ python-jose~=3.5.0
 httpx~=0.28.1
 pydantic-settings~=2.10.1
 rank-bm25~=0.2.2
-fastembed~=0.7.1
+fast embed~=0.7.1
 numpy~=2.3.2
 PyMuPDF==1.26.4
 langchain==0.3.27
@@ -24,3 +24,4 @@ google-cloud-vision
 google-api-core
 Pillow
 opencv-python-headless
+docx

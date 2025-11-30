@@ -6,7 +6,7 @@
     "page_numbers": [
       1
     ],
-    "content_preview": "The introduction outlines the political and constitutional crises in Pakistan from 1947-1956 and post-2008, highlighting how they reflect structural weaknesses in governance, with references to a poli"
+    "content_preview": "The answer outlines the political and constitutional crises in Pakistan from 1947-1956 and post-2008, reflecting structural weaknesses in governance."
   },
   {
     "index": 1,
@@ -16,45 +16,172 @@
       1,
       2
     ],
-    "content_preview": "This section examines the early years of Pakistan, marked by instability due to leadership vacuum after Quaid-e-Azam's death in 1948 and Liaquat Ali Khan's assassination, leading to four prime ministe"
+    "content_preview": "This period saw Pakistan facing severe instability due to leadership vacuum after Quaid-e-Azam's death in 1948 and Liaquat Ali Khan's assassination, leading to four prime ministers in four years; cons"
   },
   {
     "index": 2,
+    "title": "Leadership Vacuum post Independence",
+    "level": 2,
+    "page_numbers": [
+      1
+    ],
+    "content_preview": "Post-independence, the early deaths of key leaders left Pakistan rudderless, with frequent changes in prime ministers."
+  },
+  {
+    "index": 3,
+    "title": "Constitutional Delay and Institutional Paralysis",
+    "level": 2,
+    "page_numbers": [
+      1,
+      2
+    ],
+    "content_preview": "Pakistan lacked a permanent constitution for nine years, operating under the interim 1935 Act, causing institutional stagnation."
+  },
+  {
+    "index": 4,
+    "title": "Arbitrary Executive Authority Undermined Parliament",
+    "level": 2,
+    "page_numbers": [
+      2
+    ],
+    "content_preview": "Executives like Governor-General Ghulam Muhammad dismissed elected leaders despite parliamentary support, weakening democratic institutions."
+  },
+  {
+    "index": 5,
+    "title": "Ethnic Disunity due to Forced Provincial Mergers",
+    "level": 2,
+    "page_numbers": [
+      2
+    ],
+    "content_preview": "The 1955 One Unit scheme merged West Pakistan provinces, sparking resentment in Balochistan and Sindh."
+  },
+  {
+    "index": 6,
+    "title": "Judiciary Enabled Undemocratic Rule",
+    "level": 2,
+    "page_numbers": [
+      2
+    ],
+    "content_preview": "In the 1955 Tamizuddin Case, the court validated the dissolution of the Constituent Assembly by an unelected Governor-General."
+  },
+  {
+    "index": 7,
     "title": "Post 2008: A Democracy Captured by Power Struggles and Legal Battles",
     "level": 1,
     "page_numbers": [
       3,
       4
     ],
-    "content_preview": "This section discusses post-2008 challenges, including civil-military conflicts like the Memogate Scandal in 2011; judicial overreach disqualifying PM Nawaz Sharif in 2017 over the Panama leaks; weak "
+    "content_preview": "Post-2008, Pakistan's democracy faced civil-military tensions, judicial overreach, weak coalitions, politicized accountability, and constitutional conflicts between judiciary and executive."
   },
   {
-    "index": 3,
+    "index": 8,
+    "title": "Civil-Military Conflict behind Democratic Facade",
+    "level": 2,
+    "page_numbers": [
+      3
+    ],
+    "content_preview": "The 2011 Memogate Scandal revealed civilian fears of military coups, as seen after Osama bin Laden's killing."
+  },
+  {
+    "index": 9,
+    "title": "Judicial Overreach into Political Domain",
+    "level": 2,
+    "page_numbers": [
+      3
+    ],
+    "content_preview": "In 2017, PM Nawaz Sharif was disqualified over a minor iqama issue from Panama leaks, viewed as politically motivated."
+  },
+  {
+    "index": 10,
+    "title": "Weak and Divided Coalition Governments",
+    "level": 2,
+    "page_numbers": [
+      4
+    ],
+    "content_preview": "The 2022 PDM alliance struggled with internal contradictions, hindering consistent governance and reforms."
+  },
+  {
+    "index": 11,
+    "title": "Politicized Accountability Undermines Rule of Law",
+    "level": 2,
+    "page_numbers": [
+      4
+    ],
+    "content_preview": "The NAB disproportionately targeted opposition leaders during PTI rule, criticized by HRCP in 2020."
+  },
+  {
+    "index": 12,
+    "title": "Constitutional Conflict between Judiciary and Executive",
+    "level": 2,
+    "page_numbers": [
+      4,
+      5
+    ],
+    "content_preview": "The 2023 election deadlock in Punjab and KP highlighted failures to enforce constitutional timelines under Article 224 due to political interference."
+  },
+  {
+    "index": 13,
     "title": "Broader Structural Weaknesses in Governance Across Both Eras",
     "level": 1,
     "page_numbers": [
-      4,
       5,
       6
     ],
-    "content_preview": "This section identifies common governance issues: lack of institutional continuity with 14 prime ministers changed since 1947; absence of checks and balances, with excessive use of ordinances from Ghu"
+    "content_preview": "Both periods exhibit institutional discontinuity with 14 prime ministers since 1947; absence of checks allowing excessive ordinances; overdependence on unelected institutions like the military; and we"
   },
   {
-    "index": 4,
+    "index": 14,
+    "title": "Lack of Institutional Continuity",
+    "level": 2,
+    "page_numbers": [
+      5
+    ],
+    "content_preview": "Frequent parliamentary ousters and regime changes undermine political sustainability."
+  },
+  {
+    "index": 15,
+    "title": "Absence of Checks and Balances",
+    "level": 2,
+    "page_numbers": [
+      5
+    ],
+    "content_preview": "Leaders from Ghulam Muhammad to Imran Khan relied excessively on ordinances."
+  },
+  {
+    "index": 16,
+    "title": "Overdependence on Unelected Institutions",
+    "level": 2,
+    "page_numbers": [
+      5
+    ],
+    "content_preview": "The military's influence, via ISPR, shapes political narratives over civilian decisions."
+  },
+  {
+    "index": 17,
+    "title": "Weak Local Government System",
+    "level": 2,
+    "page_numbers": [
+      6
+    ],
+    "content_preview": "Grassroots democracy is ignored, with no local elections held in Punjab from 2016 to 2022."
+  },
+  {
+    "index": 18,
     "title": "Critical Appraisal",
     "level": 1,
     "page_numbers": [
       6
     ],
-    "content_preview": "This section provides a critical evaluation of the structural weaknesses and their impact on Pakistan's political stability across the periods discussed."
+    "content_preview": "A critical evaluation of the structural issues in Pakistani governance across the eras."
   },
   {
-    "index": 5,
+    "index": 19,
     "title": "Conclusion",
     "level": 1,
     "page_numbers": [
       6
     ],
-    "content_preview": "The conclusion summarizes the recurring crises and structural flaws in Pakistan's governance, emphasizing the need for institutional reforms."
+    "content_preview": "The crises reflect enduring structural weaknesses in Pakistan's governance, calling for institutional reforms."
   }
 ]
