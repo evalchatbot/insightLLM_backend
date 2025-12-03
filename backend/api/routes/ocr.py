@@ -39,44 +39,9 @@ async def annotate_pdf(
     if not subject:
         raise HTTPException(status_code=400, detail="Subject selection is required.")
 
-    # Check usage limits BEFORE starting expensive OCR processing
-    # Estimate: OCR typically uses ~200k input + 5k output tokens
-    estimated_input = 200000
-    estimated_output = 5000
-    
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        # Look up user's UUID from users table by id (Clerk user_id stored as id)
-        user_result = supabase.table('users').select('id').eq('id', user_id).single().execute()
-        
-        if not user_result.data or not user_result.data.get('id'):
-            raise HTTPException(status_code=404, detail="User not found in database")
-        
-        actual_uuid = user_result.data['id']
-        
-        # Check if user can proceed with estimated token usage
-        limit_check = supabase.rpc(
-            'check_usage_limit',
-            {
-                'p_user_id': actual_uuid,
-                'p_input_tokens': estimated_input,
-                'p_output_tokens': estimated_output
-            }
-        ).execute()
-        
-        if limit_check.data:
-            # If can_proceed is False, block the request
-            if not limit_check.data.get('can_proceed', True):
-                raise HTTPException(
-                    status_code=429,
-                    detail=limit_check.data.get('message', 'Monthly token limit exceeded')
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Log but don't block on limit check errors
-        print(f"Warning: Failed to check usage limit: {e}")
+    # Note: OCR limit checking is now handled by the frontend API route /api/ocr/check-limit
+    # This prevents double-checking and ensures consistent count-based tracking
+    # The frontend checks BEFORE calling this endpoint, and records AFTER successful completion
 
     try:
         annotator = OCRAnnotator()
