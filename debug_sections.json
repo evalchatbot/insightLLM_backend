@@ -1,187 +1,81 @@
 [
   {
     "index": 0,
-    "title": "(1) Introduction",
-    "level": 1,
-    "page_numbers": [
-      1
-    ],
-    "content_preview": "The introduction outlines the structure of the answer, comparing political and constitutional crises in Pakistan from 1947-1956 and post-2008, and how they reflect governance weaknesses."
-  },
-  {
-    "index": 1,
-    "title": "2) 1947-1956: A State Without a Stable Political Compass",
-    "level": 1,
-    "page_numbers": [
-      1,
-      2
-    ],
-    "content_preview": "This section examines the early crises in Pakistan from 1947 to 1956, marked by leadership vacuum after key figures' deaths, constitutional delays relying on the 1935 Act, arbitrary executive actions "
-  },
-  {
-    "index": 2,
-    "title": "a) Leadership Vacuum post independence",
-    "level": 2,
-    "page_numbers": [
-      1
-    ],
-    "content_preview": "Following Quaid-e-Azam's death in 1948 and Liaquat Ali Khan's assassination, Pakistan lacked stable leadership, with four prime ministers in four years, leaving the nation rudderless."
-  },
-  {
-    "index": 3,
-    "title": "b) Constitutional Delay and Institutional Paralysis",
-    "level": 2,
-    "page_numbers": [
-      1,
-      2
-    ],
-    "content_preview": "Pakistan operated without a permanent constitution for nine years, relying on the 1935 Government of India Act, leading to institutional paralysis."
-  },
-  {
-    "index": 4,
-    "title": "c) Arbitrary Executive Authority Undermined Parliament",
-    "level": 2,
-    "page_numbers": [
-      2
-    ],
-    "content_preview": "Governor-General Ghulam Muhammad dismissed Prime Minister Nazimuddin in 1953 despite assembly support, exemplifying executive overreach."
-  },
-  {
-    "index": 5,
-    "title": "d) Ethnic Disunity due to Forced Provincial Mergers",
-    "level": 2,
-    "page_numbers": [
-      2
-    ],
-    "content_preview": "The 1955 One Unit scheme merged West Pakistan provinces, sparking resentment in Balochistan and Sindh."
-  },
-  {
-    "index": 6,
-    "title": "e) Judiciary Enabled Undemocratic Rule",
-    "level": 2,
-    "page_numbers": [
-      2
-    ],
-    "content_preview": "In the 1955 Tamizuddin Case, the Federal Court validated the dissolution of the Constituent Assembly by an unelected Governor-General."
-  },
-  {
-    "index": 7,
-    "title": "3) Post 2008: A Democracy Captured by Power Struggles and Legal Battles",
+    "title": "Introduction",
+    "exact_ocr_heading": "W10: Greedy Algorithms",
     "level": 1,
     "page_numbers": [
       3,
-      4
-    ],
-    "content_preview": "This section analyzes post-2008 crises, including civil-military tensions like the 2011 Memogate scandal, judicial overreach disqualifying PM Nawaz Sharif in 2017 over the Panama leaks, weak coalition"
-  },
-  {
-    "index": 8,
-    "title": "(i) Civil-Military Conflict behind Democratic Facade",
-    "level": 2,
-    "page_numbers": [
-      3
-    ],
-    "content_preview": "The 2011 Memogate scandal revealed civilian fears of military coups following Osama bin Laden's killing."
-  },
-  {
-    "index": 9,
-    "title": "(ii) Judicial Overreach into Political Domain",
-    "level": 2,
-    "page_numbers": [
-      3
-    ],
-    "content_preview": "In 2017, PM Nawaz Sharif was disqualified over a minor iqama issue from the Panama leaks, seen as politically motivated."
-  },
-  {
-    "index": 10,
-    "title": "(iii) Weak and Divided Coalition Governments",
-    "level": 2,
-    "page_numbers": [
-      4
-    ],
-    "content_preview": "The 2022 PDM alliance faced internal contradictions, hindering consistent governance and reforms."
-  },
-  {
-    "index": 11,
-    "title": "iv) Politicized Accountability Undermines Rule of Law",
-    "level": 2,
-    "page_numbers": [
-      4
-    ],
-    "content_preview": "NAB disproportionately arrested opposition leaders during PTI rule, criticized by HRCP in 2020."
-  },
-  {
-    "index": 12,
-    "title": "V) Constitutional Conflict between Judiciary and Executive",
-    "level": 2,
-    "page_numbers": [
       4,
       5
     ],
-    "content_preview": "The 2023 deadlock over Punjab and KP elections highlighted failures to enforce constitutional timelines under Article 224 due to political interference."
+    "content_preview": "Overview of the course week on Greedy Algorithms, including summary of topics such as Heaps (Max-Heap/Min-Heap, Heapsort), Greedy Algorithms (Activity Selection, Job Scheduling, Knapsack, Huffman, Pri"
   },
   {
-    "index": 13,
-    "title": "(4) Broader Structural Weaknesses in Governance Across Both Eras",
+    "index": 1,
+    "title": "Greedy Strategy: Intuition",
+    "exact_ocr_heading": "Greedy Strategy: Intuition",
     "level": 1,
     "page_numbers": [
-      5,
-      6
+      6,
+      7
     ],
-    "content_preview": "Common weaknesses include lack of institutional continuity with frequent prime ministerial changes, absence of checks and balances through excessive ordinances, overdependence on unelected institution"
+    "content_preview": "Explanation of greedy strategy intuition with the problem of maximizing salary by selecting digits to form the largest number. Examples include arranging digits for salary and coin change problem with"
   },
   {
-    "index": 14,
-    "title": "a) Lack of Institutional Continuity",
-    "level": 2,
-    "page_numbers": [
-      5
-    ],
-    "content_preview": "Frequent weak parliamentary roots and regime changes, with 14 prime ministers from 1947 to 2025, undermine political sustainability."
-  },
-  {
-    "index": 15,
-    "title": "b) Absence of Checks and Balances",
-    "level": 2,
-    "page_numbers": [
-      5
-    ],
-    "content_preview": "Leaders from Ghulam Muhammad to Imran Khan excessively used ordinances, bypassing legislative processes."
-  },
-  {
-    "index": 16,
-    "title": "(c) Overdependence on Unelected Institutions",
-    "level": 2,
-    "page_numbers": [
-      5
-    ],
-    "content_preview": "The military's excessive influence over civil decisions, such as ISPR press conferences, shapes political narratives."
-  },
-  {
-    "index": 17,
-    "title": "d) Weak Local Government System",
-    "level": 2,
-    "page_numbers": [
-      6
-    ],
-    "content_preview": "Grassroots democracy is ignored despite constitutional provisions; for example, no local government elections were held in Punjab from 2016 to 2022."
-  },
-  {
-    "index": 18,
-    "title": "5- Critical Appraisal",
+    "index": 2,
+    "title": "Greedy Strategy: General Structure",
+    "exact_ocr_heading": "Greedy Strategy: General Structure",
     "level": 1,
     "page_numbers": [
-      6
+      8
     ],
-    "content_preview": "This section provides a critical evaluation of the structural weaknesses and their persistence across eras."
+    "content_preview": "Pseudocode for general greedy algorithm structure: getOptimal(A, n) with initialization, loop to select item, feasibility check, and return result."
   },
   {
-    "index": 19,
-    "title": "6. Conclusion",
+    "index": 3,
+    "title": "The Knapsack Problem",
+    "exact_ocr_heading": "The Knapsack Problem",
     "level": 1,
     "page_numbers": [
-      6
+      9,
+      10,
+      11,
+      12,
+      13,
+      14
     ],
-    "content_preview": "The conclusion summarizes how these crises reflect enduring governance flaws in Pakistan, emphasizing the need for institutional reforms."
+    "content_preview": "Description of the 0/1 Knapsack Problem with input, output, and example with items, weights, values, and capacity W=16. Includes brute force enumeration of subsets, total weight and value calculations"
+  },
+  {
+    "index": 4,
+    "title": "Fractional Knapsack Problem",
+    "exact_ocr_heading": "Fractional Knapsack Problem",
+    "level": 2,
+    "page_numbers": [
+      15,
+      16,
+      17,
+      18
+    ],
+    "content_preview": "Explanation of 0/1 vs Fractional Knapsack. Algorithm for Fractional Knapsack: sort by value/weight ratio, take items greedily until capacity is filled, including fractional part of the last item. Exam"
+  },
+  {
+    "index": 5,
+    "title": "Conclusion",
+    "exact_ocr_heading": "Conclusion",
+    "level": 1,
+    "page_numbers": [
+      14,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26
+    ],
+    "content_preview": "Summary that brute force algorithms are inefficient, with notes on exponential time. Includes review questions, pseudocode for algorithms like Dijkstra's, Prim's, and some project announcements. Reite"
   }
 ]

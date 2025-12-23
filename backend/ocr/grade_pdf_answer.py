@@ -12,11 +12,15 @@
 
 import argparse
 import base64
+import datetime
 import io
 import json
 import os
 import re
 import sys
+import tempfile
+import uuid
+import shutil
 from functools import lru_cache
 from typing import Any, Dict, List, Tuple, Optional, Set
 
@@ -27,6 +31,8 @@ from google.cloud import vision
 import fitz  # PyMuPDF
 from docx import Document
 from PIL import Image, ImageDraw, ImageFont
+import cv2
+import numpy as np
 
 try:
     from backend.ocr.annotate_pdf_with_rubric import annotate_pdf_answer_pages
@@ -60,6 +66,7 @@ def debug_dump_sections(
             {
                 "index": idx,
                 "title": sec.get("title"),
+                "exact_ocr_heading": sec.get("exact_ocr_heading"),
                 "level": sec.get("level"),
                 "page_numbers": sec.get("page_numbers"),
                 "content_preview": (sec.get("content") or "")[:200],
@@ -74,6 +81,7 @@ def debug_dump_sections(
         print(
             f"[{sec['index']}] "
             f"Title: {sec['title']!r} | "
+            f"exact_ocr_heading: {sec['exact_ocr_heading']!r} | "
             f"Level: {sec['level']} | "
             f"Pages: {sec['page_numbers']}"
         )
@@ -94,6 +102,85 @@ def clean_json_from_llm(text: str) -> str:
         text = re.sub(r"^```[a-zA-Z0-9]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
     return text.strip()
+
+
+# -----------------------------
+# JSON SCHEMA VALIDATION
+# -----------------------------
+
+
+def validate_refined_summary(summary_list: List[Dict[str, Any]]) -> bool:
+    """Validate refined_rubric_summary schema."""
+    REQUIRED_KEYS = ["id", "name", "rating", "comment"]
+    VALID_RATINGS = {"weak", "average", "good", "excellent"}
+    VALID_IDS = {"argumentation_quality", "presentation",
+                 "contemporary_relevance", "length_completeness"}
+
+    for idx, item in enumerate(summary_list):
+        # Check required keys
+        missing = set(REQUIRED_KEYS) - set(item.keys())
+        if missing:
+            raise ValueError(f"refined_rubric_summary[{idx}] missing fields: {missing}")
+
+        # Validate rating
+        if item["rating"].lower() not in VALID_RATINGS:
+            print(f"WARNING: Invalid rating in summary[{idx}]: {item['rating']} (expected: weak/average/good/excellent)")
+
+        # Validate ID (warn but don't fail)
+        if item["id"] not in VALID_IDS:
+            print(f"WARNING: Unexpected summary ID in summary[{idx}]: {item['id']}")
+
+    return True
+
+
+def validate_annotation(annotation: Dict[str, Any], idx: int = 0) -> bool:
+    """Validate single annotation schema."""
+    REQUIRED_KEYS = ["type", "rubric_point", "page",
+                     "target_word_or_sentence", "context_before",
+                     "context_after", "correction", "comment"]
+
+    missing = set(REQUIRED_KEYS) - set(annotation.keys())
+    if missing:
+        print(f"WARNING: Annotation[{idx}] missing fields: {missing}")
+        return False
+
+    # Validate page number
+    if not isinstance(annotation["page"], int) or annotation["page"] < 1:
+        print(f"WARNING: Invalid page number in annotation[{idx}]: {annotation['page']}")
+        return False
+
+    return True
+
+
+def validate_input_paths(pdf_path: str, output_json_path: str, output_pdf_path: str) -> bool:
+    """Validate all input/output paths before processing."""
+    # Check PDF exists and is readable
+    if not os.path.isfile(pdf_path):
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+    try:
+        with open(pdf_path, 'rb') as f:
+            # Check file is not empty and starts with PDF header
+            header = f.read(4)
+            if header != b'%PDF':
+                raise ValueError(f"File is not a valid PDF: {pdf_path}")
+    except Exception as e:
+        raise ValueError(f"Cannot read PDF {pdf_path}: {e}")
+
+    # Check output paths are writable
+    for path in [output_json_path, output_pdf_path]:
+        try:
+            dirname = os.path.dirname(path)
+            if dirname and not os.path.exists(dirname):
+                os.makedirs(dirname, exist_ok=True)
+            # Test write access
+            with open(path, 'w') as f:
+                f.write("")
+            os.remove(path)
+        except Exception as e:
+            raise ValueError(f"Cannot write to {path}: {e}")
+
+    return True
 
 
 def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
@@ -118,6 +205,18 @@ def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
             "Please set them in your .env file."
         )
 
+    # Validate API key formats
+    if len(grok_key) < 20:
+        raise ValueError(
+            f"Invalid Grok_API key format: key is too short ({len(grok_key)} characters). "
+            "Expected at least 20 characters."
+        )
+    if len(google_key) < 20:
+        raise ValueError(
+            f"Invalid Google_cloud_key format: key is too short ({len(google_key)} characters). "
+            "Expected at least 20 characters."
+        )
+
     client_options = ClientOptions(api_key=google_key)
     vision_client = vision.ImageAnnotatorClient(client_options=client_options)
     return grok_key, vision_client
@@ -130,17 +229,24 @@ def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
 
 def pdf_to_page_images_for_grok(
     pdf_path: str,
-    max_pages: int = 50,
-    max_dim: int = 1200,
+    max_pages: int = 20,
+    max_dim: int = 400,
     base64_cap: int = 12000,
+    output_dir: str = "grok_images",
 ) -> List[Dict[str, Any]]:
     """
-    Convert up to `max_pages` pages of the PDF into resized PNG images (for Grok).
-    Returns a list: [{"page": 1, "image_base64": "...", "truncated": bool}, ...]
+    Convert up to `max_pages` pages of the PDF into resized JPEG images (for Grok).
+    Optimized to reduce token usage: lower DPI, smaller size, JPEG compression.
+    Saves images to output_dir for inspection/debugging.
+    Returns a list: [{"page": 1, "image_base64": "...", "file_path": "...", "truncated": bool}, ...]
     """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
     doc = fitz.open(pdf_path)
     images = []
     for page in doc:
+        # Use 200 DPI to match OCR processing (ensures coordinate alignment)
         pix = page.get_pixmap(dpi=200)
         img_bytes = pix.tobytes("png")
         pil_img = Image.open(io.BytesIO(img_bytes))
@@ -152,17 +258,42 @@ def pdf_to_page_images_for_grok(
         if idx >= max_pages:
             break
         resized = img.copy()
+        # Reduced max dimension from 1200 to 800 (44% fewer pixels)
         resized.thumbnail((max_dim, max_dim))
+
+        # Convert to RGB if necessary (JPEG doesn't support transparency)
+        if resized.mode in ('RGBA', 'LA', 'P'):
+            rgb_img = Image.new('RGB', resized.size, (255, 255, 255))
+            if resized.mode == 'P':
+                resized = resized.convert('RGBA')
+            rgb_img.paste(resized, mask=resized.split()[-1] if resized.mode in ('RGBA', 'LA') else None)
+            resized = rgb_img
+        elif resized.mode != 'RGB':
+            resized = resized.convert('RGB')
+
         buffer = io.BytesIO()
-        resized.save(buffer, format="PNG", optimize=True)
+        # Changed from PNG to JPEG with 60% quality for reduced payload size
+        resized.save(buffer, format="JPEG", quality=60, optimize=True)
+
+        # Save image to disk
+        file_path = os.path.join(output_dir, f"page_{idx + 1:03d}.jpg")
+        resized.save(file_path, format="JPEG", quality=60, optimize=True)
+        
         encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
         truncated = False
         if len(encoded) > base64_cap:
             encoded = encoded[:base64_cap]
             truncated = True
         page_images.append(
-            {"page": idx + 1, "image_base64": encoded, "truncated": truncated}
+            {
+                "page": idx + 1,
+                "image_base64": encoded,
+                "file_path": file_path,
+                "truncated": truncated
+            }
         )
+    
+    print(f"Saved {len(page_images)} page images to '{output_dir}/'")
     return page_images
 
 
@@ -183,33 +314,49 @@ def _paragraph_text(paragraph) -> str:
     return " ".join(words).strip()
 
 
+def _is_noise_text(text: str, bbox: List[Tuple[int, int]], page_w: int, page_h: int) -> bool:
+    """
+    Filter out background noise from OCR results.
+    Returns True if the text is likely noise.
+    """
+    if not text or not bbox:
+        return True
+
+    # Filter very short text (1-2 chars) that's likely noise
+    if len(text.strip()) <= 2:
+        return True
+
+    # Calculate bbox dimensions
+    xs = [p[0] for p in bbox]
+    ys = [p[1] for p in bbox]
+    if not xs or not ys:
+        return True
+
+    width = max(xs) - min(xs)
+    height = max(ys) - min(ys)
+
+    # Filter extremely small text (likely artifacts)
+    if width < 10 or height < 10:
+        return True
+
+    # Filter text at extreme edges (often page numbers or noise)
+    center_x = (min(xs) + max(xs)) / 2
+    center_y = (min(ys) + max(ys)) / 2
+
+    margin = 30  # pixels
+    if center_x < margin or center_x > page_w - margin:
+        if center_y < margin or center_y > page_h - margin:
+            return True
+
+    return False
+
+
 def run_ocr_on_pdf(
     vision_client: vision.ImageAnnotatorClient, pdf_path: str
 ) -> Dict[str, Any]:
     """
     Run Google Cloud Vision DOCUMENT_TEXT_DETECTION on each page of the PDF.
-    Returns a structured dict with pages, lines, and bounding boxes:
-
-      {
-        "pages": [
-          {
-            "page_number": 1,
-            "lines": [
-              {
-                "text": str,
-                "bbox": [ (x,y), ... ],
-                "words": [
-                  { "text": str, "bbox": [ (x,y), ... ] },
-                  ...
-                ]
-              },
-              ...
-            ]
-          },
-          ...
-        ],
-        "full_text": "..."
-      }
+    Filters out background noise and artifacts.
     """
     doc = fitz.open(pdf_path)
     images = []
@@ -223,6 +370,7 @@ def run_ocr_on_pdf(
     full_text_parts: List[str] = []
 
     for idx, img in enumerate(images):
+        page_w, page_h = img.size
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
         vision_image = vision.Image(content=buffer.getvalue())
@@ -240,8 +388,12 @@ def run_ocr_on_pdf(
                 for block in page.blocks:
                     for paragraph in block.paragraphs:
                         text = _paragraph_text(paragraph)
-                        if not text:
+                        para_bbox = _bbox_to_tuples(paragraph.bounding_box)
+
+                        # Filter noise
+                        if _is_noise_text(text, para_bbox, page_w, page_h):
                             continue
+
                         word_entries: List[Dict[str, Any]] = []
                         for word in paragraph.words:
                             w_text = "".join(
@@ -249,31 +401,35 @@ def run_ocr_on_pdf(
                             ).strip()
                             if not w_text:
                                 continue
-                            word_entries.append(
-                                {
-                                    "text": w_text,
-                                    "bbox": _bbox_to_tuples(word.bounding_box),
-                                }
-                            )
-                        page_lines.append(
-                            {
+                            word_bbox = _bbox_to_tuples(word.bounding_box)
+
+                            # Filter noise words
+                            if _is_noise_text(w_text, word_bbox, page_w, page_h):
+                                continue
+
+                            word_entries.append({
+                                "text": w_text,
+                                "bbox": word_bbox,
+                            })
+
+                        if word_entries:  # Only add paragraph if it has valid words
+                            page_lines.append({
                                 "text": text,
-                                "bbox": _bbox_to_tuples(paragraph.bounding_box),
+                                "bbox": para_bbox,
                                 "words": word_entries,
-                            }
-                        )
+                            })
         else:
             text_annotations = response.text_annotations
             if text_annotations:
                 full_text_parts.append(text_annotations[0].description.strip())
                 for ta in text_annotations[1:]:
-                    page_lines.append(
-                        {
+                    ta_bbox = _bbox_to_tuples(ta.bounding_poly)
+                    if not _is_noise_text(ta.description, ta_bbox, page_w, page_h):
+                        page_lines.append({
                             "text": ta.description,
-                            "bbox": _bbox_to_tuples(ta.bounding_poly),
+                            "bbox": ta_bbox,
                             "words": [],
-                        }
-                    )
+                        })
 
         pages_output.append({"page_number": idx + 1, "lines": page_lines})
 
@@ -464,8 +620,13 @@ def call_grok_for_section_detection(
             "- The result must be valid JSON parseable by a strict JSON parser.\n\n"
             "EACH section OBJECT MUST HAVE THE FIELDS:\n"
             "- 'title' (string):\n"
-            "    - For explicit headings, use the exact or very close handwritten text.\n"
+            "    - For explicit headings, use a clean, readable version of the heading.\n"
             "    - For implicit parts, use labels like 'Introduction' or 'Conclusion'.\n"
+            "- 'exact_ocr_heading' (string):\n"
+            "    - CRITICAL: This must be the EXACT text as it appears in the OCR (with any spelling mistakes, formatting, etc.).\n"
+            "    - For explicit headings: Copy the exact OCR text of the heading line word-for-word from ocr_pages.\n"
+            "    - For implicit sections (Introduction/Conclusion): Copy the exact OCR text of the first line of that section.\n"
+            "    - This field is used to locate headings precisely, so it MUST match OCR exactly.\n"
             "- 'level' (integer):\n"
             "    - 1 for main heading (top-level section),\n"
             "    - 2 for subheading under the previous level-1 section,\n"
@@ -493,6 +654,18 @@ def call_grok_for_section_detection(
         ),
     }
 
+
+    # Sanitize OCR pages: remove any bounding-box or coordinate data before sending
+    raw_pages = ocr_data.get("pages", [])
+    sanitized_pages = []
+    for p in raw_pages:
+        lines = []
+        for line in p.get("lines", []):
+            # Keep only textual content (line text + list of word texts) — drop bbox info
+            line_text = line.get("text", "")
+            words = [w.get("text", "") for w in line.get("words", [])]
+            lines.append({"text": line_text, "words": words})
+        sanitized_pages.append({"page_number": p.get("page_number"), "lines": lines})
 
     user_payload = {
         "task": (
@@ -538,13 +711,15 @@ def call_grok_for_section_detection(
             "   - Do not wrap the JSON in markdown.\n"
             "   - Do not add explanations, comments, or any extra text.\n"
         ),
-        "ocr_full_text": ocr_data.get("full_text", "")[:20000],
-        "ocr_pages": ocr_data.get("pages", []),
+        # Send the full OCR text (no truncation) but send only sanitized page content
+        "ocr_full_text": ocr_data.get("full_text", ""),
+        "ocr_pages": sanitized_pages,
         "page_images_base64_png": page_images,
         "output_schema": {
             "sections": [
                 {
                     "title": "string",
+                    "exact_ocr_heading": "exact text from OCR",
                     "level": 1,
                     "page_numbers": [1],
                     "content_text": "string",
@@ -563,54 +738,106 @@ def call_grok_for_section_detection(
         "Authorization": f"Bearer {grok_api_key}",
     }
 
-    resp = requests.post(
-        "https://api.x.ai/v1/chat/completions",
-        headers=headers,
-        json={
-            "model": "grok-4-fast-reasoning",
-            "messages": [system_msg, user_msg],
-            "temperature": 0.1,
-        },
-        timeout=120,
-    )
-
-    try:
-        data = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to parse Grok section detection JSON: {exc}") from exc
-
-    # Extract token usage from response
-    usage = data.get("usage", {})
-    token_usage = {
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
+    payload = {
+        "model": "grok-4-fast-reasoning",
+        "messages": [system_msg, user_msg],
+        "temperature": 0.1,
+        "max_tokens": 4000,  # Sufficient for structure detection
     }
 
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except Exception as exc:
-        raise RuntimeError(f"Unexpected Grok section response shape: {data}") from exc
+    max_retries = 3
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # Exponential backoff: 1s, 2s, 4s
+            import time
+            time.sleep(2 ** (attempt - 1))
+            print(f"Retry attempt {attempt + 1}/{max_retries} for section detection...")
 
-    try:
-        cleaned = clean_json_from_llm(content)
-        parsed = json.loads(cleaned)
-    except Exception as e:
-        # Fallback – expose what came back for debugging
-        return [
-            {
-                "title": "Section Detection Error",
-                "level": 1,
-                "page_numbers": [1],
-                "content": f"Grok section detection failed: {e}\nRaw: {content[:400]}",
-                "line_indices": [],
+        try:
+            resp = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=120,
+            )
+
+            if resp.status_code >= 300:
+                if attempt < max_retries - 1:
+                    print(f"API error {resp.status_code}, retrying...")
+                    continue
+                raise RuntimeError(f"Section detection API error {resp.status_code}: {resp.text}")
+
+            data = resp.json()
+
+            # Extract token usage from response
+            usage = data.get("usage", {})
+            token_usage = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
             }
-        ], token_usage
+
+            # Print token usage for this Grok section-detection prompt
+            try:
+                total_tokens = int(token_usage.get("input_tokens", 0)) + int(
+                    token_usage.get("output_tokens", 0)
+                )
+            except Exception:
+                total_tokens = None
+            print(
+                f"[Grok Section Detection] tokens — input={token_usage['input_tokens']}, output={token_usage['output_tokens']}, total={total_tokens}"
+            )
+
+            # Check for truncation
+            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
+            if finish_reason == "length" and attempt < max_retries - 1:
+                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
+                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
+                continue
+
+            content = data["choices"][0]["message"]["content"]
+            cleaned = clean_json_from_llm(content)
+            parsed = json.loads(cleaned)
+
+            # Success
+            if attempt > 0:
+                print(f"Successfully parsed section detection on attempt {attempt + 1}")
+
+            break  # Exit retry loop on success
+
+        except (requests.Timeout, requests.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                print(f"Network error, retrying...")
+                continue
+            raise RuntimeError(f"Section detection network error: {e}") from e
+
+        except json.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                print(f"JSON parse error, retrying...")
+                continue
+            # Fallback on final attempt
+            return [
+                {
+                    "title": "Section Detection Error",
+                    "level": 1,
+                    "page_numbers": [1],
+                    "content_text": f"Grok section detection failed: {e}\nRaw: {content[:400]}",
+                }
+            ], token_usage
+
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Unexpected error: {exc}, retrying...")
+                continue
+            raise RuntimeError(f"Unexpected section detection error: {exc}") from exc
+
+    # If we get here, parsing succeeded
 
     raw_sections = parsed.get("sections", []) or []
 
     sections: List[Dict[str, Any]] = []
     for sec in raw_sections:
         title = (sec.get("title") or "UNSPECIFIED").strip()
+        exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
         level = sec.get("level") or 1
         pages = sec.get("page_numbers") or []
         content_text = sec.get("content_text") or sec.get("content") or ""
@@ -618,6 +845,7 @@ def call_grok_for_section_detection(
         sections.append(
             {
                 "title": title,
+                "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
                 "level": int(level) if isinstance(level, (int, float)) else 1,
                 "page_numbers": sorted(
                     set(int(p) for p in pages if isinstance(p, (int, float)))
@@ -657,7 +885,11 @@ def build_grok_payload_for_grading(
         "max_marks": 20,
         "total_marks_awarded": 0,
         "question_statement": "",
-        "question_expectation": "",
+        "question_expectation": [
+            "Bullet point 1: Key theme/concept expected",
+            "Bullet point 2: Important theory or framework",
+            "Bullet point 3: Historical context or period"
+        ],
         "criteria": [
             {
                 "id": "knowledge_accuracy",
@@ -671,11 +903,14 @@ def build_grok_payload_for_grading(
         "high_scoring_outline": {
             "title": "High-Scoring Ideal Outline",
             "outline_points": [
-                "Key Concept Introduction: Clear explanation of the main theme or argument with foundational details and context",
-                "Central Argument or Main Point: Detailed development of the primary thesis with supporting evidence, specific examples, and historical/factual details",
-                "Supporting Evidence and Examples: Concrete examples, data, quotes, or case studies that substantiate the main argument with clear connections",
-                "Critical Analysis and Interpretation: Deeper analysis showing how evidence supports the argument and what it means in broader context",
-                "Conclusion and Synthesis: Summary of how all elements connect to answer the question comprehensively"
+                {
+                    "heading": "Section Title",
+                    "summary": "2-3 sentence overview of what an excellent response covers in this section.",
+                    "key_points": [
+                        "Key argument or piece of evidence 1",
+                        "Key argument or piece of evidence 2"
+                    ],
+                }
             ],
         },
         "overall_comment": "",
@@ -693,23 +928,20 @@ def build_grok_payload_for_grading(
         "  - max_marks: always 20\n"
         "  - total_marks_awarded (cap at 14 maximum)\n"
         "  - question_statement: the exam question as written by the student\n"
-        "  - question_expectation: what an excellent answer should cover as a single paragraph (no bullet points)\n"
+        "  - question_expectation: MUST be an array of 3-5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
         "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
-        "  - high_scoring_outline: ALWAYS use title as 'High-Scoring Ideal Outline' + array of detailed outline_points with structured headings\n"
-        "      * Do NOT modify or extend the title - it must be exactly: 'High-Scoring Ideal Outline'\n"
-        "      * Format each outline point as: 'Heading/Section Title: Detailed explanation with examples, evidence, and analysis'\n"
-        "      * Each outline point should be comprehensive (1-4 sentences) with specific examples or detailed content\n"
-        "      * Points should cover: key arguments, evidence, analysis, and how they connect to the question\n"
-        "      * Include concrete details, dates, names, or specific examples where relevant\n"
-        "      * Organize into logical sections with clear headings (e.g., 'Introduction to Key Concept:', 'Main Argument:',\n"
-        "        'Supporting Evidence:', 'Critical Analysis:', etc.)\n"
-        "  - overall_comment: 3–5 sentence holistic evaluation.\n"
+        "  - high_scoring_outline: ALWAYS use title as 'High-Scoring Ideal Outline' and return outline_points you design yourself.\n"
+        "      * Provide 4-6 ordered sections that read like a model answer plan: introduction, body sections for each era/theme, comparative analysis, and a conclusion/way forward.\n"
+        "      * Each outline_points entry must be an object with: heading (section title), summary (2-3 sentences describing what to cover), and key_points (2-4 concise bullets highlighting evidence, theorists, dates, policies, etc.).\n"
+        "      * Summaries and key points must focus on how the student should have answered, not meta commentary.\n"
+        "  - overall_comment: 3-5 sentence holistic evaluation.\n"
     )
 
     content_payload = {
         "subject": subject,
         "rubric_text": subject_rubric_text,
-        "ocr_full_text": ocr_data.get("full_text", "")[:15000],
+        # Send full OCR text (no truncation)
+        "ocr_full_text": ocr_data.get("full_text", ""),
         "sections": sections,
         "page_images_base64_png": page_images,
         "output_schema": schema_hint,
@@ -733,6 +965,7 @@ def build_grok_payload_for_grading(
             },
         ],
         "temperature": 0.15,
+        "max_tokens": 8000,  # Increased to allow longer responses
     }
 
 
@@ -743,6 +976,7 @@ def call_grok_for_grading(
     ocr_data: Dict[str, Any],
     sections: List[Dict[str, Any]],
     page_images: List[Dict[str, Any]],
+    max_retries: int = 3,
 ) -> Tuple[Dict[str, Any], Dict[str, int]]:
     payload = build_grok_payload_for_grading(
         subject, subject_rubric_text, ocr_data, sections, page_images
@@ -752,42 +986,92 @@ def call_grok_for_grading(
         "Content-Type": "application/json",
     }
 
-    resp = requests.post(
-        "https://api.x.ai/v1/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=150,
-    )
-    if resp.status_code >= 300:
-        raise RuntimeError(f"Grok grading error {resp.status_code}: {resp.text}")
+    for attempt in range(max_retries):
+        if attempt > 0:
+            print(f"Retry attempt {attempt + 1}/{max_retries} for Grok grading...")
 
-    try:
-        data = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"Grok grading JSON parse error: {exc}") from exc
+        resp = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=150,
+        )
+        if resp.status_code >= 300:
+            if attempt < max_retries - 1:
+                print(f"API error {resp.status_code}, retrying...")
+                continue
+            raise RuntimeError(f"Grok grading error {resp.status_code}: {resp.text}")
 
-    # Extract token usage from response
-    usage = data.get("usage", {})
-    token_usage = {
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
-    }
+        try:
+            data = resp.json()
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Response JSON parse error, retrying...")
+                continue
+            raise RuntimeError(f"Grok grading JSON parse error: {exc}") from exc
 
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except Exception as exc:
-        raise RuntimeError(f"Unexpected Grok grading response: {data}") from exc
+        # Extract token usage from response
+        usage = data.get("usage", {})
+        token_usage = {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        }
 
-    try:
-        cleaned = clean_json_from_llm(content)
-        parsed = json.loads(cleaned)
-    except Exception as exc:
-        snippet = content[:600]
-        raise RuntimeError(
-            f"Grok grading returned non-JSON or malformed JSON. Snippet:\n{snippet}"
-        ) from exc
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Missing content in response, retrying...")
+                continue
+            raise RuntimeError(f"Unexpected Grok grading response: {data}") from exc
 
-    return parsed, token_usage
+        # Check if response was truncated due to finish_reason
+        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
+        if finish_reason == "length":
+            print(f"WARNING: Grok response was truncated due to max token limit!")
+            print(f"Response length: {len(content)} characters")
+            if attempt < max_retries - 1:
+                # Increase max_tokens and retry
+                payload["max_tokens"] = payload.get("max_tokens", 8000) + 2000
+                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
+                continue
+
+        try:
+            cleaned = clean_json_from_llm(content)
+            parsed = json.loads(cleaned)
+            # Success! Return the result
+            if attempt > 0:
+                print(f"Successfully parsed JSON on attempt {attempt + 1}")
+            return parsed, token_usage
+        except json.JSONDecodeError as exc:
+            # Save malformed JSON to file for debugging (with unique timestamp)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            error_file = f"grok_error_response_{timestamp}_{attempt + 1}.txt"
+            with open(error_file, "w", encoding="utf-8") as f:
+                f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
+                f.write(content)
+                f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
+                f.write(cleaned)
+                f.write(f"\n\n=== ERROR ===\n{exc}\n")
+
+            print(f"\nDEBUG: Full content length: {len(content)} characters")
+            print(f"DEBUG: Finish reason: {finish_reason}")
+            print(f"DEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
+            print(f"DEBUG: Saved full response to {error_file}")
+            print(f"DEBUG: First 300 chars: {content[:300]}")
+            print(f"DEBUG: Last 300 chars: {content[-300:]}")
+
+            if attempt < max_retries - 1:
+                print(f"Malformed JSON, retrying...")
+                continue
+
+            raise RuntimeError(
+                f"Grok grading returned malformed JSON after {max_retries} attempts. "
+                f"Error: {exc.msg} at position {exc.pos}. "
+                f"Full response saved to {error_file}"
+            ) from exc
+
+    raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
 
 
 # -----------------------------
@@ -801,6 +1085,7 @@ def call_grok_for_refined_rubric_annotations(
     ocr_data: Dict[str, Any],
     sections: List[Dict[str, Any]],
     page_images: List[Dict[str, Any]],
+    max_retries: int = 3,
 ) -> Tuple[Dict[str, Any], Dict[str, int]]:
     """
     Ask Grok to apply the refined generic rubric and produce:
@@ -861,97 +1146,196 @@ def call_grok_for_refined_rubric_annotations(
     instructions = (
         "Use the refined generic rubric text to evaluate this answer strictly. "
         "You must obey these annotation rules:\n\n"
+        "⚠️ ABSOLUTE REQUIREMENT - INTRODUCTION COMMENT:\n"
+        "- THE VERY FIRST ANNOTATION IN YOUR OUTPUT MUST BE type='introduction_comment'\n"
+        "- THIS IS NON-NEGOTIABLE - EVERY ANSWER MUST HAVE EXACTLY ONE INTRODUCTION COMMENT\n"
+        "- PLACE IT AS THE FIRST ITEM IN THE annotations[] ARRAY\n"
+        "- IF YOU DO NOT INCLUDE THIS, YOUR RESPONSE WILL BE REJECTED\n\n"
+        "CRITICAL REQUIREMENT FOR ALL ANNOTATIONS:\n"
+        "- For ALL annotation types, you MUST copy text EXACTLY as it appears in the OCR text.\n"
+        "- NEVER paraphrase, reword, or correct the text when filling target_word_or_sentence.\n"
+        "- ALWAYS provide context_before (3-5 words immediately before) and context_after (3-5 words immediately after).\n"
+        "- Copy these contexts EXACTLY from the OCR text with original spelling and punctuation.\n\n"
+        "ALL ANNOTATIONS MUST HAVE THIS UNIFIED SCHEMA:\n"
+        "  type: string (introduction_comment/heading_issue/factual_error/grammar_language/repetition)\n"
+        "  rubric_point: string (e.g., 'introduction_quality', 'headings_subheadings', 'factual_accuracy', 'grammar_language')\n"
+        "  page: integer (page number where the annotation appears)\n"
+        "  target_word_or_sentence: string (EXACT text from OCR - the word, phrase, or sentence being annotated)\n"
+        "  context_before: string (EXACT 3-5 words from OCR that appear immediately before the target)\n"
+        "  context_after: string (EXACT 3-5 words from OCR that appear immediately after the target)\n"
+        "  correction: string (the correct version, or suggestion for improvement)\n"
+        "  comment: string (explanation of the issue)\n"
+        "  sentiment: string (optional, for heading_issue: 'positive' or 'negative')\n\n"
         "1) Introduction:\n"
+        "   - MANDATORY: You MUST ALWAYS create exactly ONE annotation of type 'introduction_comment'.\n"
+        "   - This annotation is REQUIRED for every answer, regardless of quality.\n"
         "   - Decide if introduction is weak/average/good/excellent and be strict about it.\n"
-        "   - Create ONE annotation of type 'introduction_comment' with:\n"
+        "   - Create type 'introduction_comment' with:\n"
         "       rubric_point = 'introduction_quality',\n"
-        "       target_section_id = the section.id that is the introduction,\n"
         "       page = first page where introduction appears,\n"
-        "       comment = a detailed 3–5 sentence evaluation of ONLY the introduction using the refined generic rubric\n\n"
+        "       target_word_or_sentence = EXACT first sentence or opening phrase from OCR,\n"
+        "       context_before = '' (empty for first sentence),\n"
+        "       context_after = EXACT next 3-5 words from OCR after the target,\n"
+        "       correction = '' (not applicable for introduction comments),\n"
+        "       comment = a detailed 3–5 sentence evaluation of ONLY the introduction using the refined generic rubric.\n"
+        "   - DO NOT SKIP THIS ANNOTATION. It is MANDATORY.\n\n"
         "2) Headings and subheadings:\n"
-        "   - Evaluate ALL headings and subheadings (not just negative ones) .\n"
+        "   - MANDATORY: You MUST evaluate EVERY SINGLE heading and subheading detected in the sections[] array.\n"
+        "   - For EACH heading/subheading found, you MUST create ONE 'heading_issue' annotation.\n"
+        "   - DO NOT skip any headings. If you detect 5 headings, you MUST create 5 heading_issue annotations.\n"
+        "   - IMPORTANT: DO NOT evaluate spelling, grammar, or OCR errors in headings. These are handled separately.\n"
+        "   - ONLY evaluate heading CONTENT: relevance, clarity, self-explanatory nature.\n"
         "   - For CORRECT headings (self-explanatory, relevant, clear), add annotation type 'heading_issue' with:\n"
-        "       section_id = that heading's section.id,\n"
+        "       rubric_point = 'headings_subheadings',\n"
         "       page = page number of that heading,\n"
+        "       target_word_or_sentence = EXACT heading text from OCR,\n"
+        "       context_before = EXACT 3-5 words from OCR before the heading,\n"
+        "       context_after = EXACT 3-5 words from OCR after the heading,\n"
         "       sentiment = 'positive',\n"
+        "       correction = '' (empty for positive headings),\n"
         "       comment = 'Correct heading' or 'Good heading - clear and relevant'.\n"
         "   - For INCORRECT/PROBLEMATIC headings, create type 'heading_issue' with:\n"
-        "       section_id = that heading's section.id,\n"
+        "       rubric_point = 'headings_subheadings',\n"
         "       page = page number of that heading,\n"
+        "       target_word_or_sentence = EXACT heading text from OCR (even if misspelled),\n"
+        "       context_before = EXACT 3-5 words from OCR before the heading,\n"
+        "       context_after = EXACT 3-5 words from OCR after the heading,\n"
         "       sentiment = 'negative',\n"
-        "       comment = short explanation of the issue,\n"
-        "       suggestion = a better alternate heading that would be more self-explanatory and relevant.\n"
-        "   - Focus on issues such as: not being self-explanatory, not directly relevant, vague, unclear.\n"
-        "   - Do NOT flag spelling mistakes in headings here (handle in grammar_language).\n"
-        "   - Use the refined generic rubric text to evaluate.\n\n"
+        "       correction = a better alternate heading that would be more self-explanatory and relevant,\n"
+        "       comment = short explanation of the issue (NEVER mention spelling/grammar/OCR errors).\n"
+        "   - Focus ONLY on: not being self-explanatory, not directly relevant, vague, unclear, irrelevant.\n"
+        "   - IGNORE: spelling mistakes, grammar errors, OCR misreads in headings.\n\n"
         "3) Factual inaccuracies:\n"
-        "   - IMPORTANT: Do NOT mark spelling mistakes as factual errors.\n"
+        "   - CRITICAL: Do NOT create annotations for CORRECT facts. ONLY annotate ACTUAL ERRORS.\n"
+        "   - Do NOT mark spelling mistakes as factual errors.\n"
+        "   - If a date/fact is correct, DO NOT create any annotation for it.\n"
         "   - Only flag actual factual mistakes (wrong dates, wrong facts, incorrect information).\n"
-        "   - For each sentence with a factual mistake, create type 'factual_error' with:\n"
-        "       page = page where the sentence appears,\n"
-        "       target_sentence = THE EXACT SENTENCE TEXT AS WRITTEN (copy verbatim from OCR text),\n"
-        "                        Do NOT paraphrase or reword - use the exact wording from the student's script,\n"
-        "       target_sentence_start = the exact first 6-8 words of the sentence for precise matching,\n"
-        "       context_before = 3-5 words that appear immediately before this sentence,\n"
-        "       context_after = 3-5 words that appear immediately after this sentence,\n"
-        "       correction = a short correct version or correct fact,\n"
+        "   - Keep target_word_or_sentence VERY SHORT (1-10 words max) containing only the error.\n"
+        "   - For each ACTUAL factual mistake, create type 'factual_error' with:\n"
+        "       rubric_point = 'factual_accuracy',\n"
+        "       page = page where the error appears,\n"
+        "       target_word_or_sentence = EXACT SHORT PHRASE containing the WRONG fact (e.g., '1944' when it should be '1945'),\n"
+        "       context_before = EXACT 3-5 words immediately before the error in OCR,\n"
+        "       context_after = EXACT 3-5 words immediately after the error in OCR,\n"
+        "       correction = the CORRECT fact (e.g., '1945'),\n"
         "       comment = short explanation (e.g., 'Year should be 1945 not 1944').\n"
-        "   - CRITICAL: Copy target_sentence EXACTLY from the OCR text. Preserve spelling, punctuation, and wording.\n"
-        "   - Provide context_before and context_after to help locate the sentence when similar phrases exist elsewhere.\n"
-        "   - Make sure to go through all the facts using the images and the ocr text provided.\n"
-        "   - Use the refined generic rubric text to evaluate.\n\n"
+        "   - NEVER copy full sentences - only the specific phrase with the error.\n"
+        "   - DO NOT create factual_error if target_word_or_sentence = correction (that means it's correct!)\n"
+        "   - Examples:\n"
+        "       * WRONG: target='1944', correction='1944', comment='correct' (DO NOT DO THIS!)\n"
+        "       * WRONG: target='1707', correction='1707', comment='Year is correct' (DO NOT DO THIS!)\n"
+        "       * CORRECT: target='1944', correction='1945', comment='Year should be 1945 not 1944'\n"
+        "       * CORRECT: target='World War I', correction='World War II', comment='Should be WWII not WWI'\n\n"
         "4) Spelling only (no grammar):\n"
         "   - Focus ONLY on clear spelling mistakes (wrongly spelled words).\n"
         "   - Do NOT correct grammar, sentence structure, style, or phrasing.\n"
         "   - For each spelling issue, create type 'grammar_language' with:\n"
+        "       rubric_point = 'grammar_language',\n"
         "       page = page where the misspelled word appears,\n"
-        "       target_word_or_sentence = ONLY the misspelled word or a very short span (1–3 words),\n"
-        "                                never a full paragraph and never more than one full line,\n"
+        "       target_word_or_sentence = EXACT misspelled word or very short span (1-3 words) from OCR,\n"
+        "       context_before = EXACT 3-5 words from OCR immediately before the misspelled word,\n"
+        "       context_after = EXACT 3-5 words from OCR immediately after the misspelled word,\n"
         "       correction = the correctly spelled word or very short corrected phrase,\n"
-        "       rubric_point = 'grammar_language'.\n"
+        "       comment = brief note like 'spelling error'.\n"
         "   - Always cross-check using BOTH OCR text AND the page image:\n"
-        "       * Use ocr_full_text to roughly locate the word,\n"
+        "       * Use ocr_full_text to locate the word,\n"
         "       * Then visually verify the spelling directly on the page image.\n"
-        "       * If OCR and the image disagree, TRUST THE IMAGE and do NOT flag a spelling error\n"
-        "         if the handwritten word is actually correct.\n"
+        "       * If OCR and the image disagree, TRUST THE IMAGE and do NOT flag a spelling error.\n"
         "   - Do not send entire paragraphs or long sentences as target_word_or_sentence.\n"
-        "   - Prefer single words (e.g., 'recieve') or very short phrases around the error.\n"
-        "   - Keep these brief and only for clear, unambiguous spelling mistakes.\n\n"
+        "   - If the same misspelling occurs multiple times on the same page, create a SEPARATE annotation for EACH occurrence,\n"
+        "     with different context_before and context_after for each instance.\n\n"
+        "5) Repetition:\n"
+        "   - If content is repeated across pages, create type 'repetition' with:\n"
+        "       rubric_point = 'repetitiveness',\n"
+        "       page = the page where the repeated content appears again,\n"
+        "       target_word_or_sentence = EXACT repeated phrase or sentence from OCR,\n"
+        "       context_before = EXACT 3-5 words from OCR before the repeated text,\n"
+        "       context_after = EXACT 3-5 words from OCR after the repeated text,\n"
+        "       correction = suggestion like 'Remove repetition' or 'Already mentioned on page X',\n"
+        "       comment = note indicating where it was first mentioned.\n\n"
         "Additionally, build refined_rubric_summary[]:\n"
-        "   - One entry per rubric point (e.g., introduction_quality, headings_subheadings, argumentation_quality,\n"
-        "     factual_accuracy, grammar_language, presentation, contemporary_relevance,\n"
-        "     length_completeness, repetitiveness).\n"
-        "   - Each entry: id, name, rating (weak/average/good/excellent), comment (2–3 sentences max).\n"
+        "   - ONLY include these 4 rubric points:\n"
+        "     1. argumentation_quality (name: 'Argumentation Quality')\n"
+        "     2. presentation (name: 'Presentation Quality')\n"
+        "     3. contemporary_relevance (name: 'Contemporary Relevance')\n"
+        "     4. length_completeness (name: 'Length & Completeness')\n"
+        "   - Each entry: id, name, rating (weak/average/good/excellent), comment (1 sentence max, very concise and brief).\n"
     )
 
 
+    # Sanitize OCR pages (remove bounding boxes) and send full OCR text
+    raw_pages = ocr_data.get("pages", [])
+    sanitized_pages = []
+    for p in raw_pages:
+        lines = []
+        for line in p.get("lines", []):
+            line_text = line.get("text", "")
+            words = [w.get("text", "") for w in line.get("words", [])]
+            lines.append({"text": line_text, "words": words})
+        sanitized_pages.append({"page_number": p.get("page_number"), "lines": lines})
+
     user_payload = {
         "refined_rubric_text": refined_rubric_text,
-        "ocr_full_text": ocr_data.get("full_text", "")[:15000],
-        "ocr_pages": ocr_data.get("pages", []),
+        "ocr_full_text": ocr_data.get("full_text", ""),
+        "ocr_pages": sanitized_pages,
         "sections": sections,
         "page_images_base64_png": page_images,
         "output_schema": {
             "annotations": [
                 {
-                    "type": "introduction_comment/heading_issue/factual_error/grammar_language/repetition",
-                    "rubric_point": "string",
+                    "type": "introduction_comment",
+                    "rubric_point": "introduction_quality",
                     "page": 1,
-                    "target_section_id": "string",
-                    "section_id": "string",
-                    "sentiment": "negative",
-                    "comment": "string",
-                    "target_sentence": "string",
-                    "target_word_or_sentence": "string",
-                    "correction": "string",
-                    "original_page": 2,
-                    "repeated_page": 4,
+                    "target_word_or_sentence": "First sentence of introduction (EXACT from OCR)",
+                    "context_before": "",
+                    "context_after": "Next 3-5 words after (EXACT from OCR)",
+                    "correction": "",
+                    "comment": "Detailed evaluation of introduction quality (3-5 sentences)",
+                },
+                {
+                    "type": "heading_issue",
+                    "rubric_point": "headings_subheadings",
+                    "page": 1,
+                    "target_word_or_sentence": "EXACT heading text from OCR",
+                    "context_before": "EXACT 3-5 words before",
+                    "context_after": "EXACT 3-5 words after",
+                    "correction": "Better heading suggestion or empty if positive",
+                    "comment": "Explanation of issue or 'Correct heading'",
+                    "sentiment": "positive/negative",
+                },
+                {
+                    "type": "factual_error",
+                    "rubric_point": "factual_accuracy",
+                    "page": 2,
+                    "target_word_or_sentence": "SHORT PHRASE with error (EXACT from OCR)",
+                    "context_before": "EXACT 3-5 words before",
+                    "context_after": "EXACT 3-5 words after",
+                    "correction": "Correct fact",
+                    "comment": "Explanation of error",
                 }
             ],
             "refined_rubric_summary": [
                 {
-                    "id": "introduction_quality",
-                    "name": "Introduction Quality",
+                    "id": "argumentation_quality",
+                    "name": "Argumentation Quality",
+                    "rating": "weak/average/good/excellent",
+                    "comment": "string",
+                },
+                {
+                    "id": "presentation",
+                    "name": "Presentation Quality",
+                    "rating": "weak/average/good/excellent",
+                    "comment": "string",
+                },
+                {
+                    "id": "contemporary_relevance",
+                    "name": "Contemporary Relevance",
+                    "rating": "weak/average/good/excellent",
+                    "comment": "string",
+                },
+                {
+                    "id": "length_completeness",
+                    "name": "Length & Completeness",
                     "rating": "weak/average/good/excellent",
                     "comment": "string",
                 }
@@ -969,61 +1353,401 @@ def call_grok_for_refined_rubric_annotations(
         "Content-Type": "application/json",
     }
 
-    resp = requests.post(
-        "https://api.x.ai/v1/chat/completions",
-        headers=headers,
-        json={
-            "model": "grok-4-fast-reasoning",
-            "messages": [system_msg, user_msg],
-            "temperature": 0.1,
-        },
-        timeout=150,
-    )
-
-    try:
-        data = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"Grok refined rubric JSON parse error: {exc}") from exc
-
-    # Extract token usage from response
-    usage = data.get("usage", {})
-    token_usage = {
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
+    payload = {
+        "model": "grok-4-fast-reasoning",
+        "messages": [system_msg, user_msg],
+        "temperature": 0.1,
+        "max_tokens": 6000,  # Increased for refined rubric annotations
     }
 
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except Exception as exc:
-        raise RuntimeError(f"Unexpected Grok refined rubric response: {data}") from exc
+    for attempt in range(max_retries):
+        if attempt > 0:
+            print(f"Retry attempt {attempt + 1}/{max_retries} for refined rubric annotations...")
 
-    try:
-        cleaned = clean_json_from_llm(content)
-        parsed = json.loads(cleaned)
-    except Exception as exc:
-        # Fallback shape
-        return {
-            "annotations": [
+        resp = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=150,
+        )
+
+        if resp.status_code >= 300:
+            if attempt < max_retries - 1:
+                print(f"API error {resp.status_code}, retrying...")
+                continue
+            # Fallback on final failure
+            return {
+                "annotations": [
+                    {
+                        "type": "introduction_comment",
+                        "rubric_point": "introduction_quality",
+                        "page": 1,
+                        "target_word_or_sentence": "",
+                        "context_before": "",
+                        "context_after": "",
+                        "correction": "",
+                        "comment": f"Error: API returned {resp.status_code}",
+                    }
+                ],
+                "refined_rubric_summary": [],
+            }, {"input_tokens": 0, "output_tokens": 0}
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Response JSON parse error, retrying...")
+                continue
+            # Fallback on final failure
+            return {
+                "annotations": [
+                    {
+                        "type": "introduction_comment",
+                        "rubric_point": "introduction_quality",
+                        "page": 1,
+                        "target_word_or_sentence": "",
+                        "context_before": "",
+                        "context_after": "",
+                        "correction": "",
+                        "comment": f"Error parsing API response: {exc}",
+                    }
+                ],
+                "refined_rubric_summary": [],
+            }, {"input_tokens": 0, "output_tokens": 0}
+
+        # Extract token usage from response
+        usage = data.get("usage", {})
+        token_usage = {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        }
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Missing content in response, retrying...")
+                continue
+            # Fallback on final failure
+            return {
+                "annotations": [
+                    {
+                        "type": "introduction_comment",
+                        "rubric_point": "introduction_quality",
+                        "page": 1,
+                        "target_word_or_sentence": "",
+                        "context_before": "",
+                        "context_after": "",
+                        "correction": "",
+                        "comment": f"Error: Unexpected API response structure",
+                    }
+                ],
+                "refined_rubric_summary": [],
+            }, token_usage
+
+        # Check if truncated
+        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
+        if finish_reason == "length":
+            print(f"WARNING: Refined rubric response truncated!")
+            if attempt < max_retries - 1:
+                payload["max_tokens"] = payload.get("max_tokens", 6000) + 2000
+                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
+                continue
+
+        try:
+            cleaned = clean_json_from_llm(content)
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            # Save error for debugging (with unique timestamp)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            error_file = f"grok_refined_error_{timestamp}_{attempt + 1}.txt"
+            with open(error_file, "w", encoding="utf-8") as f:
+                f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
+                f.write(content)
+                f.write(f"\n\n=== ERROR ===\n{exc}\n")
+
+            print(f"\nDEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
+            print(f"DEBUG: Saved full response to {error_file}")
+
+            if attempt < max_retries - 1:
+                print(f"Malformed JSON, retrying...")
+                continue
+
+            # Fallback on final failure
+            return {
+                "annotations": [
+                    {
+                        "type": "introduction_comment",
+                        "rubric_point": "introduction_quality",
+                        "page": 1,
+                        "target_word_or_sentence": "",
+                        "context_before": "",
+                        "context_after": "",
+                        "correction": "",
+                        "comment": f"Error parsing refined rubric response: {exc}",
+                    }
+                ],
+                "refined_rubric_summary": [],
+            }, token_usage
+
+        # Success! Normalize and validate
+        parsed.setdefault("annotations", [])
+        parsed.setdefault("refined_rubric_summary", [])
+
+        # ENFORCE: Ensure introduction_comment always exists as first annotation
+        annotations = parsed.get("annotations", [])
+        has_intro = any(a.get("type") == "introduction_comment" for a in annotations)
+
+        if not has_intro:
+            # Inject introduction_comment as first annotation
+            intro_text = ocr_data.get("full_text", "")[:200].split('\n')[0] if ocr_data.get("full_text") else "Introduction"
+            intro_annotation = {
+                "type": "introduction_comment",
+                "rubric_point": "introduction_quality",
+                "page": 1,
+                "target_word_or_sentence": intro_text,
+                "context_before": "",
+                "context_after": "",
+                "correction": "",
+                "comment": "Introduction evaluation (auto-generated due to missing annotation)"
+            }
+            parsed["annotations"].insert(0, intro_annotation)
+            print("⚠️  Warning: Introduction comment was missing. Auto-injected.")
+
+        if attempt > 0:
+            print(f"Successfully parsed refined rubric annotations on attempt {attempt + 1}")
+
+        return parsed, token_usage
+
+    # Should never reach here
+    return {
+        "annotations": [
+            {
+                "type": "introduction_comment",
+                "rubric_point": "introduction_quality",
+                "page": 1,
+                "target_word_or_sentence": "",
+                "context_before": "",
+                "context_after": "",
+                "correction": "",
+                "comment": f"Failed after {max_retries} attempts",
+            }
+        ],
+        "refined_rubric_summary": [],
+    }, {"input_tokens": 0, "output_tokens": 0}
+
+
+# -----------------------------
+# GROK CALL 4: PAGE-WISE IMPROVEMENT SUGGESTIONS
+# -----------------------------
+
+
+def call_grok_for_page_wise_suggestions(
+    grok_api_key: str,
+    subject: str,
+    subject_rubric_text: str,
+    ocr_data: Dict[str, Any],
+    sections: List[Dict[str, Any]],) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    """
+    Ask Grok to provide specific, actionable improvement suggestions for each page.
+
+    Output shape:
+      {
+        "page_suggestions": [
+          {
+            "page": 1,
+            "suggestions": [
+              "Add comparison with Kant's categorical imperative",
+              "Include the 1945 UN Charter establishment date",
+              "Reference Rawls' theory of justice for stronger argumentation",
+              "Add empirical evidence from 2020 Climate Summit"
+            ]
+          },
+          ...
+        ]
+      }
+    """
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are an expert CSS examiner focused on helping students improve their answers.\n"
+            "You receive:\n"
+            "- The subject rubric (detailed criteria)\n"
+            "- OCR text from student's answer (page-wise)\n"
+            "- Section structure (headings detected)\n\n"
+            "YOUR GOAL:\n"
+            "For each page, provide 3-6 specific, actionable suggestions for improvement.\n"
+            "Focus on VALUE ADDITIONS that would strengthen the answer.\n\n"
+            "TYPES OF SUGGESTIONS TO PROVIDE:\n"
+            "1. Theoretical additions: 'Add comparison with X philosopher/theorist'\n"
+            "2. Factual additions: 'Include the date: [specific event] occurred in [year]'\n"
+            "3. Evidence additions: 'Add empirical data from [specific study/report]'\n"
+            "4. Comparative analysis: 'Compare with [country/era/policy]'\n"
+            "5. Critical perspectives: 'Include critique from [scholar/school of thought]'\n"
+            "6. Contemporary relevance: 'Link to recent event: [specific event in year]'\n\n"
+            "STRICT OUTPUT FORMAT:\n"
+            "- Return ONLY valid JSON\n"
+            "- Top-level key: 'page_suggestions' with array of page objects\n"
+            "- Each page object has: 'page' (integer) and 'suggestions' (array of strings)\n"
+            "- Each suggestion must be a single, specific, actionable statement\n"
+            "- No markdown, no commentary, just JSON\n"
+        ),
+    }
+
+    instructions = (
+        "Analyze this student's answer page by page.\n"
+        "For each page, identify 3-6 specific additions that would improve the answer quality.\n\n"
+        "REQUIREMENTS:\n"
+        "1. Suggestions must be SPECIFIC, not vague\n"
+        "   ❌ Bad: 'Add more theories'\n"
+        "   ✅ Good: 'Add Foucault's concept of biopower (1976)'\n\n"
+        "2. Focus on what to ADD, not what's wrong\n"
+        "   ❌ Bad: 'This argument is weak'\n"
+        "   ✅ Good: 'Strengthen argument by adding Weber's bureaucracy theory'\n\n"
+        "3. Include specific names, dates, events, theories\n"
+        "   ❌ Bad: 'Reference a philosopher'\n"
+        "   ✅ Good: 'Reference Mill's harm principle (On Liberty, 1859)'\n\n"
+        "4. Suggestions should align with the subject rubric criteria\n\n"
+        "5. Each page should have 3-6 suggestions maximum\n\n"
+        "OUTPUT:\n"
+        "Return JSON with this exact structure:\n"
+        "{\n"
+        "  \"page_suggestions\": [\n"
+        "    {\n"
+        "      \"page\": 1,\n"
+        "      \"suggestions\": [\n"
+        "        \"Add comparison with Locke's social contract theory (Two Treatises, 1689)\",\n"
+        "        \"Include the Magna Carta signing date (1215) as historical precedent\",\n"
+        "        \"Reference the 1948 Universal Declaration of Human Rights\"\n"
+        "      ]\n"
+        "    },\n"
+        "    {\n"
+        "      \"page\": 2,\n"
+        "      \"suggestions\": [\n"
+        "        \"Add Amartya Sen's capability approach for economic analysis\",\n"
+        "        \"Include World Bank poverty data (2021 report)\",\n"
+        "        \"Compare with China's economic reforms post-1978\"\n"
+        "      ]\n"
+        "    }\n"
+        "  ]\n"
+        "}\n"
+    )
+
+    # Simplified page data (text only, no images or bounding boxes to reduce tokens)
+    ocr_pages_minimal = [
+        {
+            "page": p.get("page", idx + 1),
+            "text": p.get("text", "")[:300000]  # Limit per-page text
+        }
+        for idx, p in enumerate(ocr_data.get("pages", []))
+    ]
+
+    user_payload = {
+        "subject": subject,
+        "rubric_text": subject_rubric_text,
+        "ocr_full_text": ocr_data.get("full_text", "")[:15000],
+        "ocr_pages": ocr_pages_minimal,
+        "sections": sections,
+        "output_schema": {
+            "page_suggestions": [
                 {
-                    "type": "introduction_comment",
-                    "rubric_point": "introduction_quality",
                     "page": 1,
-                    "target_section_id": "introduction",
-                    "comment": f"Error parsing refined rubric response: {exc}",
+                    "suggestions": ["string", "string"]
                 }
-            ],
-            "refined_rubric_summary": [],
-        }, token_usage
+            ]
+        },
+    }
 
-    # Normalize keys
-    parsed.setdefault("annotations", [])
-    parsed.setdefault("refined_rubric_summary", [])
+    user_msg = {
+        "role": "user",
+        "content": instructions + "\n\nDATA:\n" + json.dumps(user_payload, ensure_ascii=False),
+    }
 
-    # Save debug
-    with open("debug_refined_annotations.json", "w", encoding="utf-8") as f:
-        json.dump(parsed, f, ensure_ascii=False, indent=2)
+    headers = {
+        "Authorization": f"Bearer {grok_api_key}",
+        "Content-Type": "application/json",
+    }
 
-    return parsed, token_usage
+    payload = {
+        "model": "grok-4-fast-reasoning",
+        "messages": [system_msg, user_msg],
+        "temperature": 0.2,
+        "max_tokens": 4000,  # Sufficient for page suggestions
+    }
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # Exponential backoff: 1s, 2s, 4s
+            import time
+            time.sleep(2 ** (attempt - 1))
+            print(f"Retry attempt {attempt + 1}/{max_retries} for page suggestions...")
+
+        try:
+            resp = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=150,
+            )
+
+            if resp.status_code >= 300:
+                if attempt < max_retries - 1:
+                    print(f"API error {resp.status_code}, retrying...")
+                    continue
+                # Fallback on final attempt
+                return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+
+            data = resp.json()
+
+            # Extract token usage
+            usage = data.get("usage", {})
+            token_usage = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+            }
+
+            # Check for truncation
+            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
+            if finish_reason == "length" and attempt < max_retries - 1:
+                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
+                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
+                continue
+
+            content = data["choices"][0]["message"]["content"]
+            cleaned = clean_json_from_llm(content)
+            parsed = json.loads(cleaned)
+
+            # Success
+            if attempt > 0:
+                print(f"Successfully parsed page suggestions on attempt {attempt + 1}")
+
+            return parsed, token_usage
+
+        except (requests.Timeout, requests.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                print(f"Network error, retrying...")
+                continue
+            # Fallback on final attempt
+            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+
+        except json.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                print(f"JSON parse error, retrying...")
+                continue
+            # Fallback on final attempt
+            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Unexpected error: {exc}, retrying...")
+                continue
+            # Fallback on final attempt
+            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+
+    # Should never reach here, but fallback just in case
+    return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+
 
 # -----------------------------
 # REPORT RENDERING (SUBJECT MARKING)
@@ -1068,6 +1792,28 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+def _extract_expectation_bullets(expectation_text: Any) -> List[str]:
+    bullet_points: List[str] = []
+    if isinstance(expectation_text, list):
+        bullet_points = [str(p).strip() for p in expectation_text if p]
+    elif expectation_text:
+        expectation_str = str(expectation_text).strip()
+        sentences = re.split(r"(?<=[.!?])\s+", expectation_str)
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence:
+                if sentence.endswith((".", "!", "?")):
+                    sentence = sentence[:-1].strip()
+                bullet_points.append(sentence)
+        if not bullet_points:
+            comma_parts = [p.strip() for p in expectation_str.split(",")]
+            bullet_points = [p for p in comma_parts if p]
+    if not bullet_points:
+        bullet_points = ["No specific expectations provided"]
+    bullet_points = [pt for pt in bullet_points if pt]
+    return bullet_points[:4]
+
+
 def _wrap_text(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -1093,10 +1839,11 @@ def _wrap_text(
 
 def render_subject_report_pages(
     grading_result: Dict[str, Any],
-    page_size: Tuple[int, int] = (2480, 3508),
+    page_size: Tuple[int, int] = (2977, 4211),  # 200 DPI: Width x Height
 ) -> List[Image.Image]:
     """
-    Render the subject-wise marking report:
+    Render the subject-wise marking report on exactly 2 pages max.
+    If content exceeds 2 pages, font sizes are reduced until it fits.
       - SUBJECT NAME (at top)
       - TOTAL MARKS
       - QUESTION STATEMENT
@@ -1104,15 +1851,49 @@ def render_subject_report_pages(
       - CRITERIA breakdown (with strengths & weaknesses)
       (Note: high-scoring outline is on a separate dedicated page)
     """
+    # Try rendering with progressively smaller fonts until it fits in 2 pages
+    font_scale = 1.0
+    max_attempts = 10
+
+    for attempt in range(max_attempts):
+        pages = _render_subject_report_with_scale(grading_result, page_size, font_scale)
+
+        if len(pages) <= 2:
+            # Success! Fits in 2 pages or less
+            if attempt > 0:
+                print(f"Subject report fit in {len(pages)} pages after reducing font to {font_scale:.1%} of original size")
+            return pages
+
+        # Too many pages, reduce font size
+        print(f"Subject report has {len(pages)} pages (attempt {attempt+1}), reducing font size...")
+        font_scale *= 0.85  # Reduce by 15% each iteration
+
+    # If we still can't fit after max attempts, return what we have
+    print(f"WARNING: Subject report still has {len(pages)} pages after {max_attempts} attempts to reduce font size")
+    return pages
+
+
+def _render_subject_report_with_scale(
+    grading_result: Dict[str, Any],
+    page_size: Tuple[int, int],
+    font_scale: float = 1.0,
+) -> List[Image.Image]:
+    """
+    Internal helper to render subject report with a given font scale.
+    """
     W, H = page_size
     margin = int(W * 0.07)
     line_spacing = 1.4
 
-    title_font = _get_font(80)  # Increased from 64
-    subject_font = _get_font(64)  # Increased from 48
-    h2_font = _get_font(60)  # Increased from 48
-    h3_font = _get_font(52)  # Increased from 40
-    body_font = _get_font(44)  # Increased from 34
+    # Base font sizes (scaled by font_scale parameter)
+    title_font = _get_font(int(90 * font_scale))
+    subject_font = _get_font(int(74 * font_scale))
+    section_heading_font = _get_font(int(78 * font_scale))
+    question_text_font = _get_font(int(62 * font_scale))
+    criteria_heading_font = _get_font(int(70 * font_scale))
+    body_font = _get_font(int(58 * font_scale))
+    total_heading_font = _get_font(int(106 * font_scale))
+    total_marks_font = _get_font(int(140 * font_scale))
 
     pages: List[Image.Image] = []
 
@@ -1130,6 +1911,16 @@ def render_subject_report_pages(
             pages.append(img)
             img, draw, y = new_page()
 
+    def draw_bold_text(
+        text: str,
+        font_obj: ImageFont.FreeTypeFont,
+        position: Tuple[int, int],
+        fill: str,
+    ) -> None:
+        offsets = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        for dx, dy in offsets:
+            draw.text((position[0] + dx, position[1] + dy), text, font=font_obj, fill=fill)
+
     max_text_width = W - 2 * margin
 
     # SUBJECT NAME (at top)
@@ -1144,45 +1935,66 @@ def render_subject_report_pages(
     total = grading_result.get("total_marks_awarded", 0)
     maximum = grading_result.get("max_marks", 20)
 
-    ensure_space(title_font, 2)
-    draw.text((margin, y), "TOTAL MARKS", font=title_font, fill="black")
-    line_h = title_font.getbbox("Ag")[3] - title_font.getbbox("Ag")[1]
+    ensure_space(total_heading_font, 2)
+    draw_bold_text("TOTAL MARKS", total_heading_font, (margin, y), "black")
+    line_h = total_heading_font.getbbox("Ag")[3] - total_heading_font.getbbox("Ag")[1]
     y += int(line_h * line_spacing)
-    draw.text((margin, y), f"{total} / {maximum}", font=h2_font, fill="black")
-    line_h2 = h2_font.getbbox("Ag")[3] - h2_font.getbbox("Ag")[1]
+    draw_bold_text(f"{total} / {maximum}", total_marks_font, (margin, y), "#B22222")  # Keep red color
+    line_h2 = total_marks_font.getbbox("Ag")[3] - total_marks_font.getbbox("Ag")[1]
     y += int(line_h2 * line_spacing * 2)
 
     # QUESTION STATEMENT
     question = grading_result.get("question_statement", "")
-    ensure_space(h2_font, 3)
-    draw.text((margin, y), "QUESTION STATEMENT", font=h2_font, fill="black")
-    y += int(line_h2 * line_spacing)
-    for line in _wrap_text(draw, question, body_font, max_text_width):
-        ensure_space(body_font, 1)
-        line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-        draw.text((margin, y), line, font=body_font, fill="black")
-        y += int(line_hb * line_spacing)
-    y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1])
+    ensure_space(section_heading_font, 3)
+    # Center the heading
+    heading_text = "QUESTION STATEMENT"
+    heading_width = draw.textlength(heading_text, font=section_heading_font)
+    heading_x = (W - heading_width) // 2
+    draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
+    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    y += int(line_h_section * 1.5)  # Increased spacing between heading and question text
+    for line in _wrap_text(draw, question, question_text_font, max_text_width):
+        ensure_space(question_text_font, 1)
+        line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
+        draw_bold_text(line, question_text_font, (margin, y), "black")  # Bold question text
+        y += int(line_hq * line_spacing)
+    y += int(question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1])
 
     # WHAT QUESTION EXPECTS (right after question statement, as a single paragraph)
     expectation = grading_result.get("question_expectation", "")
-    if expectation:
-        ensure_space(h3_font, 2)
-        draw.text((margin, y), "What the Question Expects", font=h3_font, fill="black")
-        line_h3 = h3_font.getbbox("Ag")[3] - h3_font.getbbox("Ag")[1]
-        y += int(line_h3 * line_spacing)
-        for line in _wrap_text(draw, expectation, body_font, max_text_width):
-            ensure_space(body_font, 1)
-            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-            draw.text((margin, y), line, font=body_font, fill="black")
-            y += int(line_hb * line_spacing)
-        y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1])
+    expectation_bullets = _extract_expectation_bullets(expectation) if expectation else []
+    if expectation_bullets:
+        ensure_space(section_heading_font, 2)
+        # Center the heading
+        heading_text = "WHAT THE QUESTION EXPECTS"
+        heading_width = draw.textlength(heading_text, font=section_heading_font)
+        heading_x = (W - heading_width) // 2
+        draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
+        line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+        y += int(line_h_section * line_spacing)
+        line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
+        for bullet in expectation_bullets:
+            wrapped = _wrap_text(draw, bullet, body_font, max_text_width - int(0.05 * W))
+            ensure_space(body_font, len(wrapped) + 1)
+            for idx, line in enumerate(wrapped):
+                if idx == 0:
+                    draw.text((margin, y), f"- {line}", font=body_font, fill="black")
+                else:
+                    indent_x = margin + int(0.04 * W)
+                    draw.text((indent_x, y), line, font=body_font, fill="black")
+                y += int(line_hb * line_spacing)
+            y += int(line_hb * 0.5)
+        y += int(line_hb)
 
-    # CRITERIA BREAKDOWN
-    ensure_space(h2_font, 2)
-    draw.text((margin, y), "MARKS BREAKDOWN", font=h2_font, fill="black")
-    line_h2 = h2_font.getbbox("Ag")[3] - h2_font.getbbox("Ag")[1]
-    y += int(line_h2 * line_spacing * 1.5)
+        # CRITERIA BREAKDOWN
+    ensure_space(section_heading_font, 2)
+    # Center the heading
+    heading_text = "MARKS BREAKDOWN"
+    heading_width = draw.textlength(heading_text, font=section_heading_font)
+    heading_x = (W - heading_width) // 2
+    draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
+    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    y += int(line_h_section * line_spacing * 1.5)
 
     for crit in grading_result.get("criteria", []):
         name = crit.get("name", "")
@@ -1190,10 +2002,10 @@ def render_subject_report_pages(
         max_marks = crit.get("max", 0)
         header = f"{name}  —  {awarded}/{max_marks}"
 
-        ensure_space(h3_font, 2)
-        line_h3 = h3_font.getbbox("Ag")[3] - h3_font.getbbox("Ag")[1]
-        draw.text((margin, y), header, font=h3_font, fill="black")
-        y += int(line_h3 * line_spacing)
+        ensure_space(criteria_heading_font, 2)
+        line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
+        draw_bold_text(header, criteria_heading_font, (margin, y), "black")
+        y += int(line_h_criteria * line_spacing)
 
         # Strengths
         strengths = crit.get("strengths") or []
@@ -1260,62 +2072,23 @@ def render_question_expectations_page(
     line_h_title = title_font.getbbox("Ag")[3] - title_font.getbbox("Ag")[1]
     y += int(line_h_title * line_spacing * 1.5)
 
-    # Convert expectation text to bullet points
-    # Handle both string and list inputs
-    bullet_points = []
-
-    if isinstance(expectation_text, list):
-        # Already a list of points
-        bullet_points = [str(p).strip() for p in expectation_text if p]
-    elif expectation_text:
-        # String input: split by periods followed by space (sentences)
-        import re
-        expectation_str = str(expectation_text).strip()
-        sentences = re.split(r'(?<=[.!?])\s+', expectation_str)
-
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if sentence:
-                # Remove trailing period if present (we'll add bullet format)
-                if sentence.endswith(('.', '!', '?')):
-                    sentence = sentence[:-1].strip()
-                bullet_points.append(sentence)
-
-        # If no sentences found, try splitting by commas
-        if not bullet_points:
-            comma_parts = [p.strip() for p in expectation_str.split(',')]
-            bullet_points = [p for p in comma_parts if p]
-
-    # If still no points, use default
-    if not bullet_points:
-        bullet_points = ["No specific expectations provided"]
-
-    # Render bullet points
+    bullet_points = _extract_expectation_bullets(expectation_text)
     line_h_body = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
 
     for point in bullet_points:
-        if not point:
-            continue
-
-        # Wrap the bullet point text
         wrapped_lines = _wrap_text(draw, point, body_font, max_text_width - int(0.08 * W))
-
-        # Check if we need a new page
         needed_lines = len(wrapped_lines)
         if y + line_h_body * needed_lines * line_spacing > H - margin:
-            break  # Just stop if we overflow; could add multi-page support here
+            break
 
-        # Draw bullet point
         for idx, line in enumerate(wrapped_lines):
             if idx == 0:
-                # First line gets the bullet
-                draw.text((margin, y), f"• {line}", font=body_font, fill="black")
+                draw.text((margin, y), f"- {line}", font=body_font, fill="black")
             else:
-                # Subsequent lines are indented
                 draw.text((margin + int(0.04 * W), y), line, font=body_font, fill="black")
             y += int(line_h_body * line_spacing)
 
-        y += int(line_h_body * 0.5)  # Space between bullets
+        y += int(line_h_body * 0.5)
 
     return img
 
@@ -1417,72 +2190,102 @@ def render_high_scoring_outline_page(
     line_h_title = title_font.getbbox("Ag")[3] - title_font.getbbox("Ag")[1]
     y += int(line_h_title * line_spacing * 1.5)
 
-    # Get outline points
     outline_points = high_scoring_outline.get("outline_points", [])
 
-    if not outline_points:
-        # Fallback if no points
+    structured_points: List[Dict[str, Any]] = []
+    for raw_point in outline_points:
+        heading = ""
+        summary = ""
+        key_points: List[str] = []
+        if isinstance(raw_point, dict):
+            heading = str(
+                raw_point.get("heading")
+                or raw_point.get("title")
+                or raw_point.get("section")
+                or ""
+            ).strip()
+            summary = str(
+                raw_point.get("summary")
+                or raw_point.get("description")
+                or raw_point.get("overview")
+                or ""
+            ).strip()
+            raw_key_points = (
+                raw_point.get("key_points")
+                or raw_point.get("bullets")
+                or raw_point.get("points")
+                or []
+            )
+            if isinstance(raw_key_points, str):
+                if raw_key_points.strip():
+                    key_points = [raw_key_points.strip()]
+            else:
+                key_points = [str(p).strip() for p in raw_key_points if p]
+        else:
+            text = str(raw_point).strip()
+            if ":" in text:
+                parts = text.split(":", 1)
+                heading = parts[0].strip()
+                summary = parts[1].strip()
+            else:
+                summary = text
+        structured_points.append(
+            {"heading": heading, "summary": summary, "key_points": key_points}
+        )
+
+    structured_points = [
+        pt for pt in structured_points if pt["heading"] or pt["summary"] or pt["key_points"]
+    ]
+
+    if not structured_points:
         line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
         draw.text((margin, y), "No outline provided", font=body_font, fill="gray")
         return img
 
-    # Render each outline point with proper formatting and structure
     line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
     h2_font = _get_font(56)
     line_h2 = h2_font.getbbox("Ag")[3] - h2_font.getbbox("Ag")[1]
 
-    for idx, point in enumerate(outline_points, 1):
-        if not point:
-            continue
+    for point in structured_points:
+        heading_text = point.get("heading", "")
+        summary_text = point.get("summary", "")
+        bullet_items = point.get("key_points", [])
 
-        point_str = str(point).strip()
-
-        # Check if this is a section header (starts with a number or special format)
-        # Format: "1. Section Title" or "Main Topic: Description"
-        is_main_heading = False
-        heading_text = None
-        body_text = None
-
-        # Try to extract heading if it contains a colon or number pattern
-        if ":" in point_str:
-            parts = point_str.split(":", 1)
-            heading_text = parts[0].strip()
-            body_text = parts[1].strip() if len(parts) > 1 else ""
-            is_main_heading = len(heading_text) < 80  # Reasonable heading length
-
-        # Render heading if identified
-        if is_main_heading and heading_text:
+        if heading_text:
             if y + line_h2 * 2 > H - margin:
                 break
             draw.text((margin, y), heading_text, font=h2_font, fill="darkblue")
             y += int(line_h2 * line_spacing)
 
-            # Render body text if present
-            if body_text:
-                wrapped_lines = _wrap_text(draw, body_text, body_font, max_text_width - int(0.08 * W))
-                for line in wrapped_lines:
-                    if y + line_hb > H - margin:
-                        break
-                    draw.text((margin + int(0.05 * W), y), f"• {line}", font=body_font, fill="black")
-                    y += int(line_hb * line_spacing)
-        else:
-            # Regular bullet point with text wrapping
-            wrapped_lines = _wrap_text(draw, point_str, body_font, max_text_width - int(0.1 * W))
-
-            for line_idx, line in enumerate(wrapped_lines):
+        if summary_text:
+            wrapped_lines = _wrap_text(
+                draw, summary_text, body_font, max_text_width - int(0.05 * W)
+            )
+            for line in wrapped_lines:
                 if y + line_hb > H - margin:
                     break
-                if line_idx == 0:
-                    # First line gets the bullet
-                    draw.text((margin, y), f"• {line}", font=body_font, fill="black")
-                else:
-                    # Subsequent lines are indented
-                    indent = margin + int(0.04 * W)
-                    draw.text((indent, y), line, font=body_font, fill="black")
+                draw.text((margin + int(0.03 * W), y), line, font=body_font, fill="black")
                 y += int(line_hb * line_spacing)
 
-        # Add spacing between outline sections
-        y += int(line_hb * 0.5)
+        if bullet_items:
+            for bullet in bullet_items:
+                bullet_lines = _wrap_text(
+                    draw, str(bullet).strip(), body_font, max_text_width - int(0.08 * W)
+                )
+                for idx, line in enumerate(bullet_lines):
+                    if y + line_hb > H - margin:
+                        break
+                    if idx == 0:
+                        draw.text(
+                            (margin + int(0.04 * W), y), f"• {line}", font=body_font, fill="black"
+                        )
+                    else:
+                        draw.text(
+                            (margin + int(0.08 * W), y), line, font=body_font, fill="black"
+                        )
+                    y += int(line_hb * line_spacing)
+
+        y += int(line_hb * 0.7)
 
     return img
 
@@ -1499,148 +2302,183 @@ def grade_pdf_answer(
     output_pdf_path: str,
     user_id: Optional[str] = None,
 ) -> None:
-    if not os.path.isfile(pdf_path):
-        raise FileNotFoundError(f"PDF not found at path: {pdf_path}")
+    # Validate all inputs before processing
+    print("Validating inputs...")
+    validate_input_paths(pdf_path, output_json_path, output_pdf_path)
 
-    grok_key, vision_client = load_environment()
+    # Validate subject name
+    if not subject or len(subject.strip()) == 0:
+        raise ValueError("Subject name cannot be empty")
 
-    print("Step 1: Converting PDF pages to images (for Grok)...")
-    page_images = pdf_to_page_images_for_grok(pdf_path)
+    # Create unique output directory per request to prevent concurrent process conflicts
+    unique_id = uuid.uuid4().hex[:8]
+    output_dir = os.path.join(tempfile.gettempdir(), f"grok_images_{unique_id}")
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Created unique temp directory: {output_dir}")
 
-    print("Step 2: Running OCR on PDF (Google Vision)...")
-    ocr_data = run_ocr_on_pdf(vision_client, pdf_path)
-
-    print("Step 3: Detecting sections/headings with Grok...")
-    sections, section_token_usage = call_grok_for_section_detection(
-        grok_api_key=grok_key,
-        ocr_data=ocr_data,
-        page_images=page_images,
-    )
-
-    debug_dump_sections(sections, output_path="debug_sections.json")
-    
-    # Track total token usage
-    total_input_tokens = section_token_usage.get("input_tokens", 0)
-    total_output_tokens = section_token_usage.get("output_tokens", 0)
-
-
-
-
-    print("Step 4: Loading subject-wise rubric DOCX...")
-    subject_rubric_text, subject_rubric_path = load_subject_rubric_text(subject)
-    if subject_rubric_path:
-        print(f"Using subject rubric file: {subject_rubric_path}")
-    else:
-        print("Warning: No subject rubric file found; grading will be weaker.")
-
-    print("Step 5: Calling Grok for subject-wise grading...")
-    grading_result, grading_token_usage = call_grok_for_grading(
-        grok_api_key=grok_key,
-        subject=subject,
-        subject_rubric_text=subject_rubric_text,
-        ocr_data=ocr_data,
-        sections=sections,
-        page_images=page_images,
-    )
-    
-    # Accumulate token usage
-    total_input_tokens += grading_token_usage.get("input_tokens", 0)
-    total_output_tokens += grading_token_usage.get("output_tokens", 0)
-
-    grading_result.setdefault("subject", subject)
-    if not grading_result.get("max_marks"):
-        grading_result["max_marks"] = 20
-
-    print("Saving grading JSON...")
-    with open(output_json_path, "w", encoding="utf-8") as f:
-        json.dump(grading_result, f, ensure_ascii=False, indent=2)
-
-    print("Step 6: Rendering subject-wise report pages...")
-    subject_report_pages = render_subject_report_pages(grading_result)
-
-    print("Step 7: Loading refined rubric DOCX...")
-    refined_rubric_text, refined_rubric_path = load_refined_rubric_text()
-    if refined_rubric_path:
-        print(f"Using refined rubric file: {refined_rubric_path}")
-    else:
-        print("Warning: No refined rubric file found; annotations will be weaker.")
-
-    print("Step 8: Calling Grok for refined rubric annotations...")
-    refined_result, refined_token_usage = call_grok_for_refined_rubric_annotations(
-        grok_api_key=grok_key,
-        refined_rubric_text=refined_rubric_text,
-        ocr_data=ocr_data,
-        sections=sections,
-        page_images=page_images,
-    )
-    
-    # Accumulate token usage
-    total_input_tokens += refined_token_usage.get("input_tokens", 0)
-    total_output_tokens += refined_token_usage.get("output_tokens", 0)
-    
-    annotations = refined_result.get("annotations", []) or []
-    refined_summary = refined_result.get("refined_rubric_summary", []) or []
-
-    print("Step 9: Annotating answer pages...")
-    annotated_answer_pages = annotate_pdf_answer_pages(
-        pdf_path=pdf_path,
-        ocr_data=ocr_data,
-        sections=sections,
-        annotations=annotations,
-    )
-
-    print("Step 10: Rendering high-scoring ideal outline page...")
-    high_scoring_outline = grading_result.get("high_scoring_outline", {}) or {}
-    high_scoring_outline_page = render_high_scoring_outline_page(high_scoring_outline)
-
-    print("Step 11: Rendering refined rubric summary page...")
-    refined_summary_page = render_refined_rubric_summary_page(refined_summary)
-
-    # Assemble final PDF:
-    #   1) Subject report pages (includes what question expects in single paragraph)
-    #   2) High-scoring ideal outline page (detailed with structured sections)
-    #   3) Annotated answer pages
-    #   4) Refined rubric summary page
-    all_pages: List[Image.Image] = []
-    all_pages.extend(subject_report_pages)
-    all_pages.append(high_scoring_outline_page)
-    all_pages.extend(annotated_answer_pages)
-    all_pages.append(refined_summary_page)
-
-    first = all_pages[0]
-    rest = all_pages[1:]
-
-    print(f"Step 12: Writing final PDF to {output_pdf_path} ...")
-    first.save(
-        output_pdf_path,
-        "PDF",
-        resolution=300.0,
-        save_all=True,
-        append_images=rest,
-    )
-    print("Done.")
-    
-    # Add token usage to the grading result JSON so frontend can record it
-    print(f"OCR completed. Token usage: Input: {total_input_tokens}, Output: {total_output_tokens}")
-    
-    # Update the JSON file with token usage information
     try:
-        with open(output_json_path, "r", encoding="utf-8") as f:
-            grading_data = json.load(f)
-        
-        grading_data["token_usage"] = {
+        grok_key, vision_client = load_environment()
+
+        print("Step 1: Converting PDF pages to images (for Grok)...")
+        page_images = pdf_to_page_images_for_grok(pdf_path, output_dir=output_dir)
+
+        print("Step 2: Running OCR on PDF (Google Vision)...")
+        ocr_data = run_ocr_on_pdf(vision_client, pdf_path)
+
+        print("Step 3: Detecting sections/headings with Grok...")
+        sections, section_token_usage = call_grok_for_section_detection(
+            grok_api_key=grok_key,
+            ocr_data=ocr_data,
+            page_images=page_images,
+        )
+
+
+        debug_dump_sections(sections, output_path="debug_sections.json")
+
+        # Track total token usage
+        total_input_tokens = section_token_usage.get("input_tokens", 0)
+        total_output_tokens = section_token_usage.get("output_tokens", 0)
+
+        print("Step 4: Loading subject-wise rubric DOCX...")
+        subject_rubric_text, subject_rubric_path = load_subject_rubric_text(subject)
+        if subject_rubric_path:
+            print(f"Using subject rubric file: {subject_rubric_path}")
+        else:
+            print("Warning: No subject rubric file found; grading will be weaker.")
+
+        print("Step 5: Calling Grok for subject-wise grading...")
+        grading_result, grading_token_usage = call_grok_for_grading(
+            grok_api_key=grok_key,
+            subject=subject,
+            subject_rubric_text=subject_rubric_text,
+            ocr_data=ocr_data,
+            sections=sections,
+            page_images=page_images,
+        )
+
+        # Accumulate token usage
+        total_input_tokens += grading_token_usage.get("input_tokens", 0)
+        total_output_tokens += grading_token_usage.get("output_tokens", 0)
+
+        grading_result.setdefault("subject", subject)
+        if not grading_result.get("max_marks"):
+            grading_result["max_marks"] = 20
+
+        # Add token usage to grading result before saving
+        grading_result["token_usage"] = {
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "total_tokens": total_input_tokens + total_output_tokens
         }
-        
-        with open(output_json_path, "w", encoding="utf-8") as f:
-            json.dump(grading_data, f, ensure_ascii=False, indent=2)
-        
-        print(f"Token usage added to grading result for user {user_id[:8] if user_id else 'unknown'}...")
-    except Exception as e:
-        print(f"Warning: Failed to add token usage to JSON: {e}")
+        print(f"OCR completed. Token usage: Input: {total_input_tokens}, Output: {total_output_tokens}")
 
+        print("Saving grading JSON...")
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump(grading_result, f, ensure_ascii=False, indent=2)
+        print(f"Grading JSON saved to {output_json_path}")
+
+
+        print("Step 6: Rendering subject-wise report pages...")
+        subject_report_pages = render_subject_report_pages(grading_result)
+
+        print("Step 7: Loading refined rubric DOCX...")
+        refined_rubric_text, refined_rubric_path = load_refined_rubric_text()
+        if refined_rubric_path:
+            print(f"Using refined rubric file: {refined_rubric_path}")
+        else:
+            print("Warning: No refined rubric file found; annotations will be weaker.")
+
+        print("Step 8: Calling Grok for refined rubric annotations...")
+        refined_result, refined_token_usage = call_grok_for_refined_rubric_annotations(
+            grok_api_key=grok_key,
+            refined_rubric_text=refined_rubric_text,
+            ocr_data=ocr_data,
+            sections=sections,
+            page_images=page_images,
+        )
+
+        # Accumulate token usage
+        total_input_tokens += refined_token_usage.get("input_tokens", 0)
+        total_output_tokens += refined_token_usage.get("output_tokens", 0)
+
+        annotations = refined_result.get("annotations", []) or []
+        refined_summary = refined_result.get("refined_rubric_summary", []) or []
+
+        # Validate refined summary schema
+        if refined_summary:
+            try:
+                validate_refined_summary(refined_summary)
+                print(f"Validated {len(refined_summary)} refined rubric summary items")
+            except ValueError as e:
+                print(f"WARNING: Refined summary validation failed: {e}")
+
+        # Validate annotations schema
+        valid_annotations = []
+        for idx, ann in enumerate(annotations):
+            if validate_annotation(ann, idx):
+                valid_annotations.append(ann)
+        if len(valid_annotations) < len(annotations):
+            print(f"WARNING: {len(annotations) - len(valid_annotations)} annotations failed validation and were skipped")
+        annotations = valid_annotations
+
+        print("Step 9: Calling Grok for page-wise improvement suggestions...")
+        page_suggestions_result, page_suggestions_token_usage = call_grok_for_page_wise_suggestions(
+            grok_api_key=grok_key,
+            subject=subject,
+            subject_rubric_text=subject_rubric_text,
+            ocr_data=ocr_data,
+            sections=sections,
+        )
+
+        # Accumulate token usage
+        total_input_tokens += page_suggestions_token_usage.get("input_tokens", 0)
+        total_output_tokens += page_suggestions_token_usage.get("output_tokens", 0)
+
+        page_suggestions = page_suggestions_result.get("page_suggestions", []) or []
+
+        print("Step 10: Annotating answer pages with improvement suggestions...")
+        annotated_answer_pages = annotate_pdf_answer_pages(
+            pdf_path=pdf_path,
+            ocr_data=ocr_data,
+            sections=sections,
+            annotations=annotations,
+            page_suggestions=page_suggestions,
+            refined_summary=refined_summary,
+        )
+
+        #print("Step 11: Rendering refined rubric summary page...")
+        #refined_summary_page = render_refined_rubric_summary_page(refined_summary)
+        # Assemble final PDF:
+        #   1) Subject report pages (includes marks table and question expectations)
+        #   2) Annotated answer pages (with left-side improvement suggestions)
+        #   3) Refined rubric summary page
+
+        all_pages: List[Image.Image] = []
+        all_pages.extend(subject_report_pages)
+        all_pages.extend(annotated_answer_pages)
+        #all_pages.append(refined_summary_page)
+
+        first = all_pages[0]
+        rest = all_pages[1:]
+
+        print(f"Step 11: Writing final PDF to {output_pdf_path} ...")
+        first.save(
+            output_pdf_path,
+            "PDF",
+            resolution=300.0,
+            save_all=True,
+            append_images=rest,
+        )
+        print("Done.")
+
+    finally:
+        # Clean up unique temp directory
+        if os.path.exists(output_dir):
+            try:
+                shutil.rmtree(output_dir)
+                print(f"Cleaned up temp directory: {output_dir}")
+            except Exception as e:
+                print(f"WARNING: Failed to remove temp directory {output_dir}: {e}")
 
 # -----------------------------
 # CLI
