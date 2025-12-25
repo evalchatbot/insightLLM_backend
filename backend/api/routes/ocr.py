@@ -11,7 +11,11 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from supabase import create_client
 
+import time
+import logging
 from backend.ocr.service import OCRAnnotator, get_all_available_subjects
+
+logger = logging.getLogger(__name__)
 from backend.config import SUPABASE_URL, SUPABASE_KEY
 
 router = APIRouter(prefix="/api/ocr", tags=["ocr"])
@@ -105,5 +109,13 @@ async def annotate_pdf_json(
 
 @router.get("/subjects")
 async def get_subjects() -> Dict[str, Any]:
-    subjects = get_all_available_subjects()
-    return {"subjects": subjects, "count": len(subjects)}
+    start = time.perf_counter()
+    try:
+        subjects = get_all_available_subjects()
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info("[OCR] /subjects returned %d items in %d ms", len(subjects), duration_ms)
+        return {"subjects": subjects, "count": len(subjects), "latency_ms": duration_ms}
+    except Exception as exc:  # noqa: BLE001
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error("[OCR] /subjects failed after %d ms: %s", duration_ms, exc)
+        raise
