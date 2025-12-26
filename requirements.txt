@@ -21,12 +21,7 @@ tiktoken
 
 google-cloud-vision
 google-api-core
-<<<<<<< HEAD
-Pillow
-opencv-python-headless
-docx
-psutil
-=======
 Pillow==10.4.0
 opencv-python-headless==4.10.0.84
->>>>>>> 8ee44bbed9bc26b1bdc8f6bae3a10d5f6afbbc2a
+docx
+psutil
