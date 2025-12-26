@@ -1,0 +1,15 @@
+{
+  "job_id": "96bec48358014e78",
+  "request_id": "7b904baf",
+  "user_id": "user_37IjhxvvGzQz7w2zxy3uYJmQFZ2",
+  "filename": "CA, Q4, Sehar Joiya.pdf",
+  "subject": "current-affairs",
+  "status": "completed",
+  "created_at": 1766774317.4026425,
+  "started_at": 1766774318.0320296,
+  "completed_at": 1766774435.0556793,
+  "error": null,
+  "result_pdf_path": "D:\\Sova\\Projects\\RubrikAi\\insightLLM_backend\\logs\\results\\result_96bec48358014e78.pdf",
+  "result_json_path": "D:\\Sova\\Projects\\RubrikAi\\insightLLM_backend\\logs\\results\\result_96bec48358014e78.json",
+  "cancelled": false
+}

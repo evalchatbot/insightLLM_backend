@@ -25,3 +25,4 @@ google-api-core
 Pillow
 opencv-python-headless
 docx
+psutil

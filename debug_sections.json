@@ -2,80 +2,126 @@
   {
     "index": 0,
     "title": "Introduction",
-    "exact_ocr_heading": "W10: Greedy Algorithms",
+    "exact_ocr_heading": "Introduction :",
     "level": 1,
     "page_numbers": [
+      1
+    ],
+    "content_preview": "In earlier decades, international trade was viewed as a driver of economic growth and interdependence. However, in the contemporary global order, trade has been weaponized as a strategic tool of state"
+  },
+  {
+    "index": 1,
+    "title": "Trade as a tool for war to counter the growing economic might of new Powers",
+    "exact_ocr_heading": "Trade as a tool for war to counter the growing . economic might of new Powers :",
+    "level": 1,
+    "page_numbers": [
+      2,
       3,
       4,
       5
     ],
-    "content_preview": "Overview of the course week on Greedy Algorithms, including summary of topics such as Heaps (Max-Heap/Min-Heap, Heapsort), Greedy Algorithms (Activity Selection, Job Scheduling, Knapsack, Huffman, Pri"
-  },
-  {
-    "index": 1,
-    "title": "Greedy Strategy: Intuition",
-    "exact_ocr_heading": "Greedy Strategy: Intuition",
-    "level": 1,
-    "page_numbers": [
-      6,
-      7
-    ],
-    "content_preview": "Explanation of greedy strategy intuition with the problem of maximizing salary by selecting digits to form the largest number. Examples include arranging digits for salary and coin change problem with"
+    "content_preview": "Under Trump, trade policies were used strategically to counter emerging economic powers like China and Russia through protectionism, tariffs, and barriers."
   },
   {
     "index": 2,
-    "title": "Greedy Strategy: General Structure",
-    "exact_ocr_heading": "Greedy Strategy: General Structure",
-    "level": 1,
+    "title": "Protection of Domestic Industry through America First Narrative",
+    "exact_ocr_heading": "2.1 Protection of Domestic Industry through America . First Narrative :",
+    "level": 2,
     "page_numbers": [
-      8
+      2
     ],
-    "content_preview": "Pseudocode for general greedy algorithm structure: getOptimal(A, n) with initialization, loop to select item, feasibility check, and return result."
+    "content_preview": "The central pillar of Trump's trade policy was the America First narrative, emphasizing economic nationalism and protectionism. Tariffs were imposed to protect local industries from foreign competitio"
   },
   {
     "index": 3,
-    "title": "The Knapsack Problem",
-    "exact_ocr_heading": "The Knapsack Problem",
-    "level": 1,
+    "title": "Bringing Jobs Back to the United States",
+    "exact_ocr_heading": "2.2 Bringing Jobs Back to the United States :",
+    "level": 2,
     "page_numbers": [
-      9,
-      10,
-      11,
-      12,
-      13,
-      14
+      2,
+      3
     ],
-    "content_preview": "Description of the 0/1 Knapsack Problem with input, output, and example with items, weights, values, and capacity W=16. Includes brute force enumeration of subsets, total weight and value calculations"
+    "content_preview": "Trade war objectives included restoring employment in U.S. manufacturing sectors. Trump argued that globalization and free trade agreements led to job losses and outsourcing. By restricting imports an"
   },
   {
     "index": 4,
-    "title": "Fractional Knapsack Problem",
-    "exact_ocr_heading": "Fractional Knapsack Problem",
+    "title": "To bridge trade deficit between US and China",
+    "exact_ocr_heading": "2.3 To bridge trade deficit between us and . China :",
     "level": 2,
     "page_numbers": [
-      15,
-      16,
-      17,
-      18
+      3
     ],
-    "content_preview": "Explanation of 0/1 vs Fractional Knapsack. Algorithm for Fractional Knapsack: sort by value/weight ratio, take items greedily until capacity is filled, including fractional part of the last item. Exam"
+    "content_preview": "Realists focus on relative gains over absolute gains. Trump viewed the US-China trade deficit as evidence that China benefited more from trade. Tariffs were imposed to rebalance trade relations and pr"
   },
   {
     "index": 5,
+    "title": "To Counter China's hegemony in Tech Sector",
+    "exact_ocr_heading": "2.4 To Counter China's hegemony in Tech Sector :",
+    "level": 2,
+    "page_numbers": [
+      3
+    ],
+    "content_preview": "The US targeted China's rapid growth in high-technology sectors such as AI, 5G, and semiconductors. By restricting Chinese technology firms and limiting technology transfers, the US aimed to slow Chin"
+  },
+  {
+    "index": 6,
+    "title": "Preventing the Emergence of a Multipolar World Order",
+    "exact_ocr_heading": "• 2.5 Preventing the Emergence of a Multipolar World Order :",
+    "level": 2,
+    "page_numbers": [
+      4
+    ],
+    "content_preview": "China's economic expansion challenged US global dominance. Trump imposed tariffs to slow China's rise and prevent a shift toward a multipolar or bipolar world order."
+  },
+  {
+    "index": 7,
+    "title": "Countering Russia and De-dollarization Efforts",
+    "exact_ocr_heading": "2.6 Countering Russia and De - dollarization Efforts :",
+    "level": 2,
+    "page_numbers": [
+      4
+    ],
+    "content_preview": "Trump's economic strategy had implications for Russia's growing influence, particularly its attempts to promote de-dollarization and reduce reliance on the US dollar. Through economic pressure and san"
+  },
+  {
+    "index": 8,
+    "title": "Disrupting Global Supply Chains of Rising Powers",
+    "exact_ocr_heading": "2.7 Disrupting Global Supply Chains of Rising lowers :",
+    "level": 2,
+    "page_numbers": [
+      4,
+      5
+    ],
+    "content_preview": "Tariffs forced foreign companies to reconsider supply chains, reducing the efficiency and profits of emerging powers. For instance, China had to absorb higher costs and relocate production, which coul"
+  },
+  {
+    "index": 9,
+    "title": "Tariffs as a Strategic Deterrent by US to slow rising powers",
+    "exact_ocr_heading": "Tariffs as a Strategic Deterrent by US to slow rising powers :",
+    "level": 2,
+    "page_numbers": [
+      5
+    ],
+    "content_preview": "Tariffs were imposed to slow the economic momentum of rising powers, particularly China, by making their exports less competitive in the US market. This realist strategy prevented rivals from gaining "
+  },
+  {
+    "index": 10,
+    "title": "Limiting China's Belt and Road Initiative BRI Influence",
+    "exact_ocr_heading": "2.9 Limiting China's Belt and Road Initiative BRI Influence :",
+    "level": 2,
+    "page_numbers": [
+      5
+    ],
+    "content_preview": "Tariffs and sanctions signaled to other countries that economically siding with China may carry risks, countering China's rise as a global power through the Belt and Road Initiative."
+  },
+  {
+    "index": 11,
     "title": "Conclusion",
-    "exact_ocr_heading": "Conclusion",
+    "exact_ocr_heading": "Conclusion :",
     "level": 1,
     "page_numbers": [
-      14,
-      19,
-      20,
-      21,
-      22,
-      23,
-      24,
-      25,
-      26
+      6
     ],
-    "content_preview": "Summary that brute force algorithms are inefficient, with notes on exponential time. Includes review questions, pseudocode for algorithms like Dijkstra's, Prim's, and some project announcements. Reite"
+    "content_preview": "The US reliance on tariffs and trade restrictions under Trump was aimed at maintaining strategic primacy and constraining the rise of competitors, particularly China."
   }
 ]
