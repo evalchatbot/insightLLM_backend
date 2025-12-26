@@ -125,6 +125,7 @@ def load_feedback_template_text() -> str:
     return "\n".join(content)
 
 
+@lru_cache(maxsize=1)
 def list_available_subjects() -> List[Dict[str, str]]:
     """
     Convenience helper for API responses.

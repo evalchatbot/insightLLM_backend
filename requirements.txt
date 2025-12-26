@@ -11,7 +11,6 @@ numpy~=2.3.2
 PyMuPDF==1.26.4
 langchain==0.3.27
 python-dotenv==1.0.1
-fastapi
 PyPDF2==3.0.1
 uvicorn[standard]
 python-multipart==0.0.20
@@ -22,7 +21,12 @@ tiktoken
 
 google-cloud-vision
 google-api-core
+<<<<<<< HEAD
 Pillow
 opencv-python-headless
 docx
 psutil
+=======
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84
+>>>>>>> 8ee44bbed9bc26b1bdc8f6bae3a10d5f6afbbc2a

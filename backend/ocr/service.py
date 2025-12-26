@@ -16,9 +16,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
 
 # Import the restored function
+<<<<<<< HEAD
 from .grade_pdf_answer import grade_pdf_answer
 from .progress_tracker import OCRProgressTracker
 from .job_manager import OCRJobManager, OCRJob, JobStatus
+=======
+>>>>>>> 8ee44bbed9bc26b1bdc8f6bae3a10d5f6afbbc2a
 from backend.utils.rubric_loader import list_available_subjects as get_subjects_for_dropdown
 
 logger = logging.getLogger(__name__)
@@ -125,6 +128,8 @@ class OCRAnnotator:
             input_pdf.flush()
 
         try:
+            # Lazy import to avoid loading heavy OCR/vision libs unless needed
+            from .grade_pdf_answer import grade_pdf_answer  # type: ignore
             # Call the restored grading function
             # grade_pdf_answer(pdf_path, subject, output_json_path, output_pdf_path)
             grade_pdf_answer(

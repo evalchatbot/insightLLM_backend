@@ -12,9 +12,17 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from supabase import create_client
 
+<<<<<<< HEAD
 from backend.ocr.service import OCRAnnotator, get_all_available_subjects, process_ocr_job
 from backend.ocr.progress_tracker import OCRProgressTracker
 from backend.ocr.job_manager import OCRJobManager, JobStatus
+=======
+import time
+import logging
+from backend.ocr.service import OCRAnnotator, get_all_available_subjects
+
+logger = logging.getLogger(__name__)
+>>>>>>> 8ee44bbed9bc26b1bdc8f6bae3a10d5f6afbbc2a
 from backend.config import SUPABASE_URL, SUPABASE_KEY
 
 router = APIRouter(prefix="/api/ocr", tags=["ocr"])
@@ -132,6 +140,7 @@ async def annotate_pdf_json(
 
 @router.get("/subjects")
 async def get_subjects() -> Dict[str, Any]:
+<<<<<<< HEAD
     subjects = get_all_available_subjects()
     return {"subjects": subjects, "count": len(subjects)}
 
@@ -412,3 +421,15 @@ async def get_job_result(job_id: str) -> JSONResponse:
         "metadata": metadata,
         "filename": f"{os.path.splitext(job.filename)[0]}_annotated.pdf",
     })
+=======
+    start = time.perf_counter()
+    try:
+        subjects = get_all_available_subjects()
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info("[OCR] /subjects returned %d items in %d ms", len(subjects), duration_ms)
+        return {"subjects": subjects, "count": len(subjects), "latency_ms": duration_ms}
+    except Exception as exc:  # noqa: BLE001
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error("[OCR] /subjects failed after %d ms: %s", duration_ms, exc)
+        raise
+>>>>>>> 8ee44bbed9bc26b1bdc8f6bae3a10d5f6afbbc2a
