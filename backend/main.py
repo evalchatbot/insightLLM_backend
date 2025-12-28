@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,6 +55,16 @@ app.include_router(quiz.router)
 def root():
     logger.info("[API] Root endpoint accessed")
     return {"message": "NotebookLM Backend is vibing!"}
+
+@app.get("/health")
+def health():
+    """Health check endpoint for monitoring and load balancers"""
+    logger.info("[API] Health endpoint accessed")
+    return {
+        "status": "healthy as f*ck",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "0.1.0"
+    }
 
 
 # Warm caches on startup to avoid first-request latency
