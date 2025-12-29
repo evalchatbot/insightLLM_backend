@@ -431,6 +431,7 @@ def get_report_page_size(
     dpi: int = 200,
     margin_ratio: float = 0.40,
     min_height: int = 3500,
+    max_width: int = 6000,
     fallback: Tuple[int, int] = (2977, 4211),
 ) -> Tuple[int, int]:
     """
@@ -440,11 +441,15 @@ def get_report_page_size(
     This ensures that report pages have the same dimensions as the annotated
     answer pages, creating a consistent document layout.
     
+    For very large PDFs, the width is capped at max_width to prevent
+    extremely wide pages that are difficult to display or print.
+    
     Args:
         pdf_path: Path to the PDF file
         dpi: DPI for page size calculation (default: 200, matches OCR processing)
         margin_ratio: Ratio of margin to page width (default: 0.40 = 40%)
         min_height: Minimum page height in pixels (default: 3500)
+        max_width: Maximum page width in pixels (default: 6000, ~30 inches at 200 DPI)
         fallback: Fallback page size if calculation fails (default: A4 at 200 DPI)
     
     Returns:
@@ -460,8 +465,24 @@ def get_report_page_size(
             return fallback
         pix = doc[0].get_pixmap(dpi=dpi)
         orig_w, orig_h = pix.width, pix.height
+        
+        # Calculate margin and total width
         margin = int(orig_w * margin_ratio)
-        return (orig_w + 2 * margin, max(orig_h, min_height))
+        total_width = orig_w + 2 * margin
+        
+        # Cap width at max_width to prevent extremely wide pages
+        if total_width > max_width:
+            # Scale down proportionally: reduce orig_w to fit within max_width
+            # total_width = orig_w + 2 * margin = orig_w + 2 * (orig_w * margin_ratio)
+            # total_width = orig_w * (1 + 2 * margin_ratio)
+            # orig_w = total_width / (1 + 2 * margin_ratio)
+            # We want: new_total_width <= max_width
+            # new_orig_w = max_width / (1 + 2 * margin_ratio)
+            new_orig_w = int(max_width / (1 + 2 * margin_ratio))
+            new_margin = int(new_orig_w * margin_ratio)
+            total_width = new_orig_w + 2 * new_margin
+        
+        return (total_width, max(orig_h, min_height))
     except Exception:
         return fallback
     finally:
