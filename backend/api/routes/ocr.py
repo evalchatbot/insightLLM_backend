@@ -23,7 +23,7 @@ from backend.config import SUPABASE_URL, SUPABASE_KEY
 
 router = APIRouter(prefix="/api/ocr", tags=["ocr"])
 
-MAX_MB = int(os.getenv("MAX_UPLOAD_MB", "50"))
+MAX_MB = int(os.getenv("MAX_UPLOAD_MB", "20"))
 
 # Initialize job manager (singleton)
 _job_manager: Optional[OCRJobManager] = None

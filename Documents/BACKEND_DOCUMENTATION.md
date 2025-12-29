@@ -722,7 +722,7 @@ Configured in `main.py`:
 
 #### Other
 
-- `MAX_UPLOAD_MB`: Maximum upload size in MB (default: 50)
+- `MAX_UPLOAD_MB`: Maximum upload size in MB (default: 20)
 - `LOG_LEVEL`: Logging level (default: "INFO")
 
 ### Configuration File

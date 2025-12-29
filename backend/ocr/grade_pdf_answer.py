@@ -431,7 +431,7 @@ def get_report_page_size(
     dpi: int = 200,
     margin_ratio: float = 0.40,
     min_height: int = 3500,
-    max_width: int = 6000,
+    max_width: int = 4500,
     fallback: Tuple[int, int] = (2977, 4211),
 ) -> Tuple[int, int]:
     """
@@ -449,7 +449,7 @@ def get_report_page_size(
         dpi: DPI for page size calculation (default: 200, matches OCR processing)
         margin_ratio: Ratio of margin to page width (default: 0.40 = 40%)
         min_height: Minimum page height in pixels (default: 3500)
-        max_width: Maximum page width in pixels (default: 6000, ~30 inches at 200 DPI)
+        max_width: Maximum page width in pixels (default: 4500, ~22.5 inches at 200 DPI)
         fallback: Fallback page size if calculation fails (default: A4 at 200 DPI)
     
     Returns:
