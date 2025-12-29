@@ -803,9 +803,34 @@ def annotate_pdf_answer_pages(
             img_bytes = pix.tobytes("png")
             pil_img = Image.open(io.BytesIO(img_bytes))
             
+            # Check image size and downscale if too large BEFORE converting to numpy
+            # This prevents MemoryError when converting very large images to numpy arrays
+            max_dimension_before_numpy = 6000  # Maximum dimension before downscaling
+            pil_w, pil_h = pil_img.size
+            max_dim = max(pil_w, pil_h)
+            
+            if max_dim > max_dimension_before_numpy:
+                # Calculate scale factor
+                scale = max_dimension_before_numpy / max_dim
+                new_w = int(pil_w * scale)
+                new_h = int(pil_h * scale)
+                print(f"WARNING: Page {page_number} is very large ({pil_w}x{pil_h}), downscaling to {new_w}x{new_h} before processing")
+                # Downscale using high-quality resampling
+                pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            
             # Convert PIL to NumPy array (RGB format)
             # Use asarray to avoid copy if possible, then convert BGR to RGB efficiently
-            orig_cv_rgb = np.asarray(pil_img)
+            try:
+                orig_cv_rgb = np.asarray(pil_img)
+            except MemoryError as mem_error:
+                # If still fails, try even smaller size
+                print(f"WARNING: MemoryError converting page {page_number} to numpy, trying smaller size. Error: {mem_error}")
+                # Try 50% of current size
+                new_w = int(pil_img.size[0] * 0.5)
+                new_h = int(pil_img.size[1] * 0.5)
+                pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                orig_cv_rgb = np.asarray(pil_img)
+            
             if len(orig_cv_rgb.shape) == 3 and orig_cv_rgb.shape[2] == 3:
                 # Convert RGB to BGR for OpenCV (creates a view, not a copy)
                 orig_cv = orig_cv_rgb[:, :, ::-1]
@@ -814,7 +839,15 @@ def annotate_pdf_answer_pages(
                 if len(orig_cv_rgb.shape) == 3 and orig_cv_rgb.shape[2] == 4:
                     # RGBA: convert to RGB first
                     pil_img = pil_img.convert('RGB')
-                    orig_cv_rgb = np.asarray(pil_img)
+                    try:
+                        orig_cv_rgb = np.asarray(pil_img)
+                    except MemoryError as mem_error:
+                        # If still fails, try even smaller
+                        print(f"WARNING: MemoryError converting RGBA page {page_number}, trying smaller size. Error: {mem_error}")
+                        new_w = int(pil_img.size[0] * 0.5)
+                        new_h = int(pil_img.size[1] * 0.5)
+                        pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                        orig_cv_rgb = np.asarray(pil_img)
                 orig_cv = orig_cv_rgb[:, :, ::-1] if len(orig_cv_rgb.shape) == 3 else orig_cv_rgb
             
             orig_h, orig_w, _ = orig_cv.shape
@@ -872,15 +905,48 @@ def annotate_pdf_answer_pages(
                     scale = max_dimension / max(h_img, w_img)
                     new_w = int(w_img * scale)
                     new_h = int(h_img * scale)
-                    cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+                    
+                    # Check available memory before resize
+                    available_memory = _get_available_memory_mb()
+                    # Estimate memory needed for resize (rough estimate: 3x the output size)
+                    estimated_mb = (new_w * new_h * 3 * 3) / (1024 * 1024)  # 3 channels, 3 bytes per pixel
+                    
+                    # Use more memory-efficient interpolation if memory is low
+                    interpolation = cv2.INTER_LINEAR  # More memory-efficient than INTER_LANCZOS4
+                    if available_memory and available_memory < 500:
+                        interpolation = cv2.INTER_AREA  # Most memory-efficient
+                    
+                    try:
+                        cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=interpolation)
+                    except cv2.error as resize_error:
+                        # If resize fails due to memory, try even smaller size
+                        print(f"WARNING: Resize failed for page {page_number}, trying smaller size. Error: {resize_error}")
+                        # Try half the target size
+                        new_w = int(new_w * 0.5)
+                        new_h = int(new_h * 0.5)
+                        try:
+                            cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        except cv2.error as resize_error2:
+                            # Last resort: use PIL for resize (more memory-efficient for very large images)
+                            print(f"WARNING: OpenCV resize failed again, using PIL resize for page {page_number}")
+                            pil_temp = Image.fromarray(cv_img[:, :, ::-1])  # BGR to RGB
+                            pil_temp = pil_temp.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                            cv_img = np.array(pil_temp)[:, :, ::-1]  # RGB back to BGR
                 
                 # Convert BGR to RGB efficiently using cv2.cvtColor (more memory efficient)
-                cv_img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+                try:
+                    cv_img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+                except cv2.error as color_error:
+                    # Fallback: use array slicing if cvtColor fails
+                    print(f"WARNING: cvtColor failed for page {page_number}, using array slicing. Error: {color_error}")
+                    cv_img_rgb = cv_img[:, :, ::-1]
                 
                 pil_result = Image.fromarray(cv_img_rgb)
                 annotated_pages.append(pil_result)
                 # Free memory immediately
                 del cv_img_rgb, orig_cv, pil_img, pil_result
+                if 'cv_img' in locals():
+                    del cv_img
                 gc.collect()
                 continue 
 
@@ -1762,14 +1828,47 @@ def annotate_pdf_answer_pages(
                 scale = max_dimension / max(h_img, w_img)
                 new_w = int(w_img * scale)
                 new_h = int(h_img * scale)
-                # Downscale using high-quality interpolation
-                cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
-                # Update dimensions after resize
-                h_img, w_img = cv_img.shape[:2]
+                
+                # Check available memory before resize
+                available_memory = _get_available_memory_mb()
+                # Estimate memory needed for resize (rough estimate: 3x the output size)
+                estimated_mb = (new_w * new_h * 3 * 3) / (1024 * 1024)  # 3 channels, 3 bytes per pixel
+                
+                # Use more memory-efficient interpolation if memory is low
+                interpolation = cv2.INTER_LINEAR  # More memory-efficient than INTER_LANCZOS4
+                if available_memory and available_memory < 500:
+                    interpolation = cv2.INTER_AREA  # Most memory-efficient
+                
+                try:
+                    # Downscale using memory-efficient interpolation
+                    cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=interpolation)
+                    # Update dimensions after resize
+                    h_img, w_img = cv_img.shape[:2]
+                except cv2.error as resize_error:
+                    # If resize fails due to memory, try even smaller size
+                    print(f"WARNING: Resize failed for page {page_number}, trying smaller size. Error: {resize_error}")
+                    # Try half the target size
+                    new_w = int(new_w * 0.5)
+                    new_h = int(new_h * 0.5)
+                    try:
+                        cv_img = cv2.resize(cv_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        h_img, w_img = cv_img.shape[:2]
+                    except cv2.error as resize_error2:
+                        # Last resort: use PIL for resize (more memory-efficient for very large images)
+                        print(f"WARNING: OpenCV resize failed again, using PIL resize for page {page_number}")
+                        pil_temp = Image.fromarray(cv_img[:, :, ::-1])  # BGR to RGB
+                        pil_temp = pil_temp.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                        cv_img = np.array(pil_temp)[:, :, ::-1]  # RGB back to BGR
+                        h_img, w_img = cv_img.shape[:2]
             
             # Convert BGR to RGB efficiently using cv2.cvtColor (more memory efficient than slicing)
             # This avoids creating a copy of the entire array
-            cv_img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            try:
+                cv_img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            except cv2.error as color_error:
+                # Fallback: use array slicing if cvtColor fails
+                print(f"WARNING: cvtColor failed for page {page_number}, using array slicing. Error: {color_error}")
+                cv_img_rgb = cv_img[:, :, ::-1]
             
             # Convert to PIL Image
             pil_result = Image.fromarray(cv_img_rgb)
