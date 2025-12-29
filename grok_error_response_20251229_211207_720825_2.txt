@@ -1,0 +1,296 @@
+=== FULL RESPONSE (length: 9820 chars) ===
+{
+  "subject": "current-affairs",
+  "max_marks": 20,
+  "total_marks_awarded": 12,
+  "question_statement": "Under Trump, trade which was supposed to be a tool for peaceful growth has been turned into an instrument of war without violence, to counter the growing economic might of new Powers. Do you agree with this statement, Discuss in detail.",
+  "question_expectation": [
+    "An excellent answer should clearly agree or disagree with the statement by evaluating Trump's trade policies as a strategic tool against rising powers like China, focusing on protectionism and tariffs.",
+    "It should analyze underlying geopolitical concepts such as economic nationalism, realism in international relations, and the shift toward multipolarity in global trade dynamics.",
+    "The response must provide historical context of U.S. trade evolution from post-WWII free trade promotion to Trump's era of weaponized trade amid China's BRI and technological rise.",
+    "It should include balanced critiques of these policies, supported by specific events like the US-China trade war, and suggest implications for global economic interdependence."
+  ],
+  "criteria": [
+    {
+      "id": "understanding_relevance",
+      "name": "Understanding of the Question and Relevance",
+      "max": 4,
+      "awarded": 3,
+      "strengths": [
+        "Accurately interprets the question by agreeing with the statement and addressing key elements like trade as a non-violent war tool against rising powers.",
+        "Identifies and responds to keywords such as 'agree' and 'discuss in detail' through structured arguments on Trump's policies."
+      ],
+      "weaknesses": [
+        "Does not fully address all nuances of the question, such as potential counterarguments or a balanced evaluation beyond agreement.",
+        "Some sections stray slightly from direct relevance, e.g., inclusion of Russia without strong ties to the core U.S.-China focus."
+      ]
+    },
+    {
+      "id": "knowledge_context",
+      "name": "Knowledge, Context, and Background Clarity",
+      "max": 5,
+      "awarded": 4,
+      "strengths": [
+        "Demonstrates solid knowledge of Trump's trade policies, including tariffs on steel/aluminum, America First narrative, and countering China's economic rise.",
+        "Provides clear context on global developments like BRI, trade deficits, and multipolarity, connecting to recent events in the Trump era."
+      ],
+      "weaknesses": [
+        "Lacks depth in connecting indirect global actors (e.g., Russia) to the primary question on new powers like China.",
+        "Misses broader historical background, such as pre-Trump U.S. trade liberalization, limiting comprehensive grounding."
+      ]
+    },
+    {
+      "id": "analytical_depth",
+      "name": "Analytical Depth and Critical Reasoning",
+      "max": 4,
+      "awarded": 2,
+      "strengths": [
+        "Analyzes 'why' and 'how' behind policies, e.g., using realism for relative gains and disrupting supply chains to slow China's momentum.",
+        "Identifies underlying dynamics like preserving U.S. dominance in a multipolar world."
+      ],
+      "weaknesses": [
+        "Superficial analysis with little critical critique of policies, such as their economic costs or ineffectiveness.",
+        "No balanced view of current narratives or realistic policy recommendations/solutions, as required for critical discussion."
+      ]
+    },
+    {
+      "id": "data_facts",
+      "name": "Use of Data, Facts, and References",
+      "max": 2,
+      "awarded": 0,
+      "strengths": [],
+      "weaknesses": [
+        "No citation of specific data, statistics, reports, or credible sources (e.g., trade deficit figures or WTO reports).",
+        "Lacks references to major events with dates, agreements, or quotes from leaders/academics; relies on general claims without verification."
+      ]
+    },
+    {
+      "id": "structure_coherence",
+      "name": "Structure, Coherence, and Organization",
+      "max": 3,
+      "awarded": 2,
+      "strengths": [
+        "Follows Introduction-Body-Conclusion format with logical progression and numbered subheadings.",
+        "Headings are mostly self-explanatory and link back to the main topic of trade as a tool against rising powers."
+      ],
+      "weaknesses": [
+        "Some headings (e.g., 2.6 on Russia) are not fully relevant or explanatory without reading further.",
+        "Transitions between sections are abrupt, and the conclusion is underdeveloped without tying back to the question comprehensively."
+      ]
+    },
+    {
+      "id": "language_neutrality",
+      "name": "Language, Expression, and Neutrality",
+      "max": 2,
+      "awarded": 1,
+      "strengths": [
+        "Maintains a formal, neutral tone without ideological bias, using some subject-specific terms like 'multipolar world' and 'realist strategy'."
+      ],
+      "weaknesses": [
+        "Expression is occasionally unclear due to grammatical issues and awkward phrasing (e.g., 'wesponized', 'pr a global technological').",
+        "Limited use of analytical jargon and fluency is hampered by repetitive structure without varied expression."
+      ]
+    }
+  ],
+  "high_scoring_outline": {
+    "title": "High-Scoring Ideal Outline",
+    "outline_points": [
+      {
+        "heading": "Introduction",
+        "summary": "Begin by restating the question and clearly stating agreement with the statement, providing a brief overview of Trump's trade policy shift from interdependence to strategic confrontation. Outline the structure, emphasizing the evolution of trade as a geopolitical tool. Highlight key themes like economic nationalism and realism in countering China's rise.",
+        "key_points": [
+          "Define trade weaponization with reference to Trump's 2017-2021 tariffs and America First doctrine.",
+          "Mention historical pivot from post-Cold War free trade to protectionism amid multipolarity.",
+          "Preview body sections on policy mechanisms, impacts, and critiques."
+        ]
+      },
+      {
+        "heading": "Historical and Contextual Background of U.S. Trade Policy Under Trump",
+        "summary": "Discuss the pre-Trump context of globalization and free trade agreements like NAFTA, contrasting with Trump's rejection via withdrawal from TPP and imposition of tariffs. Explain the geopolitical context of China's economic ascent through BRI and tech dominance. Connect to broader shifts in global power dynamics.",
+        "key_points": [
+          "2018 US-China trade war initiation with 25% tariffs on $50B Chinese goods (cite USTR reports).",
+          "America First narrative as response to deindustrialization and $375B annual trade deficit with China (2017 data).",
+          "Role of realism theory in viewing trade as zero-sum competition."
+        ]
+      },
+      {
+        "heading": "Mechanisms of Trade as a Non-Violent Instrument Against Rising Powers",
+        "summary": "Analyze specific policies like Section 301 tariffs, export controls on tech, and supply chain disruptions targeting China. Examine how these slowed emerging powers' growth without military conflict, including impacts on BRI and de-dollarization efforts. Use realist framework to explain relative gains over absolute interdependence.",
+        "key_points": [
+          "Tariffs on steel/aluminum (2018) to protect domestic industries and repatriate jobs (e.g., 300K manufacturing jobs added by 2019).",
+          "Huawei ban and Entity List (2019) to counter tech hegemony in AI/5G/semiconductors.",
+          "Disruption of global supply chains, forcing China to absorb costs and relocate production."
+        ]
+      },
+      {
+        "heading": "Analytical Evaluation and Critiques",
+        "summary": "Critically assess the effectiveness of these policies in preserving U.S. dominance, weighing benefits like reduced deficits against drawbacks such as higher consumer costs and allied tensions. Discuss implications for multipolar world order and non-traditional threats. Provide balanced view with evidence from both sides.",
+        "key_points": [
+          "Success in slowing China's GDP growth projection by 0.5-1% annually (World Bank estimates).",
+          "Critiques: Escalated global tensions, Phase One deal (2020) as temporary; harmed U.S. farmers via retaliatory tariffs.",
+          "Broader narrative: Accelerated de-globalization, per IMF reports on trade fragmentation."
+        ]
+      },
+      {
+        "heading": "Policy Recommendations and Conclusion",
+        "summary": "Suggest realistic solutions like multilateral alliances (e.g., QUAD) for fair trade rules and domestic innovation investments. Conclude by reaffirming agreement with the statement while noting long-term risks to peaceful growth. Emphasize the need for balanced U.S. strategy in a multipolar era.",
+        "key_points": [
+          "Recommend WTO reforms and tech alliances to counter China without unilateral wars.",
+          "Quote experts like Graham Allison on Thucydides Trap in U.S.-China rivalry.",
+          "Way forward: Shift to cooperative competition for sustainable global interdependence."
+        ]
+      }
+    ]
+  ],
+  "overall_comment": "The student's response demonstrates a clear agreement with the statement and provides a structured overview of Trump's trade policies, particularly against China, showing adequate knowledge of key concepts like protectionism and multipolarity. However, it lacks depth in critical analysis, specific factual references, and balanced critiques, resulting in a somewhat superficial discussion that misses opportunities for nuanced evaluation. While the organization is logical with relevant headings, improvements in sourcing data, addressing counterarguments, and enhancing language fluency would elevate it to exceptional quality."
+}
+
+=== CLEANED (length: 9820 chars) ===
+{
+  "subject": "current-affairs",
+  "max_marks": 20,
+  "total_marks_awarded": 12,
+  "question_statement": "Under Trump, trade which was supposed to be a tool for peaceful growth has been turned into an instrument of war without violence, to counter the growing economic might of new Powers. Do you agree with this statement, Discuss in detail.",
+  "question_expectation": [
+    "An excellent answer should clearly agree or disagree with the statement by evaluating Trump's trade policies as a strategic tool against rising powers like China, focusing on protectionism and tariffs.",
+    "It should analyze underlying geopolitical concepts such as economic nationalism, realism in international relations, and the shift toward multipolarity in global trade dynamics.",
+    "The response must provide historical context of U.S. trade evolution from post-WWII free trade promotion to Trump's era of weaponized trade amid China's BRI and technological rise.",
+    "It should include balanced critiques of these policies, supported by specific events like the US-China trade war, and suggest implications for global economic interdependence."
+  ],
+  "criteria": [
+    {
+      "id": "understanding_relevance",
+      "name": "Understanding of the Question and Relevance",
+      "max": 4,
+      "awarded": 3,
+      "strengths": [
+        "Accurately interprets the question by agreeing with the statement and addressing key elements like trade as a non-violent war tool against rising powers.",
+        "Identifies and responds to keywords such as 'agree' and 'discuss in detail' through structured arguments on Trump's policies."
+      ],
+      "weaknesses": [
+        "Does not fully address all nuances of the question, such as potential counterarguments or a balanced evaluation beyond agreement.",
+        "Some sections stray slightly from direct relevance, e.g., inclusion of Russia without strong ties to the core U.S.-China focus."
+      ]
+    },
+    {
+      "id": "knowledge_context",
+      "name": "Knowledge, Context, and Background Clarity",
+      "max": 5,
+      "awarded": 4,
+      "strengths": [
+        "Demonstrates solid knowledge of Trump's trade policies, including tariffs on steel/aluminum, America First narrative, and countering China's economic rise.",
+        "Provides clear context on global developments like BRI, trade deficits, and multipolarity, connecting to recent events in the Trump era."
+      ],
+      "weaknesses": [
+        "Lacks depth in connecting indirect global actors (e.g., Russia) to the primary question on new powers like China.",
+        "Misses broader historical background, such as pre-Trump U.S. trade liberalization, limiting comprehensive grounding."
+      ]
+    },
+    {
+      "id": "analytical_depth",
+      "name": "Analytical Depth and Critical Reasoning",
+      "max": 4,
+      "awarded": 2,
+      "strengths": [
+        "Analyzes 'why' and 'how' behind policies, e.g., using realism for relative gains and disrupting supply chains to slow China's momentum.",
+        "Identifies underlying dynamics like preserving U.S. dominance in a multipolar world."
+      ],
+      "weaknesses": [
+        "Superficial analysis with little critical critique of policies, such as their economic costs or ineffectiveness.",
+        "No balanced view of current narratives or realistic policy recommendations/solutions, as required for critical discussion."
+      ]
+    },
+    {
+      "id": "data_facts",
+      "name": "Use of Data, Facts, and References",
+      "max": 2,
+      "awarded": 0,
+      "strengths": [],
+      "weaknesses": [
+        "No citation of specific data, statistics, reports, or credible sources (e.g., trade deficit figures or WTO reports).",
+        "Lacks references to major events with dates, agreements, or quotes from leaders/academics; relies on general claims without verification."
+      ]
+    },
+    {
+      "id": "structure_coherence",
+      "name": "Structure, Coherence, and Organization",
+      "max": 3,
+      "awarded": 2,
+      "strengths": [
+        "Follows Introduction-Body-Conclusion format with logical progression and numbered subheadings.",
+        "Headings are mostly self-explanatory and link back to the main topic of trade as a tool against rising powers."
+      ],
+      "weaknesses": [
+        "Some headings (e.g., 2.6 on Russia) are not fully relevant or explanatory without reading further.",
+        "Transitions between sections are abrupt, and the conclusion is underdeveloped without tying back to the question comprehensively."
+      ]
+    },
+    {
+      "id": "language_neutrality",
+      "name": "Language, Expression, and Neutrality",
+      "max": 2,
+      "awarded": 1,
+      "strengths": [
+        "Maintains a formal, neutral tone without ideological bias, using some subject-specific terms like 'multipolar world' and 'realist strategy'."
+      ],
+      "weaknesses": [
+        "Expression is occasionally unclear due to grammatical issues and awkward phrasing (e.g., 'wesponized', 'pr a global technological').",
+        "Limited use of analytical jargon and fluency is hampered by repetitive structure without varied expression."
+      ]
+    }
+  ],
+  "high_scoring_outline": {
+    "title": "High-Scoring Ideal Outline",
+    "outline_points": [
+      {
+        "heading": "Introduction",
+        "summary": "Begin by restating the question and clearly stating agreement with the statement, providing a brief overview of Trump's trade policy shift from interdependence to strategic confrontation. Outline the structure, emphasizing the evolution of trade as a geopolitical tool. Highlight key themes like economic nationalism and realism in countering China's rise.",
+        "key_points": [
+          "Define trade weaponization with reference to Trump's 2017-2021 tariffs and America First doctrine.",
+          "Mention historical pivot from post-Cold War free trade to protectionism amid multipolarity.",
+          "Preview body sections on policy mechanisms, impacts, and critiques."
+        ]
+      },
+      {
+        "heading": "Historical and Contextual Background of U.S. Trade Policy Under Trump",
+        "summary": "Discuss the pre-Trump context of globalization and free trade agreements like NAFTA, contrasting with Trump's rejection via withdrawal from TPP and imposition of tariffs. Explain the geopolitical context of China's economic ascent through BRI and tech dominance. Connect to broader shifts in global power dynamics.",
+        "key_points": [
+          "2018 US-China trade war initiation with 25% tariffs on $50B Chinese goods (cite USTR reports).",
+          "America First narrative as response to deindustrialization and $375B annual trade deficit with China (2017 data).",
+          "Role of realism theory in viewing trade as zero-sum competition."
+        ]
+      },
+      {
+        "heading": "Mechanisms of Trade as a Non-Violent Instrument Against Rising Powers",
+        "summary": "Analyze specific policies like Section 301 tariffs, export controls on tech, and supply chain disruptions targeting China. Examine how these slowed emerging powers' growth without military conflict, including impacts on BRI and de-dollarization efforts. Use realist framework to explain relative gains over absolute interdependence.",
+        "key_points": [
+          "Tariffs on steel/aluminum (2018) to protect domestic industries and repatriate jobs (e.g., 300K manufacturing jobs added by 2019).",
+          "Huawei ban and Entity List (2019) to counter tech hegemony in AI/5G/semiconductors.",
+          "Disruption of global supply chains, forcing China to absorb costs and relocate production."
+        ]
+      },
+      {
+        "heading": "Analytical Evaluation and Critiques",
+        "summary": "Critically assess the effectiveness of these policies in preserving U.S. dominance, weighing benefits like reduced deficits against drawbacks such as higher consumer costs and allied tensions. Discuss implications for multipolar world order and non-traditional threats. Provide balanced view with evidence from both sides.",
+        "key_points": [
+          "Success in slowing China's GDP growth projection by 0.5-1% annually (World Bank estimates).",
+          "Critiques: Escalated global tensions, Phase One deal (2020) as temporary; harmed U.S. farmers via retaliatory tariffs.",
+          "Broader narrative: Accelerated de-globalization, per IMF reports on trade fragmentation."
+        ]
+      },
+      {
+        "heading": "Policy Recommendations and Conclusion",
+        "summary": "Suggest realistic solutions like multilateral alliances (e.g., QUAD) for fair trade rules and domestic innovation investments. Conclude by reaffirming agreement with the statement while noting long-term risks to peaceful growth. Emphasize the need for balanced U.S. strategy in a multipolar era.",
+        "key_points": [
+          "Recommend WTO reforms and tech alliances to counter China without unilateral wars.",
+          "Quote experts like Graham Allison on Thucydides Trap in U.S.-China rivalry.",
+          "Way forward: Shift to cooperative competition for sustainable global interdependence."
+        ]
+      }
+    ]
+  ],
+  "overall_comment": "The student's response demonstrates a clear agreement with the statement and provides a structured overview of Trump's trade policies, particularly against China, showing adequate knowledge of key concepts like protectionism and multipolarity. However, it lacks depth in critical analysis, specific factual references, and balanced critiques, resulting in a somewhat superficial discussion that misses opportunities for nuanced evaluation. While the organization is logical with relevant headings, improvements in sourcing data, addressing counterarguments, and enhancing language fluency would elevate it to exceptional quality."
+}
+
+=== ERROR ===
+Expecting ',' delimiter: line 143 column 3 (char 9163)

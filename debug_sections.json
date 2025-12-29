@@ -2,34 +2,116 @@
   {
     "index": 0,
     "title": "Introduction",
-    "exact_ocr_heading": "Introduction :",
+    "exact_ocr_heading": "1 INTRODUCTION",
     "level": 1,
     "page_numbers": [
       1
     ],
-    "content_preview": "In earlier decades, international trade was largely viewed as a driver of economic growth and interdependence. However, in the contemporary global order, trade has increasingly been weaponized as a st"
+    "content_preview": "The doctrine of separation of powers was articulated by Montesquieu in 'The Spirit of Laws' (1748), arguing that concentrating legislative, executive, and judicial powers leads to tyranny and despotis",
+    "comment": null
   },
   {
     "index": 1,
-    "title": "Trade as a Tool for War to Counter the Growing Economic Might of New Powers",
-    "exact_ocr_heading": "Trade as a tool for war to counter the growing . economic might of new Powers :",
+    "title": "Political Context of Montesquieu",
+    "exact_ocr_heading": "POLITICAL CONTEXT OF MONTESQUIEU",
     "level": 1,
     "page_numbers": [
-      2,
-      3,
-      4,
-      5
+      1,
+      2
     ],
-    "content_preview": "Trump's trade policies transformed trade into a non-violent instrument of war against rising economic powers, particularly China, aligning with realist principles of relative gains. Key measures inclu"
+    "content_preview": "Montesquieu's early life coincided with significant governmental changes: England's constitutional monarchy declined after the Glorious Revolution (1688-89) and formed Great Britain with Scotland in 1",
+    "comment": null
   },
   {
     "index": 2,
-    "title": "Conclusion",
-    "exact_ocr_heading": "Conclusion :",
+    "title": "Montesquieu's Theory of Separation of Power",
+    "exact_ocr_heading": "MONTESQUIEU'S THEORY OF SEPARATION OF POWER",
     "level": 1,
     "page_numbers": [
-      6
+      2
     ],
-    "content_preview": "The United States under Trump relied on tariffs and trade restrictions to maintain strategic primacy and constrain the rise of competitors, particularly China."
+    "content_preview": "Montesquieu classified government powers into three categories: legislative, executive, and judiciary.",
+    "comment": null
+  },
+  {
+    "index": 3,
+    "title": "Legislative Powers",
+    "exact_ocr_heading": "LEGISLATIVE POWERS: fork. stal Montesquieu emphasized",
+    "level": 2,
+    "page_numbers": [
+      2,
+      3
+    ],
+    "content_preview": "Montesquieu stressed a separate legislative branch for law-making, stating it cannot transfer this power to others. This prevents arbitrary rule and ensures laws reflect the people's will and needs.",
+    "comment": null
+  },
+  {
+    "index": 4,
+    "title": "Executive Power Involves the Enforcement of Laws",
+    "exact_ocr_heading": "5 EXECUTIVE POWER INVOLVES THE ENFORCEMENT OF LAWS",
+    "level": 2,
+    "page_numbers": [
+      3
+    ],
+    "content_preview": "Montesquieu advocated a separate executive for enforcing laws, preferably in a monarch's hands for efficiency, but limited to prevent authoritarianism.",
+    "comment": null
+  },
+  {
+    "index": 5,
+    "title": "The Role of Judiciary is to Interpret the Laws",
+    "exact_ocr_heading": "6 THE ROLE OF JUDICIARY IS TO INTERPRET THE LAWS",
+    "level": 2,
+    "page_numbers": [
+      3
+    ],
+    "content_preview": "The judiciary interprets laws and ensures fair application, as its proper province. Independence protects citizens from injustice and upholds the rule of law.",
+    "comment": null
+  },
+  {
+    "index": 6,
+    "title": "The Principle of Checks and Balance",
+    "exact_ocr_heading": "7 THE PRINCIPLE OF CHECKS AND BALANCE",
+    "level": 1,
+    "page_numbers": [
+      4
+    ],
+    "content_preview": "Complete separation is impractical; instead, checks and balances are needed so each organ restrains others, ensuring no branch becomes supreme and preserving political liberty.",
+    "comment": null
+  },
+  {
+    "index": 7,
+    "title": "Importance of Separation of Power",
+    "exact_ocr_heading": "IMPORTANCE OF SEPARATION OF POWER",
+    "level": 1,
+    "page_numbers": [
+      4,
+      5
+    ],
+    "content_preview": "Uniting powers leads to tyranny: legislative-executive union results in oppressive rule; legislative-judicial combination erodes justice; executive-judicial fusion enables arbitrary force.",
+    "comment": null
+  },
+  {
+    "index": 8,
+    "title": "Montesquieu as an Aristotle of the 18th Century",
+    "exact_ocr_heading": "MONTESQUIEU AS AN ARISTOTLE O OF THE 18th CENTURY",
+    "level": 1,
+    "page_numbers": [
+      6,
+      7,
+      8
+    ],
+    "content_preview": "Montesquieu followed Aristotle's political naturalism, empirical methods, government classification, rule of law promotion, realism over idealism, and comparative-historical approaches, making his wor",
+    "comment": null
+  },
+  {
+    "index": 9,
+    "title": "Conclusion",
+    "exact_ocr_heading": "CONCLUSTON.",
+    "level": 1,
+    "page_numbers": [
+      8
+    ],
+    "content_preview": "Montesquieu's separation of powers theory is foundational to modern constitutionalism and democratic governance. Influenced by Aristotle's empiricism, he is called the Aristotle of the 18th century.",
+    "comment": null
   }
 ]

@@ -818,6 +818,8 @@ def annotate_pdf_answer_pages(
                 orig_cv = orig_cv_rgb[:, :, ::-1] if len(orig_cv_rgb.shape) == 3 else orig_cv_rgb
             
             orig_h, orig_w, _ = orig_cv.shape
+            content_h = orig_h
+            min_page_height = 3500
             
             # Explicitly delete pix and img_bytes to free memory immediately
             del pix, img_bytes
@@ -826,23 +828,31 @@ def annotate_pdf_answer_pages(
             left_width = int(0.40 * orig_w)
             right_width = int(0.40 * orig_w)
             new_w = left_width + orig_w + right_width
-            h = orig_h
+            h = max(orig_h, min_page_height)
             margin = int(0.03 * orig_w)
+            y_offset = (h - content_h) // 2
 
             cv_img = np.full((h, new_w, 3), 255, dtype=np.uint8)
-            # Place answer in the center
-            cv_img[:, left_width:left_width + orig_w, :] = orig_cv
+            # Place answer in the center with vertical centering
+            cv_img[
+                y_offset:y_offset + content_h,
+                left_width:left_width + orig_w,
+                :
+            ] = orig_cv
+
+            # Track all comment boxes for collision detection
+            comment_boxes: List[Tuple[int, int, int, int]] = []
 
             # Left-side padding area for improvement suggestions
             suggestion_x1 = margin
             suggestion_x2 = left_width - margin
-            suggestion_y = margin + int(0.05 * h)
+            suggestion_y = margin
 
             # Right-side padding area for error/issue annotations
             comment_x1 = left_width + orig_w
             comment_x2 = new_w - margin
             comment_x = comment_x1 + margin
-            comment_y = margin + int(0.05 * h)
+            comment_y = margin
 
             # Get suggestions for this page
             page_suggestion_data = None
@@ -872,7 +882,7 @@ def annotate_pdf_answer_pages(
                 # Free memory immediately
                 del cv_img_rgb, orig_cv, pil_img, pil_result
                 gc.collect()
-                continue
+                continue 
 
             # Draw config based on page size (bigger fonts + thicker lines)
             font_scale = max(0.9, min(orig_w, h) / 1200.0)
@@ -935,6 +945,8 @@ def annotate_pdf_answer_pages(
                         suggestion_y += int(line_height * 1.2)
                     suggestion_y += int(line_height * 1.2)  # Increased gap between suggestion boxes
 
+            suggestion_end_y = max(suggestion_y, margin)
+
             # Filter annotations relevant to this page
             page_anns: List[Dict[str, Any]] = []
             for ann in annotations or []:
@@ -969,75 +981,207 @@ def annotate_pdf_answer_pages(
 
             # Helper function to shift coordinates for answer page (now in center)
             def shift_rect(rect: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
-                """Shift rectangle coordinates to account for left margin."""
+                """Shift rectangle coordinates to account for left margin and vertical centering."""
                 x1, y1, x2, y2 = rect
-                return (x1 + left_width, y1, x2 + left_width, y2)
+                return (x1 + left_width, y1 + y_offset, x2 + left_width, y2 + y_offset)
 
-            def add_side_comment(header: str, text: str):
+            def _rects_overlap(
+                a: Tuple[int, int, int, int],
+                b: Tuple[int, int, int, int],
+                pad: int = 0,
+            ) -> bool:
+                """
+                Check if two rectangles overlap with optional padding.
+                
+                Args:
+                    a: First rectangle (x1, y1, x2, y2)
+                    b: Second rectangle (x1, y1, x2, y2)
+                    pad: Optional padding to add to overlap check
+                
+                Returns:
+                    True if rectangles overlap, False otherwise
+                """
+                ax1, ay1, ax2, ay2 = a
+                bx1, by1, bx2, by2 = b
+                return not (
+                    ax2 + pad < bx1
+                    or ax1 - pad > bx2
+                    or ay2 + pad < by1
+                    or ay1 - pad > by2
+                )
+
+            def _find_box_in_column(
+                x1: int,
+                x2: int,
+                start_y: int,
+                min_y: int,
+                max_y: int,
+                height: int,
+            ) -> Optional[Tuple[int, int, int, int]]:
+                """
+                Find non-overlapping position for a comment box in a column.
+                
+                Args:
+                    x1: Left edge of column
+                    x2: Right edge of column
+                    start_y: Preferred starting Y position
+                    min_y: Minimum allowed Y position
+                    max_y: Maximum allowed Y position
+                    height: Height of the box to place
+                
+                Returns:
+                    Tuple of (x1, y1, x2, y2) if position found, None otherwise
+                """
+                y = max(start_y, min_y)
+                while y + height <= max_y:
+                    candidate = (x1, y, x2, y + height)
+                    overlapping = [
+                        rect for rect in comment_boxes
+                        if _rects_overlap(candidate, rect, pad=4)
+                    ]
+                    if not overlapping:
+                        return candidate
+                    y = max(rect[3] for rect in overlapping) + int(line_height * 0.6)
+                return None
+
+            def add_side_comment(
+                header: str,
+                text: str,
+                draw_box: bool = True,
+            ) -> Tuple[Tuple[int, int, int, int], bool]:
+                """
+                Add a side comment with collision detection.
+                
+                Args:
+                    header: Header text for the comment
+                    text: Body text for the comment
+                    draw_box: Whether to draw red box around comment (default: True)
+                
+                Returns:
+                    Tuple of ((x1, y1, x2, y2), is_right) where:
+                    - (x1, y1, x2, y2) is the comment box coordinates
+                    - is_right is True if box is on right side, False if on left
+                """
                 nonlocal comment_y
-                # Calculate total height needed for this comment block
-                box_start_y = comment_y - int(line_height * 1.0)  # Extended top padding
-                temp_y = comment_y
-
-                # Calculate header lines
-                header_lines = _wrap_text_cv2(
-                    header, comment_max_width - 20, font_face, font_scale * 0.95, text_thickness
-                )
-                temp_y += len(header_lines) * int(line_height * 1.2)
-
-                # Calculate body lines
-                if text:
-                    bullet = "- " + text
-                    body_lines = _wrap_text_cv2(
-                        bullet, comment_max_width - 20, font_face, font_scale * 0.85, text_thickness
+                
+                def build_lines(max_width: int) -> Tuple[List[str], List[str], int]:
+                    """Build header and body lines, return total height needed."""
+                    header_lines = _wrap_text_cv2(
+                        header, max_width - 20, font_face, font_scale * 0.95, text_thickness
                     )
-                    temp_y += len(body_lines) * int(line_height * 1.0)
+                    body_lines: List[str] = []
+                    if text:
+                        bullet = "- " + text
+                        body_lines = _wrap_text_cv2(
+                            bullet, max_width - 20, font_face, font_scale * 0.85, text_thickness
+                        )
+                    height = int(
+                        len(header_lines) * line_height * 1.2
+                        + len(body_lines) * line_height * 1.0
+                        + line_height * 1.4
+                    )
+                    return header_lines, body_lines, height
 
-                box_end_y = temp_y + int(line_height * 0.6)
+                # Try right side first
+                right_x1 = comment_x - 10
+                right_x2 = comment_x2 - 5
+                right_min_y = margin
+                right_max_y = h - margin
+                preferred_y = max(comment_y - int(line_height * 1.0), right_min_y)
 
-                # Draw red box around the entire comment
-                cv2.rectangle(
-                    cv_img,
-                    (comment_x - 10, box_start_y),
-                    (comment_x2 - 5, box_end_y),
-                    RED,
-                    3,  # Box thickness
+                header_lines, body_lines, box_height = build_lines(comment_max_width)
+                box = _find_box_in_column(
+                    right_x1,
+                    right_x2,
+                    preferred_y,
+                    right_min_y,
+                    right_max_y,
+                    box_height,
                 )
+                
+                # If right side is full, try left side
+                if not box:
+                    box = _find_box_in_column(
+                        right_x1,
+                        right_x2,
+                        right_min_y,
+                        right_min_y,
+                        right_max_y,
+                        box_height,
+                    )
+                
+                if not box:
+                    header_lines, body_lines, box_height = build_lines(suggestion_max_width)
+                    left_x1 = suggestion_x1 - 5
+                    left_x2 = suggestion_x2 + 5
+                    left_min_y = max(suggestion_end_y, margin)
+                    left_max_y = h - margin
+                    box = _find_box_in_column(
+                        left_x1,
+                        left_x2,
+                        left_min_y,
+                        left_min_y,
+                        left_max_y,
+                        box_height,
+                    )
+
+                # Last resort: place at bottom
+                if not box:
+                    y1 = max(right_min_y, right_max_y - box_height)
+                    box = (right_x1, y1, right_x2, min(right_max_y, y1 + box_height))
+
+                # Track this box for collision detection
+                comment_boxes.append(box)
+                box_x1, box_y1, box_x2, box_y2 = box
+
+                if draw_box:
+                    # Draw red box around the entire comment
+                    cv2.rectangle(
+                        cv_img,
+                        (box_x1, box_y1),
+                        (box_x2, box_y2),
+                        RED,
+                        3,  # Box thickness
+                    )
+
+                text_x = box_x1 + 10
+                text_y = box_y1 + int(line_height * 1.0)
 
                 # Header (red, bold-ish)
                 for line in header_lines:
+                    if text_y > box_y2 - int(line_height * 0.5):
+                        break
                     cv2.putText(
                         cv_img,
                         line,
-                        (comment_x, comment_y),
+                        (text_x, text_y),
                         font_face,
                         font_scale * 0.95,
                         RED,
                         text_thickness,
                         cv2.LINE_AA,
                     )
-                    comment_y += int(line_height * 1.2)
+                    text_y += int(line_height * 1.2)
 
                 # Body text (red)
-                if text:
-                    bullet = "- " + text
-                    for line in _wrap_text_cv2(
-                        bullet, comment_max_width - 20, font_face, font_scale * 0.85, text_thickness
-                    ):
-                        cv2.putText(
-                            cv_img,
-                            line,
-                            (comment_x, comment_y),
-                            font_face,
-                            font_scale * 0.85,
-                            RED,
-                            text_thickness,
-                            cv2.LINE_AA,
-                        )
-                        comment_y += int(line_height * 1.0)
+                for line in body_lines:
+                    if text_y > box_y2 - int(line_height * 0.5):
+                        break
+                    cv2.putText(
+                        cv_img,
+                        line,
+                        (text_x, text_y),
+                        font_face,
+                        font_scale * 0.85,
+                        RED,
+                        text_thickness,
+                        cv2.LINE_AA,
+                    )
+                    text_y += int(line_height * 1.0)
 
-                # Spacer
-                comment_y += int(line_height * 0.6)
+                comment_y = max(comment_y, box_y2 + int(line_height * 0.6))
+                is_right = box_x1 >= comment_x - 5
+                return (box_x1, box_y1, box_x2, box_y2), is_right
 
             def draw_correction_near_box(
                 rect: Tuple[int, int, int, int],
@@ -1078,10 +1222,16 @@ def annotate_pdf_answer_pages(
 
             def draw_connector(
                 rect: Tuple[int, int, int, int],
+                target_x: int,
                 target_y_center: int,
             ):
                 """
-                Draw a red line from the annotation box to the right-side comment.
+                Draw a red line from the annotation box to the comment box.
+                
+                Args:
+                    rect: Annotation rectangle (x1, y1, x2, y2)
+                    target_x: X position of target comment box
+                    target_y_center: Y center position of target comment box
                 """
                 x1, y1, x2, y2 = rect
                 rect_center_y = (y1 + y2) // 2
@@ -1089,7 +1239,7 @@ def annotate_pdf_answer_pages(
                 cv2.line(
                     cv_img,
                     (rect_right_x, rect_center_y),
-                    (comment_x, target_y_center),
+                    (target_x, target_y_center),
                     RED,
                     3,
                 )
@@ -1181,24 +1331,58 @@ def annotate_pdf_answer_pages(
                 if atype == "introduction_comment":
                     # Try to find intro section region first
                     intro_sections = [s for s in sections if "introduction" in (s.get("title") or "").lower()]
+                    intro_rect = None
                     if intro_sections:
                         intro_sec = intro_sections[0]
                         sid = str(intro_sec.get("id") or intro_sec.get("section_id") or intro_sec.get("title"))
-                        sec_region = section_regions.get(sid)
-                        if sec_region:
-                            shifted = shift_rect(sec_region)
-                            x1, y1, x2, y2 = shifted
-                            cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
+                        intro_rect = section_regions.get(sid)
 
-                            header = f"[Introduction] ({rubric_point})".strip()
-                            body = comment
-                            block_height = int(line_height * 5)
-                            if comment_y + block_height > h - margin:
-                                comment_y = h - margin - block_height
-                            comment_block_center_y = comment_y + block_height // 2
-                            draw_connector(shifted, comment_block_center_y)
-                            add_side_comment(header, body)
-                            found_rects.append(sec_region)  # Store original for duplicate detection
+                    # Fallback 1: Try target_text if section region not found
+                    if not intro_rect and target_text:
+                        rect = _find_annotation_rect_with_context(
+                            page_ocr=page_ocr,
+                            target_text=target_text,
+                            context_before=context_before,
+                            context_after=context_after,
+                            w=orig_w,
+                            h=orig_h,
+                            already_found=found_rects,
+                        )
+                        if not rect:
+                            # Fallback 2: Try word/line matching
+                            rect = _find_word_or_line_rect(
+                                page_ocr=page_ocr,
+                                target_text=target_text,
+                                w=orig_w,
+                                h=orig_h,
+                            )
+                        intro_rect = rect
+
+                    # Fallback 3: Default rect
+                    if not intro_rect:
+                        intro_rect = (0, 0, orig_w - 1, min(orig_h - 1, int(0.22 * content_h)))
+
+                    x1, y1, x2, y2 = intro_rect
+                    x1 = 0
+                    x2 = orig_w - 1
+                    pad_top = int(0.03 * content_h)
+                    pad_bottom = int(0.08 * content_h)
+                    y1 = max(0, y1 - pad_top)
+                    y2 = min(content_h - 1, y2 + pad_bottom)
+
+                    shifted = shift_rect((x1, y1, x2, y2))
+                    cv2.rectangle(cv_img, (shifted[0], shifted[1]), (shifted[2], shifted[3]), RED, box_thickness)
+
+                    header = f"[Introduction] ({rubric_point})".strip()
+                    body = comment
+                    comment_box, comment_on_right = add_side_comment(header, body)
+                    if comment_on_right:
+                        draw_connector(
+                            shifted,
+                            comment_box[0],
+                            (comment_box[1] + comment_box[3]) // 2,
+                        )
+                    found_rects.append((x1, y1, x2, y2))  # Store original for duplicate detection
 
                 # 2) Heading issue – box on heading + right-side comment
                 elif atype == "heading_issue":
@@ -1230,12 +1414,13 @@ def annotate_pdf_answer_pages(
                     body = comment
                     if correction:
                         body += f"\nSuggestion: {correction}"
-                    block_height = int(line_height * 4)
-                    if comment_y + block_height > h - margin:
-                        comment_y = h - margin - block_height
-                    comment_block_center_y = comment_y + block_height // 2
-                    draw_connector(shifted, comment_block_center_y)
-                    add_side_comment(header, body)
+                    comment_box, comment_on_right = add_side_comment(header, body)
+                    if comment_on_right:
+                        draw_connector(
+                            shifted,
+                            comment_box[0],
+                            (comment_box[1] + comment_box[3]) // 2,
+                        )
                     found_rects.append(rect)
 
                 # 3) Factual error – precise box on error phrase + right-side comment
@@ -1265,12 +1450,13 @@ def annotate_pdf_answer_pages(
                     body = comment
                     if correction:
                         body = f"Correction: {correction}\n{body}"
-                    block_height = int(line_height * 4)
-                    if comment_y + block_height > h - margin:
-                        comment_y = h - margin - block_height
-                    comment_block_center_y = comment_y + block_height // 2
-                    draw_connector(shifted, comment_block_center_y)
-                    add_side_comment(header, body)
+                    comment_box, comment_on_right = add_side_comment(header, body)
+                    if comment_on_right:
+                        draw_connector(
+                            shifted,
+                            comment_box[0],
+                            (comment_box[1] + comment_box[3]) // 2,
+                        )
                     found_rects.append(rect)
 
                 # 4) Grammar & language – small box + inline correction
@@ -1349,6 +1535,38 @@ def annotate_pdf_answer_pages(
                         cv2.LINE_AA,
                     )
                     found_rects.append(rect)
+
+            # Add heading comments for every section on this page
+            for sec in sections:
+                pages = sec.get("page_numbers") or []
+                if page_number not in pages:
+                    continue
+
+                title_text = (sec.get("title") or "").strip()
+                exact_heading = sec.get("exact_ocr_heading") or ""
+                heading_text = title_text or exact_heading
+                if not heading_text:
+                    continue
+                heading_norm = heading_text.strip().lower()
+                if "introduction" in heading_norm or "conclusion" in heading_norm:
+                    continue
+
+                heading_comment = (sec.get("comment") or "").strip()
+                if not heading_comment:
+                    heading_comment = "Heading detected."
+
+                header = f"[Heading] {heading_text}"
+                comment_box, comment_on_right = add_side_comment(header, heading_comment)
+
+                heading_bbox = _find_heading_bbox_on_page(exact_heading or heading_text, page_ocr)
+                if heading_bbox and comment_on_right:
+                    hx1, hy1, hx2, hy2 = _bbox_to_rect(heading_bbox, pad=4, w=orig_w, h=orig_h)
+                    shifted = shift_rect((hx1, hy1, hx2, hy2))
+                    draw_connector(
+                        shifted,
+                        comment_box[0],
+                        (comment_box[1] + comment_box[3]) // 2,
+                    )
 
             # After drawing negative annotations, add ticks for ALL headings of good sections
             for sec in sections:
@@ -1434,7 +1652,7 @@ def annotate_pdf_answer_pages(
                 if ordered_summary:
                     # Start from BOTTOM of page and work upward
                     # Reserve space at bottom for summary annotations
-                    bottom_margin = int(0.05 * h)
+                    bottom_margin = int(0.07 * h)
                     left_summary_y = h - bottom_margin
                     right_summary_y = h - bottom_margin
 

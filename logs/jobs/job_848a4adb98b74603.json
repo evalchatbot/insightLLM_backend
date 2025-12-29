@@ -1,0 +1,15 @@
+{
+  "job_id": "848a4adb98b74603",
+  "request_id": "079591dd",
+  "user_id": "user_37IjhxvvGzQz7w2zxy3uYJmQFZ2",
+  "filename": "test3.pdf",
+  "subject": "pakistan-affairs",
+  "status": "completed",
+  "created_at": 1767025157.6956532,
+  "started_at": 1767025158.3198621,
+  "completed_at": 1767025285.0482519,
+  "error": null,
+  "result_pdf_path": "D:\\Sova\\Projects\\RubrikAi\\insightLLM_backend\\logs\\results\\result_848a4adb98b74603.pdf",
+  "result_json_path": "D:\\Sova\\Projects\\RubrikAi\\insightLLM_backend\\logs\\results\\result_848a4adb98b74603.json",
+  "cancelled": false
+}

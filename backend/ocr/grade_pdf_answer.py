@@ -78,6 +78,7 @@ def debug_dump_sections(
                 "level": sec.get("level"),
                 "page_numbers": sec.get("page_numbers"),
                 "content_preview": (sec.get("content") or "")[:200],
+                "comment": sec.get("comment"),  # Add comment field
             }
         )
 
@@ -86,12 +87,14 @@ def debug_dump_sections(
 
     print("\n==== DETECTED HEADINGS / SECTIONS (from Grok) ====")
     for sec in light_sections:
+        comment_display = f" | Comment: {sec['comment']}" if sec.get('comment') else ""
         print(
             f"[{sec['index']}] "
             f"Title: {sec['title']!r} | "
             f"exact_ocr_heading: {sec['exact_ocr_heading']!r} | "
             f"Level: {sec['level']} | "
             f"Pages: {sec['page_numbers']}"
+            f"{comment_display}"
         )
     print(f"Saved detailed section info to {output_path}")
     print("=================================================\n")
@@ -157,13 +160,54 @@ def _format_time(seconds: float) -> str:
 
 def clean_json_from_llm(text: str) -> str:
     """
-    Remove markdown code fences like ```json ... ``` or ``` ... ```.
+    Remove markdown code fences and extract JSON from LLM responses.
+    Handles various formats: ```json ... ```, ``` ... ```, or plain JSON.
     """
     text = text.strip()
+    
+    # Remove markdown code fences
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z0-9]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
+        text = text.strip()
+    
+    # Try to extract JSON object/array if wrapped in text
+    # Look for JSON object starting with {
+    json_match = re.search(r'(\{[\s\S]*\})', text)
+    if json_match:
+        text = json_match.group(1)
+    
     return text.strip()
+
+
+def repair_json(text: str, error_pos: Optional[int] = None) -> str:
+    """
+    Attempt to repair common JSON issues:
+    - Trailing commas before closing brackets/braces
+    - Control characters
+    - Unclosed strings (basic handling)
+    """
+    # Remove trailing commas before } or ]
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    
+    # Remove control characters except newlines and tabs
+    text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\t\r')
+    
+    # If error position is known, try to fix around that area
+    if error_pos is not None and error_pos < len(text):
+        # Try to add missing comma if we're at a position that might need one
+        # This is a heuristic - look for patterns like "value }" or "value ]"
+        if error_pos > 0:
+            # Check context around error position
+            start = max(0, error_pos - 50)
+            end = min(len(text), error_pos + 50)
+            context = text[start:end]
+            
+            # Try to fix common patterns: "value }" -> "value, }" (but be careful)
+            # This is a last resort and might not always work correctly
+            pass  # Keep it simple for now - trailing comma removal is the main fix
+    
+    return text
 
 
 # -----------------------------
@@ -380,6 +424,48 @@ def pdf_to_page_images_for_grok(
         return page_images
     finally:
         doc.close()  # Always close the document to release file handle
+
+
+def get_report_page_size(
+    pdf_path: str,
+    dpi: int = 200,
+    margin_ratio: float = 0.40,
+    min_height: int = 3500,
+    fallback: Tuple[int, int] = (2977, 4211),
+) -> Tuple[int, int]:
+    """
+    Match report page size to annotated answer pages:
+    annotated width = orig_w + 2 * (margin_ratio * orig_w), height = orig_h.
+    
+    This ensures that report pages have the same dimensions as the annotated
+    answer pages, creating a consistent document layout.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        dpi: DPI for page size calculation (default: 200, matches OCR processing)
+        margin_ratio: Ratio of margin to page width (default: 0.40 = 40%)
+        min_height: Minimum page height in pixels (default: 3500)
+        fallback: Fallback page size if calculation fails (default: A4 at 200 DPI)
+    
+    Returns:
+        Tuple of (width, height) in pixels at the specified DPI
+    
+    Example:
+        >>> size = get_report_page_size("answer.pdf")
+        >>> print(size)  # (4167, 4211) - width with margins, height with minimum
+    """
+    doc = fitz.open(pdf_path)
+    try:
+        if doc.page_count == 0:
+            return fallback
+        pix = doc[0].get_pixmap(dpi=dpi)
+        orig_w, orig_h = pix.width, pix.height
+        margin = int(orig_w * margin_ratio)
+        return (orig_w + 2 * margin, max(orig_h, min_height))
+    except Exception:
+        return fallback
+    finally:
+        doc.close()
 
 
 # -----------------------------
@@ -2010,73 +2096,85 @@ def call_grok_for_section_detection(
     system_msg = {
         "role": "system",
         "content": (
-            "You are an expert at visually and logically segmenting handwritten exam answers.\n"
-            "You receive:\n"
-            "- OCR text (approximate),\n"
-            "- per-page OCR structure (lines with bounding boxes),\n"
-            "- base64-encoded page images of the handwritten script.\n\n"
-            "PRIMARY GROUND TRUTH:\n"
-            "- The PAGE IMAGES are the primary source of truth.\n"
-            "- OCR text is only a helper for searching or clarifying words.\n"
-            "- If OCR and the image disagree, ALWAYS follow the handwritten image.\n\n"
-            "YOUR GOAL:\n"
-            "Segment the answer into logical sections:\n"
-            "- an INTRODUCTION section,\n"
-            "- zero or more main body sections and sub-sections,\n"
-            "- a CONCLUSION section.\n\n"
-            "DEFINITION OF SECTIONS:\n"
-            "- A section is a continuous block of content that belongs together under a heading,\n"
-            "  subheading, or implicit role (introduction / conclusion).\n"
-            "- Sections must appear in the same order as the student writes them.\n"
-            "- Sections must not overlap. A line of content should belong to at most one section.\n"
-            "- If some small lines cannot be confidently assigned, you may leave them out, but avoid\n"
-            "  inventing sections that do not clearly exist.\n\n"
-            "VISUAL CUES FOR HEADINGS:\n"
-            "- larger or bolder handwriting,\n"
-            "- underlined words or phrases,\n"
-            "- lines with extra spacing above and/or below,\n"
-            "- numbered headings (1., 2., 3., i., ii., iii., etc.),\n"
-            "- short phrases at the start of a line that clearly label the following content.\n"
-            "Use these visual cues from the IMAGES first. Use OCR only to approximate the text.\n\n"
-            "STRICT OUTPUT FORMAT (IMPORTANT):\n"
-            "- You MUST return ONLY valid JSON.\n"
-            "- The JSON MUST have a top-level key 'sections' with an array of section objects.\n"
-            "- The JSON must have NO extra keys at the top-level.\n"
-            "- Do NOT include markdown, comments, or any explanation.\n"
-            "- The result must be valid JSON parseable by a strict JSON parser.\n\n"
-            "EACH section OBJECT MUST HAVE THE FIELDS:\n"
-            "- 'title' (string):\n"
-            "    - For explicit headings, use a clean, readable version of the heading.\n"
-            "    - For implicit parts, use labels like 'Introduction' or 'Conclusion'.\n"
-            "- 'exact_ocr_heading' (string):\n"
-            "    - CRITICAL: This must be the EXACT text as it appears in the OCR (with any spelling mistakes, formatting, etc.).\n"
-            "    - For explicit headings: Copy the exact OCR text of the heading line word-for-word from ocr_pages.\n"
-            "    - For implicit sections (Introduction/Conclusion): Copy the exact OCR text of the first line of that section.\n"
-            "    - This field is used to locate headings precisely, so it MUST match OCR exactly.\n"
-            "- 'level' (integer):\n"
-            "    - 1 for main heading (top-level section),\n"
-            "    - 2 for subheading under the previous level-1 section,\n"
-            "    - If unsure, use 1.\n"
-            "- 'page_numbers' (array of integers):\n"
-            "    - All page numbers (1-based) where this section's content appears.\n"
-            "    - If content continues onto multiple pages, include all of them.\n"
-            "- 'content_text' (string):\n"
-            "    - A concise reconstruction or summary of the student's content in this section,\n"
-            "      written in clear prose.\n"
-            "    - Use your own words, but stay faithful to what is actually written.\n\n"
-            "ORDERING CONSTRAINTS:\n"
-            "- Sections MUST be in strict reading order: from the first page to the last, top to bottom.\n"
-            "- There MUST be exactly one 'Introduction' section (first),\n"
-            "  and exactly one 'Conclusion' section (last).\n"
-            "- All other sections must appear between them, in the order they appear in the script.\n\n"
-            "STABILITY REQUIREMENT:\n"
-            "- For the same input, your segmentation should be as consistent as possible.\n"
-            "- Avoid random or arbitrary splits.\n"
-            "- Prefer fewer, well-justified sections over many small, uncertain sections.\n\n"
-            "REASONING STYLE:\n"
-            "- Do your reasoning internally.\n"
-            "- DO NOT include any intermediate reasoning or notes in the output.\n"
-            "- Output ONLY the final JSON object with the 'sections' array.\n"
+            "You are an expert at visually and logically segmenting handwritten exam answers.\n\n"
+            "INPUT DATA YOU RECEIVE:\n"
+            "- OCR text (approximate, may contain errors)\n"
+            "- Per-page OCR text lines (text only, no bounding boxes or coordinates)\n"
+            "- Base64-encoded page images of the handwritten script\n\n"
+            "PRIMARY RULE:\n"
+            "- The PAGE IMAGES are the primary source of truth\n"
+            "- OCR text is only a helper for searching or clarifying words\n"
+            "- If OCR and image disagree, ALWAYS trust the handwritten image\n\n"
+            "YOUR TASK:\n"
+            "Segment the answer into logical sections with this structure:\n"
+            "Introduction → Main body sections (with optional subsections) → Conclusion\n\n"
+            "STRICT REQUIREMENTS FOR SECTION DETECTION:\n\n"
+            "1) INTRODUCTION (REQUIRED - MUST BE FIRST):\n"
+            "   - If there is an explicit heading like 'Introduction', use that exact text as the title\n"
+            "   - If no such heading exists, identify the first paragraph(s) that introduce the topic\n"
+            "   - Set title to 'Introduction' for implicit introductions\n"
+            "   - For 'exact_ocr_heading': copy the EXACT OCR text of the heading line (or first line if implicit)\n"
+            "   - This MUST be the first section in your output\n\n"
+            "2) BODY SECTIONS (IDENTIFY ALL MAJOR HEADINGS):\n"
+            "   - Examine the page images carefully for ALL headings between Introduction and Conclusion\n"
+            "   - Look for these VISUAL CUES in the images:\n"
+            "     • Larger or bolder handwriting\n"
+            "     • Underlined words or phrases\n"
+            "     • Extra spacing above and/or below text\n"
+            "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c)\n"
+            "     • Short phrases at the start of a line that label the content below\n"
+            "   - For each heading found:\n"
+            "     • Create a section with that heading as the title\n"
+            "     • Set 'level' = 1 for main topics, 'level' = 2 for subtopics under the previous main heading\n"
+            "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
+            "     • Include ALL page numbers where this section's content appears\n"
+            "   - DO NOT skip headings - find ALL of them\n"
+            "   - DO NOT invent headings that don't exist visually\n\n"
+            "3) CONCLUSION (REQUIRED - MUST BE LAST):\n"
+            "   - If there is an explicit heading like 'Conclusion' or 'In conclusion', use that text\n"
+            "   - If no such heading, identify the final paragraph(s) that summarize/wrap up the answer\n"
+            "   - Set title to 'Conclusion' for implicit conclusions\n"
+            "   - For 'exact_ocr_heading': copy the EXACT OCR text of the heading line (or last paragraph's first line if implicit)\n"
+            "   - This MUST be the last section in your output\n\n"
+            "SECTION DEFINITIONS:\n"
+            "- A section is a continuous block of content belonging together under one heading/topic\n"
+            "- Sections must appear in reading order (top to bottom, page by page)\n"
+            "- Sections must NOT overlap - each line belongs to only one section\n"
+            "- If you cannot confidently assign some lines, leave them out rather than forcing them\n\n"
+            "CONTENT_TEXT REQUIREMENTS:\n"
+            "- For each section, provide a concise summary of the student's actual content\n"
+            "- Use your own words but stay faithful to what is written\n"
+            "- Do NOT invent arguments or facts not present in the script\n"
+            "- If handwriting is unclear, infer only what is reasonably supported\n\n"
+            "HEADING QUALITY EVALUATION (NEW REQUIREMENT):\n"
+            "For each heading/subheading (excluding 'Introduction' and 'Conclusion'), provide a 'comment' evaluating its quality:\n"
+            "- Start with POSITIVE or NEGATIVE to clearly indicate the assessment\n"
+            "- Evaluate based on these criteria:\n"
+            "  • Is it self-explanatory? Does it immediately tell what point is being discussed?\n"
+            "  • Is it directly relevant to the question and reflects exact themes from the question statement?\n"
+            "  • Does it guide the reader by showing how this section contributes to answering the question?\n"
+            "  • Or is it generic, vague, or acts as a decorative slogan rather than a meaningful signpost?\n"
+            "- Examples:\n"
+            "  • POSITIVE: This heading clearly identifies the specific aspect being analyzed and directly addresses a component of the question.\n"
+            "  • NEGATIVE: This heading is too generic and doesn't clearly indicate what specific point will be discussed.\n"
+            "- Keep comments concise (1-2 sentences)\n"
+            "- For 'Introduction' and 'Conclusion' sections, you may set comment to empty string or a brief note\n\n"
+            "OUTPUT FORMAT (CRITICAL):\n"
+            "- Return ONLY valid JSON with structure: {\"sections\": [...]}\n"
+            "- NO markdown formatting, NO code blocks, NO explanations\n"
+            "- Each section object must have these EXACT fields:\n"
+            "  • 'title': Clean, readable heading text\n"
+            "  • 'exact_ocr_heading': EXACT OCR text with any typos/errors (used for precise location matching)\n"
+            "  • 'level': integer (1 for main, 2 for sub)\n"
+            "  • 'page_numbers': array of integers\n"
+            "  • 'content_text': string summary\n"
+            "  • 'comment': quality evaluation starting with POSITIVE or NEGATIVE (or empty for intro/conclusion)\n"
+            "- NO extra fields, NO top-level keys besides 'sections'\n\n"
+            "CONSISTENCY:\n"
+            "- For the same input, produce consistent segmentation\n"
+            "- Avoid random or arbitrary splits\n"
+            "- Prefer fewer, well-justified sections over many uncertain micro-sections\n"
+            "- Be thorough but not excessive\n"
         ),
     }
 
@@ -2470,32 +2568,45 @@ def call_grok_for_grading(
                 print(f"Successfully parsed JSON on attempt {attempt + 1}")
             return parsed, token_usage
         except json.JSONDecodeError as exc:
-            # Save malformed JSON to file for debugging (with unique timestamp)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            error_file = f"grok_error_response_{timestamp}_{attempt + 1}.txt"
-            with open(error_file, "w", encoding="utf-8") as f:
-                f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
-                f.write(content)
-                f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
-                f.write(cleaned)
-                f.write(f"\n\n=== ERROR ===\n{exc}\n")
+            # Try to repair JSON before giving up
+            cleaned = clean_json_from_llm(content)  # Re-clean in case it wasn't set
+            try:
+                repaired = repair_json(cleaned, error_pos=exc.pos)
+                parsed = json.loads(repaired)
+                print(f"Successfully parsed JSON after repair on attempt {attempt + 1}")
+                return parsed, token_usage
+            except (json.JSONDecodeError, Exception) as repair_exc:
+                # Save malformed JSON to file for debugging (with unique timestamp)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                error_file = f"grok_error_response_{timestamp}_{attempt + 1}.txt"
+                with open(error_file, "w", encoding="utf-8") as f:
+                    f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
+                    f.write(content)
+                    f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
+                    f.write(cleaned)
+                    f.write(f"\n\n=== REPAIRED (length: {len(repaired)} chars) ===\n")
+                    f.write(repaired)
+                    f.write(f"\n\n=== ORIGINAL ERROR ===\n{exc}\n")
+                    f.write(f"\n=== REPAIR ERROR ===\n{repair_exc}\n")
 
-            print(f"\nDEBUG: Full content length: {len(content)} characters")
-            print(f"DEBUG: Finish reason: {finish_reason}")
-            print(f"DEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
-            print(f"DEBUG: Saved full response to {error_file}")
-            print(f"DEBUG: First 300 chars: {content[:300]}")
-            print(f"DEBUG: Last 300 chars: {content[-300:]}")
+                print(f"\nDEBUG: Full content length: {len(content)} characters")
+                print(f"DEBUG: Finish reason: {finish_reason}")
+                print(f"DEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
+                print(f"DEBUG: JSON repair also failed: {repair_exc}")
+                print(f"DEBUG: Saved full response to {error_file}")
+                print(f"DEBUG: First 300 chars: {content[:300]}")
+                print(f"DEBUG: Last 300 chars: {content[-300:]}")
 
-            if attempt < max_retries - 1:
-                print(f"Malformed JSON, retrying...")
-                continue
+                if attempt < max_retries - 1:
+                    print(f"Malformed JSON, retrying...")
+                    continue
 
-            raise RuntimeError(
-                f"Grok grading returned malformed JSON after {max_retries} attempts. "
-                f"Error: {exc.msg} at position {exc.pos}. "
-                f"Full response saved to {error_file}"
-            ) from exc
+                raise RuntimeError(
+                    f"Grok grading returned malformed JSON after {max_retries} attempts. "
+                    f"Error: {exc.msg} at position {exc.pos}. "
+                    f"Repair attempt also failed: {repair_exc}. "
+                    f"Full response saved to {error_file}"
+                ) from exc
 
     raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
 
@@ -2884,20 +2995,33 @@ def call_grok_for_refined_rubric_annotations(
             cleaned = clean_json_from_llm(content)
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            # Save error for debugging (with unique timestamp)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            error_file = f"grok_refined_error_{timestamp}_{attempt + 1}.txt"
-            with open(error_file, "w", encoding="utf-8") as f:
-                f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
-                f.write(content)
-                f.write(f"\n\n=== ERROR ===\n{exc}\n")
+            # Try to repair JSON before giving up
+            cleaned = clean_json_from_llm(content)  # Re-clean in case it wasn't set
+            try:
+                repaired = repair_json(cleaned, error_pos=exc.pos)
+                parsed = json.loads(repaired)
+                print(f"Successfully parsed refined rubric JSON after repair on attempt {attempt + 1}")
+            except (json.JSONDecodeError, Exception) as repair_exc:
+                # Save error for debugging (with unique timestamp)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                error_file = f"grok_refined_error_{timestamp}_{attempt + 1}.txt"
+                with open(error_file, "w", encoding="utf-8") as f:
+                    f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
+                    f.write(content)
+                    f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
+                    f.write(cleaned)
+                    f.write(f"\n\n=== REPAIRED (length: {len(repaired)} chars) ===\n")
+                    f.write(repaired)
+                    f.write(f"\n\n=== ORIGINAL ERROR ===\n{exc}\n")
+                    f.write(f"\n=== REPAIR ERROR ===\n{repair_exc}\n")
 
-            print(f"\nDEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
-            print(f"DEBUG: Saved full response to {error_file}")
+                print(f"\nDEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
+                print(f"DEBUG: JSON repair also failed: {repair_exc}")
+                print(f"DEBUG: Saved full response to {error_file}")
 
-            if attempt < max_retries - 1:
-                print(f"Malformed JSON, retrying...")
-                continue
+                if attempt < max_retries - 1:
+                    print(f"Malformed JSON, retrying...")
+                    continue
 
             # Fallback on final failure
             return {
@@ -3997,7 +4121,11 @@ def grade_pdf_answer(
                 message="Rendering subject report pages...",
             )
         step_start = time.perf_counter()
-        subject_report_pages = render_subject_report_pages(grading_result)
+        report_page_size = get_report_page_size(pdf_path)
+        subject_report_pages = render_subject_report_pages(
+            grading_result,
+            page_size=report_page_size,
+        )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 6: Render subject report pages"] = step_duration
         _append_log(

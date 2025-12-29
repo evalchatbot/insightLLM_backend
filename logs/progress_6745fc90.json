@@ -1,0 +1,11 @@
+{
+  "request_id": "6745fc90",
+  "step": "Subject grading",
+  "step_number": 5,
+  "total_steps": 11,
+  "progress_percent": 60.0,
+  "message": "Grading with subject rubric...",
+  "details": {},
+  "timestamp": 1767024683.9951105,
+  "updated_at": "2025-12-29T16:11:23Z"
+}

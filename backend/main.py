@@ -33,7 +33,15 @@ setup_api_logging(app)
 # CORS (set your frontend origin)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://insight-llm-frontend.vercel.app", "http://localhost:5173" , "https://rubric.pk", "https://www.rubric.pk", "https://api.rubric.pk" ,"http://localhost:3000" , "https://insight-llm-frontend-2-0.vercel.app" , "https://insight-llm-frontend-2-0.vercel.app/app"],
+    allow_origins=[
+        "https://insight-llm-frontend.vercel.app",
+        "http://localhost:5173" ,
+        "https://rubric.pk",
+        "https://www.rubric.pk",
+        "https://api.rubric.pk" ,    
+        "http://localhost:3000" ,
+        "https://insight-llm-frontend-2-0.vercel.app" ,
+        "https://insight-llm-frontend-2-0.vercel.app/app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

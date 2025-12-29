@@ -1,0 +1,178 @@
+2025-12-29T16:10:34.852045Z [INFO] request=6745fc90 job=713b19ea71f047bd service_logs_dir=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs
+2025-12-29T16:10:34.988385Z [INFO] request=6745fc90 job=713b19ea71f047bd looking_for_input_pdf path=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs\results\input_713b19ea71f047bd.pdf
+2025-12-29T16:10:35.015706Z [INFO] request=6745fc90 job=713b19ea71f047bd files_in_results_dir count=1 files=['input_713b19ea71f047bd.pdf']
+2025-12-29T16:10:35.049862Z [INFO] request=6745fc90 job=713b19ea71f047bd input_pdf_found attempt=1 size=3517233
+2025-12-29T16:10:35.102517Z [INFO] request=6745fc90 job=713b19ea71f047bd job_start filename=CA, Q4, Sehar Joiya.pdf subject=current-affairs
+2025-12-29T16:10:35.306218Z [INFO] request=6745fc90 start pdf=tmp_6h_iak3.pdf subject=current-affairs
+2025-12-29T16:10:46.762338Z [INFO] request=6745fc90 step=1 name=convert_pdf_images duration_ms=10259
+2025-12-29T16:10:56.517010Z [INFO] request=6745fc90 ocr_conditional_parallel pages=6 mode=low_concurrency concurrent_pages=2
+2025-12-29T16:10:56.569769Z [INFO] request=6745fc90 ocr_warmup_start page=1
+2025-12-29T16:10:57.233542Z [INFO] request=6745fc90 ocr_image_optimized page=1 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:00.052357Z [INFO] request=6745fc90 ocr_page_complete page=1 duration_ms=2061
+2025-12-29T16:11:00.321019Z [INFO] request=6745fc90 ocr_warmup_complete page=1 duration_ms=3751
+2025-12-29T16:11:00.326484Z [INFO] request=6745fc90 ocr_batch_orchestration_start total_pages=6 remaining_pages=5 batch_size=5 num_batches=1 concurrent_pages=2 adaptive_enabled=True
+2025-12-29T16:11:00.329217Z [INFO] request=6745fc90 ocr_batch_start batch=1/1 pages=[2, 3, 4, 5, 6] size=5
+2025-12-29T16:11:00.744571Z [INFO] request=6745fc90 ocr_image_optimized page=2 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:00.769596Z [INFO] request=6745fc90 ocr_image_optimized page=3 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:02.974865Z [INFO] request=6745fc90 ocr_page_complete page=2 duration_ms=1341
+2025-12-29T16:11:03.178473Z [INFO] request=6745fc90 ocr_page_complete page=3 duration_ms=1451
+2025-12-29T16:11:03.651091Z [INFO] request=6745fc90 ocr_image_optimized page=4 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:03.666814Z [INFO] request=6745fc90 ocr_image_optimized page=5 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:05.498156Z [INFO] request=6745fc90 ocr_page_complete page=4 duration_ms=1234
+2025-12-29T16:11:05.767588Z [INFO] request=6745fc90 ocr_page_complete page=5 duration_ms=1476
+2025-12-29T16:11:05.843855Z [INFO] request=6745fc90 ocr_image_optimized page=6 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:11:07.304930Z [INFO] request=6745fc90 ocr_page_complete page=6 duration_ms=992
+2025-12-29T16:11:07.443357Z [INFO] request=6745fc90 ocr_batch_complete batch=1/1 pages=[2, 3, 4, 5, 6] duration_ms=6994 success=5 failures=0 failure_rate=0.00% rate_limits=0 avg_latency_ms=1398
+2025-12-29T16:11:07.448065Z [INFO] request=6745fc90 ocr_batch_orchestration_complete batches_processed=1 remaining_pages=0
+2025-12-29T16:11:07.452684Z [INFO] request=6745fc90 ocr_complete total_pages=6 success=6 failed=0 duration_ms=20334
+2025-12-29T16:11:07.457421Z [INFO] request=6745fc90 ocr_retry_stats total_attempts=6 successful_retries=0 retry_success_rate_pct=0.0 exhausted=0 rate_limits=0 non_retryable=0 budget_exceeded=0 categories=[]
+2025-12-29T16:11:07.483846Z [INFO] request=6745fc90 step=2 name=google_vision_ocr duration_ms=20365
+2025-12-29T16:11:23.633641Z [INFO] request=6745fc90 step=3 name=grok_section_detection duration_ms=15748
+2025-12-29T16:11:23.990658Z [INFO] request=6745fc90 step=4 name=load_subject_rubric duration_ms=194
+2025-12-29T16:12:31.637396Z [ERROR] request=6745fc90 error=Grok grading returned malformed JSON after 3 attempts. Error: Expecting ',' delimiter at position 9962. Full response saved to grok_error_response_20251229_211231_506282_3.txt traceback=Traceback (most recent call last):
+  File "D:\Sova\Projects\RubrikAi\insightLLM_backend\backend\ocr\grade_pdf_answer.py", line 2524, in call_grok_for_grading
+    parsed = json.loads(cleaned)
+  File "C:\Python313\Lib\json\__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Python313\Lib\json\decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\json\decoder.py", line 361, in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ~~~~~~~~~~~~~~^^^^^^^^
+json.decoder.JSONDecodeError: Expecting ',' delimiter: line 155 column 3 (char 9962)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Sova\Projects\RubrikAi\insightLLM_backend\backend\ocr\grade_pdf_answer.py", line 4008, in grade_pdf_answer
+    grading_result, grading_token_usage = call_grok_for_grading(
+                                          ~~~~~~~~~~~~~~~~~~~~~^
+        grok_api_key=grok_key,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        page_images=page_images,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Sova\Projects\RubrikAi\insightLLM_backend\backend\ocr\grade_pdf_answer.py", line 2551, in call_grok_for_grading
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from exc
+RuntimeError: Grok grading returned malformed JSON after 3 attempts. Error: Expecting ',' delimiter at position 9962. Full response saved to grok_error_response_20251229_211231_506282_3.txt
+2025-12-29T16:12:31.646164Z [ERROR] request=6745fc90 job=713b19ea71f047bd job_failed error=Grok grading returned malformed JSON after 3 attempts. Error: Expecting ',' delimiter at position 9962. Full response saved to grok_error_response_20251229_211231_506282_3.txt
+2025-12-29T16:19:18.415297Z [INFO] request=079591dd job=848a4adb98b74603 service_logs_dir=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs
+2025-12-29T16:19:18.635819Z [INFO] request=079591dd job=848a4adb98b74603 looking_for_input_pdf path=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs\results\input_848a4adb98b74603.pdf
+2025-12-29T16:19:18.654347Z [INFO] request=079591dd job=848a4adb98b74603 files_in_results_dir count=2 files=['input_713b19ea71f047bd.pdf', 'input_848a4adb98b74603.pdf']
+2025-12-29T16:19:18.701941Z [INFO] request=079591dd job=848a4adb98b74603 input_pdf_found attempt=1 size=1402713
+2025-12-29T16:19:18.714799Z [INFO] request=079591dd job=848a4adb98b74603 job_start filename=test3.pdf subject=pakistan-affairs
+2025-12-29T16:19:18.716100Z [INFO] request=079591dd start pdf=tmpqvos6rs6.pdf subject=pakistan-affairs
+2025-12-29T16:19:24.724304Z [INFO] request=079591dd step=1 name=convert_pdf_images duration_ms=5121
+2025-12-29T16:19:29.902536Z [INFO] request=079591dd ocr_conditional_parallel pages=6 mode=low_concurrency concurrent_pages=2
+2025-12-29T16:19:29.914386Z [INFO] request=079591dd ocr_warmup_start page=1
+2025-12-29T16:19:30.762403Z [INFO] request=079591dd ocr_image_optimized page=1 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:32.965702Z [INFO] request=079591dd ocr_page_complete page=1 duration_ms=1727
+2025-12-29T16:19:33.192393Z [INFO] request=079591dd ocr_warmup_complete page=1 duration_ms=3278
+2025-12-29T16:19:33.194920Z [INFO] request=079591dd ocr_batch_orchestration_start total_pages=6 remaining_pages=5 batch_size=5 num_batches=1 concurrent_pages=2 adaptive_enabled=True
+2025-12-29T16:19:33.197083Z [INFO] request=079591dd ocr_batch_start batch=1/1 pages=[2, 3, 4, 5, 6] size=5
+2025-12-29T16:19:33.518932Z [INFO] request=079591dd ocr_image_optimized page=2 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:33.547229Z [INFO] request=079591dd ocr_image_optimized page=3 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:35.494448Z [INFO] request=079591dd ocr_page_complete page=3 duration_ms=1276
+2025-12-29T16:19:35.713854Z [INFO] request=079591dd ocr_page_complete page=2 duration_ms=1479
+2025-12-29T16:19:36.510448Z [INFO] request=079591dd ocr_image_optimized page=5 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:36.601430Z [INFO] request=079591dd ocr_image_optimized page=4 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:38.944432Z [INFO] request=079591dd ocr_page_complete page=4 duration_ms=1308
+2025-12-29T16:19:39.153456Z [INFO] request=079591dd ocr_page_complete page=5 duration_ms=1391
+2025-12-29T16:19:39.680236Z [INFO] request=079591dd ocr_image_optimized page=6 original_size=2339x1653 optimized_size=2048x1447 scale_x=1.14 scale_y=1.14
+2025-12-29T16:19:41.948417Z [INFO] request=079591dd ocr_page_complete page=6 duration_ms=1290
+2025-12-29T16:19:42.101412Z [INFO] request=079591dd ocr_batch_complete batch=1/1 pages=[2, 3, 4, 5, 6] duration_ms=8796 success=5 failures=0 failure_rate=0.00% rate_limits=0 avg_latency_ms=1759
+2025-12-29T16:19:42.147927Z [INFO] request=079591dd ocr_batch_orchestration_complete batches_processed=1 remaining_pages=0
+2025-12-29T16:19:42.170812Z [INFO] request=079591dd ocr_complete total_pages=6 success=6 failed=0 duration_ms=17343
+2025-12-29T16:19:42.182865Z [INFO] request=079591dd ocr_retry_stats total_attempts=6 successful_retries=0 retry_success_rate_pct=0.0 exhausted=0 rate_limits=0 non_retryable=0 budget_exceeded=0 categories=[]
+2025-12-29T16:19:42.213321Z [INFO] request=079591dd step=2 name=google_vision_ocr duration_ms=17385
+2025-12-29T16:20:02.883551Z [INFO] request=079591dd step=3 name=grok_section_detection duration_ms=20422
+2025-12-29T16:20:03.303534Z [INFO] request=079591dd step=4 name=load_subject_rubric duration_ms=223
+2025-12-29T16:20:25.373118Z [INFO] request=079591dd step=5 name=grok_subject_grading duration_ms=21926
+2025-12-29T16:20:30.794009Z [INFO] request=079591dd step=6 name=render_subject_report_pages duration_ms=5285
+2025-12-29T16:20:30.940658Z [INFO] request=079591dd step=7 name=load_refined_rubric duration_ms=47
+2025-12-29T16:21:07.748226Z [INFO] request=079591dd step=8 name=grok_refined_annotations duration_ms=36691
+2025-12-29T16:21:16.489631Z [INFO] request=079591dd step=9 name=grok_page_suggestions duration_ms=8627
+2025-12-29T16:21:23.302899Z [INFO] request=079591dd step=10 name=annotate_answer_pages duration_ms=6683
+2025-12-29T16:21:24.368189Z [INFO] request=079591dd step=11 name=merge_and_write_pdf duration_ms=948
+2025-12-29T16:21:24.638479Z [INFO] request=079591dd TIMING_REPORT_START
+2025-12-29T16:21:24.641442Z [INFO] request=079591dd Step 1: Convert PDF to images duration=5 sec duration_sec=5.12
+2025-12-29T16:21:24.650832Z [INFO] request=079591dd Step 2: Google Vision OCR duration=17 sec duration_sec=17.39
+2025-12-29T16:21:24.658527Z [INFO] request=079591dd Step 3: Grok section detection duration=20 sec duration_sec=20.42
+2025-12-29T16:21:24.684798Z [INFO] request=079591dd Step 4: Load subject rubric duration=0 sec duration_sec=0.22
+2025-12-29T16:21:24.732319Z [INFO] request=079591dd Step 5: Grok subject grading duration=21 sec duration_sec=21.93
+2025-12-29T16:21:24.735265Z [INFO] request=079591dd Step 6: Render subject report pages duration=5 sec duration_sec=5.29
+2025-12-29T16:21:24.749266Z [INFO] request=079591dd Step 7: Load refined rubric duration=0 sec duration_sec=0.05
+2025-12-29T16:21:24.751719Z [INFO] request=079591dd Step 8: Grok refined annotations duration=36 sec duration_sec=36.69
+2025-12-29T16:21:24.761945Z [INFO] request=079591dd Step 9: Grok page suggestions duration=8 sec duration_sec=8.63
+2025-12-29T16:21:24.767151Z [INFO] request=079591dd Step 10: Annotate answer pages duration=6 sec duration_sec=6.68
+2025-12-29T16:21:24.769638Z [INFO] request=079591dd Step 11: Write final PDF duration=0 sec duration_sec=0.95
+2025-12-29T16:21:24.776224Z [INFO] request=079591dd TOTAL_TIME duration=2 min 5 sec duration_sec=125.90
+2025-12-29T16:21:24.777848Z [INFO] request=079591dd TIMING_REPORT_END
+2025-12-29T16:21:24.780009Z [INFO] request=079591dd completed total_duration_ms=125902
+2025-12-29T16:21:24.935583Z [INFO] request=079591dd job=848a4adb98b74603 job_complete filename=test3.pdf
+2025-12-29T16:24:35.286864Z [INFO] request=1739b522 job=f89843c89ab54967 service_logs_dir=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs
+2025-12-29T16:24:35.472129Z [INFO] request=1739b522 job=f89843c89ab54967 looking_for_input_pdf path=D:\Sova\Projects\RubrikAi\insightLLM_backend\logs\results\input_f89843c89ab54967.pdf
+2025-12-29T16:24:35.495781Z [INFO] request=1739b522 job=f89843c89ab54967 files_in_results_dir count=5 files=['input_713b19ea71f047bd.pdf', 'input_848a4adb98b74603.pdf', 'input_f89843c89ab54967.pdf', 'result_848a4adb98b74603.json', 'result_848a4adb98b74603.pdf']
+2025-12-29T16:24:35.528749Z [INFO] request=1739b522 job=f89843c89ab54967 input_pdf_found attempt=1 size=9821655
+2025-12-29T16:24:35.555447Z [INFO] request=1739b522 job=f89843c89ab54967 job_start filename=test1.pdf subject=political-science
+2025-12-29T16:24:35.562278Z [INFO] request=1739b522 start pdf=tmpmtw2_s1y.pdf subject=political-science
+2025-12-29T16:24:45.856042Z [INFO] request=1739b522 step=1 name=convert_pdf_images duration_ms=10054
+2025-12-29T16:24:53.945875Z [INFO] request=1739b522 ocr_conditional_parallel pages=8 mode=low_concurrency concurrent_pages=2
+2025-12-29T16:24:53.948502Z [INFO] request=1739b522 ocr_warmup_start page=1
+2025-12-29T16:24:54.557870Z [INFO] request=1739b522 ocr_image_optimized page=1 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:25:16.993994Z [INFO] request=1739b522 ocr_page_complete page=1 duration_ms=21804
+2025-12-29T16:25:17.238542Z [INFO] request=1739b522 ocr_warmup_complete page=1 duration_ms=23289
+2025-12-29T16:25:17.242410Z [INFO] request=1739b522 ocr_batch_orchestration_start total_pages=8 remaining_pages=7 batch_size=5 num_batches=2 concurrent_pages=2 adaptive_enabled=True
+2025-12-29T16:25:17.246611Z [INFO] request=1739b522 ocr_batch_start batch=1/2 pages=[2, 3, 4, 5, 6] size=5
+2025-12-29T16:25:17.713489Z [INFO] request=1739b522 ocr_image_optimized page=3 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:25:17.724707Z [INFO] request=1739b522 ocr_image_optimized page=2 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:25:42.161845Z [INFO] request=1739b522 ocr_page_complete page=2 duration_ms=23915
+2025-12-29T16:25:42.548731Z [INFO] request=1739b522 ocr_image_optimized page=4 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:25:45.008250Z [INFO] request=1739b522 ocr_page_complete page=3 duration_ms=26751
+2025-12-29T16:25:45.285926Z [INFO] request=1739b522 ocr_image_optimized page=5 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:26:02.589053Z [INFO] request=1739b522 ocr_page_complete page=4 duration_ms=19595
+2025-12-29T16:26:02.961718Z [INFO] request=1739b522 ocr_image_optimized page=6 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:26:04.672429Z [INFO] request=1739b522 ocr_page_complete page=5 duration_ms=18800
+2025-12-29T16:26:14.693680Z [INFO] request=1739b522 ocr_page_complete page=6 duration_ms=10844
+2025-12-29T16:26:14.870686Z [INFO] request=1739b522 ocr_batch_complete batch=1/2 pages=[2, 3, 4, 5, 6] duration_ms=57532 success=5 failures=0 failure_rate=0.00% rate_limits=0 avg_latency_ms=11506
+2025-12-29T16:26:14.877960Z [INFO] request=1739b522 ocr_batch_start batch=2/2 pages=[7, 8] size=2
+2025-12-29T16:26:15.261285Z [INFO] request=1739b522 ocr_image_optimized page=7 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:26:15.271883Z [INFO] request=1739b522 ocr_image_optimized page=8 original_size=1653x2339 optimized_size=1447x2048 scale_x=1.14 scale_y=1.14
+2025-12-29T16:26:31.436778Z [INFO] request=1739b522 ocr_page_complete page=7 duration_ms=15346
+2025-12-29T16:26:33.719789Z [INFO] request=1739b522 ocr_page_complete page=8 duration_ms=17593
+2025-12-29T16:26:33.872611Z [INFO] request=1739b522 ocr_batch_complete batch=2/2 pages=[7, 8] duration_ms=18949 success=2 failures=0 failure_rate=0.00% rate_limits=0 avg_latency_ms=9474
+2025-12-29T16:26:33.875668Z [INFO] request=1739b522 ocr_batch_orchestration_complete batches_processed=2 remaining_pages=0
+2025-12-29T16:26:33.877832Z [INFO] request=1739b522 ocr_complete total_pages=8 success=8 failed=0 duration_ms=107907
+2025-12-29T16:26:33.880494Z [INFO] request=1739b522 ocr_retry_stats total_attempts=8 successful_retries=0 retry_success_rate_pct=0.0 exhausted=0 rate_limits=0 non_retryable=0 budget_exceeded=0 categories=[]
+2025-12-29T16:26:33.912573Z [INFO] request=1739b522 step=2 name=google_vision_ocr duration_ms=107942
+2025-12-29T16:26:49.653722Z [INFO] request=1739b522 step=3 name=grok_section_detection duration_ms=15559
+2025-12-29T16:26:49.855063Z [INFO] request=1739b522 step=4 name=load_subject_rubric duration_ms=76
+2025-12-29T16:27:15.836347Z [INFO] request=1739b522 step=5 name=grok_subject_grading duration_ms=25903
+2025-12-29T16:27:21.611768Z [INFO] request=1739b522 step=6 name=render_subject_report_pages duration_ms=5672
+2025-12-29T16:27:21.794890Z [INFO] request=1739b522 step=7 name=load_refined_rubric duration_ms=74
+2025-12-29T16:27:55.323407Z [INFO] request=1739b522 step=8 name=grok_refined_annotations duration_ms=33425
+2025-12-29T16:28:13.480805Z [INFO] request=1739b522 step=9 name=grok_page_suggestions duration_ms=18024
+2025-12-29T16:28:24.701339Z [INFO] request=1739b522 step=10 name=annotate_answer_pages duration_ms=11095
+2025-12-29T16:28:25.830579Z [INFO] request=1739b522 step=11 name=merge_and_write_pdf duration_ms=1030
+2025-12-29T16:28:26.584541Z [INFO] request=1739b522 TIMING_REPORT_START
+2025-12-29T16:28:26.589328Z [INFO] request=1739b522 Step 1: Convert PDF to images duration=10 sec duration_sec=10.05
+2025-12-29T16:28:26.591817Z [INFO] request=1739b522 Step 2: Google Vision OCR duration=1 min 47 sec duration_sec=107.94
+2025-12-29T16:28:26.593704Z [INFO] request=1739b522 Step 3: Grok section detection duration=15 sec duration_sec=15.56
+2025-12-29T16:28:26.595779Z [INFO] request=1739b522 Step 4: Load subject rubric duration=0 sec duration_sec=0.08
+2025-12-29T16:28:26.597601Z [INFO] request=1739b522 Step 5: Grok subject grading duration=25 sec duration_sec=25.90
+2025-12-29T16:28:26.599748Z [INFO] request=1739b522 Step 6: Render subject report pages duration=5 sec duration_sec=5.67
+2025-12-29T16:28:26.601721Z [INFO] request=1739b522 Step 7: Load refined rubric duration=0 sec duration_sec=0.07
+2025-12-29T16:28:26.605653Z [INFO] request=1739b522 Step 8: Grok refined annotations duration=33 sec duration_sec=33.43
+2025-12-29T16:28:26.617394Z [INFO] request=1739b522 Step 9: Grok page suggestions duration=18 sec duration_sec=18.02
+2025-12-29T16:28:26.621629Z [INFO] request=1739b522 Step 10: Annotate answer pages duration=11 sec duration_sec=11.10
+2025-12-29T16:28:26.623963Z [INFO] request=1739b522 Step 11: Write final PDF duration=1 sec duration_sec=1.03
+2025-12-29T16:28:26.626086Z [INFO] request=1739b522 TOTAL_TIME duration=3 min 50 sec duration_sec=230.54
+2025-12-29T16:28:26.627077Z [INFO] request=1739b522 TIMING_REPORT_END
+2025-12-29T16:28:26.629506Z [INFO] request=1739b522 completed total_duration_ms=230544
+2025-12-29T16:28:26.911779Z [INFO] request=1739b522 job=f89843c89ab54967 job_complete filename=test1.pdf
