@@ -4024,8 +4024,9 @@ def grade_pdf_answer(
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
-
-        debug_dump_sections(sections, output_path="debug_sections.json")
+        # Debug dump (only if DEBUG_SECTIONS environment variable is set)
+        if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
+            debug_dump_sections(sections, output_path="debug_sections.json")
 
         # Track total token usage
         total_input_tokens = section_token_usage.get("input_tokens", 0)
