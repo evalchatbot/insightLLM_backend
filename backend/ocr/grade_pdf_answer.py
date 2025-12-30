@@ -365,8 +365,58 @@ def pdf_to_page_images_for_grok(
             rgb_img = None
             
             try:
-                # Use 200 DPI to match OCR processing (ensures coordinate alignment)
-                pix = page.get_pixmap(dpi=200)
+                # Check page size first to estimate memory requirements
+                # Get page rect in points (1/72 inch), then calculate pixels at target DPI
+                page_rect = page.rect
+                page_width_pts = page_rect.width
+                page_height_pts = page_rect.height
+                
+                # Calculate expected pixmap size at 200 DPI
+                # 1 point = 1/72 inch, so at 200 DPI: pixels = points * (200/72)
+                expected_width = int(page_width_pts * (200 / 72))
+                expected_height = int(page_height_pts * (200 / 72))
+                expected_pixels = expected_width * expected_height
+                expected_mb = (expected_pixels * 4) / (1024 * 1024)  # RGBA = 4 bytes per pixel
+                
+                # Progressive DPI reduction if page is too large
+                # Start with 200 DPI, reduce if needed
+                target_dpi = 200
+                max_safe_mb = 50  # ~50MB per pixmap is reasonable
+                
+                if expected_mb > max_safe_mb:
+                    # Calculate safe DPI: reduce proportionally
+                    safe_dpi = int(200 * (max_safe_mb / expected_mb) ** 0.5)
+                    # Don't go below 100 DPI (too low quality)
+                    target_dpi = max(100, safe_dpi)
+                    print(f"WARNING: Page {idx + 1} is very large ({expected_width}x{expected_height} at 200 DPI, "
+                          f"~{expected_mb:.1f}MB). Using {target_dpi} DPI instead to prevent MemoryError.")
+                
+                # Try to get pixmap with progressive DPI reduction
+                dpi_options = [target_dpi, 150, 100, 75] if target_dpi < 200 else [200, 150, 100, 75]
+                pix = None
+                last_error = None
+                
+                for attempt_dpi in dpi_options:
+                    try:
+                        pix = page.get_pixmap(dpi=attempt_dpi)
+                        if attempt_dpi < 200:
+                            print(f"Page {idx + 1}: Successfully created pixmap at {attempt_dpi} DPI (reduced from 200 DPI)")
+                        break
+                    except Exception as e:
+                        last_error = e
+                        if attempt_dpi == dpi_options[-1]:
+                            # Last attempt failed, re-raise
+                            raise RuntimeError(
+                                f"Failed to create pixmap for page {idx + 1} even at {attempt_dpi} DPI. "
+                                f"Page size: {page_width_pts:.1f}x{page_height_pts:.1f} points. "
+                                f"Error: {e}"
+                            ) from e
+                        # Try next lower DPI
+                        continue
+                
+                if pix is None:
+                    raise RuntimeError(f"Failed to create pixmap for page {idx + 1}: {last_error}")
+                
                 img_bytes = pix.tobytes("png")
                 pil_img = Image.open(io.BytesIO(img_bytes))
                 
@@ -431,7 +481,9 @@ def get_report_page_size(
     dpi: int = 200,
     margin_ratio: float = 0.40,
     min_height: int = 3500,
-    max_width: int = 4500,
+    max_width: int = 6000,
+    max_height: int = 12000,
+    max_pixels: int = 50000000,  # ~50MP limit (e.g., 5000x10000)
     fallback: Tuple[int, int] = (2977, 4211),
 ) -> Tuple[int, int]:
     """
@@ -441,15 +493,17 @@ def get_report_page_size(
     This ensures that report pages have the same dimensions as the annotated
     answer pages, creating a consistent document layout.
     
-    For very large PDFs, the width is capped at max_width to prevent
-    extremely wide pages that are difficult to display or print.
+    For very large PDFs, both width and height are capped to prevent
+    MemoryError when creating images. The function also checks total pixel count.
     
     Args:
         pdf_path: Path to the PDF file
         dpi: DPI for page size calculation (default: 200, matches OCR processing)
         margin_ratio: Ratio of margin to page width (default: 0.40 = 40%)
         min_height: Minimum page height in pixels (default: 3500)
-        max_width: Maximum page width in pixels (default: 4500, ~22.5 inches at 200 DPI)
+        max_width: Maximum page width in pixels (default: 6000, ~30 inches at 200 DPI)
+        max_height: Maximum page height in pixels (default: 12000, ~60 inches at 200 DPI)
+        max_pixels: Maximum total pixels (width * height) to prevent MemoryError (default: 50M)
         fallback: Fallback page size if calculation fails (default: A4 at 200 DPI)
     
     Returns:
@@ -463,8 +517,60 @@ def get_report_page_size(
     try:
         if doc.page_count == 0:
             return fallback
-        pix = doc[0].get_pixmap(dpi=dpi)
+        
+        # Check page size first to estimate memory requirements
+        page = doc[0]
+        page_rect = page.rect
+        page_width_pts = page_rect.width
+        page_height_pts = page_rect.height
+        
+        # Calculate expected pixmap size at target DPI
+        expected_width = int(page_width_pts * (dpi / 72))
+        expected_height = int(page_height_pts * (dpi / 72))
+        expected_pixels = expected_width * expected_height
+        expected_mb = (expected_pixels * 4) / (1024 * 1024)  # RGBA = 4 bytes per pixel
+        
+        # Progressive DPI reduction if page is too large
+        target_dpi = dpi
+        max_safe_mb = 50  # ~50MB per pixmap is reasonable
+        
+        if expected_mb > max_safe_mb:
+            # Calculate safe DPI: reduce proportionally
+            safe_dpi = int(dpi * (max_safe_mb / expected_mb) ** 0.5)
+            # Don't go below 100 DPI (too low quality)
+            target_dpi = max(100, safe_dpi)
+            print(f"WARNING: First page is very large ({expected_width}x{expected_height} at {dpi} DPI, "
+                  f"~{expected_mb:.1f}MB). Using {target_dpi} DPI instead to prevent MemoryError.")
+        
+        # Try to get pixmap with progressive DPI reduction
+        dpi_options = [target_dpi, 150, 100, 75] if target_dpi < dpi else [dpi, 150, 100, 75]
+        pix = None
+        last_error = None
+        
+        for attempt_dpi in dpi_options:
+            try:
+                pix = page.get_pixmap(dpi=attempt_dpi)
+                if attempt_dpi < dpi:
+                    print(f"Successfully created pixmap at {attempt_dpi} DPI (reduced from {dpi} DPI)")
+                break
+            except Exception as e:
+                last_error = e
+                if attempt_dpi == dpi_options[-1]:
+                    # Last attempt failed, return fallback
+                    print(f"WARNING: Failed to create pixmap even at {attempt_dpi} DPI. Using fallback size. Error: {e}")
+                    return fallback
+                # Try next lower DPI
+                continue
+        
+        if pix is None:
+            print(f"WARNING: Failed to create pixmap. Using fallback size. Error: {last_error}")
+            return fallback
+        
         orig_w, orig_h = pix.width, pix.height
+        
+        # Clean up pixmap immediately after extracting dimensions
+        del pix
+        gc.collect()
         
         # Calculate margin and total width
         margin = int(orig_w * margin_ratio)
@@ -482,8 +588,32 @@ def get_report_page_size(
             new_margin = int(new_orig_w * margin_ratio)
             total_width = new_orig_w + 2 * new_margin
         
-        return (total_width, max(orig_h, min_height))
-    except Exception:
+        # Calculate height with minimum
+        total_height = max(orig_h, min_height)
+        
+        # Cap height at max_height to prevent extremely tall pages
+        if total_height > max_height:
+            total_height = max_height
+        
+        # Check total pixel count to prevent MemoryError
+        # Estimate memory: width * height * 3 bytes (RGB) * safety_factor
+        total_pixels = total_width * total_height
+        if total_pixels > max_pixels:
+            # Scale down proportionally to fit within max_pixels
+            scale = (max_pixels / total_pixels) ** 0.5  # Square root to scale both dimensions equally
+            total_width = int(total_width * scale)
+            total_height = int(total_height * scale)
+            print(f"WARNING: Calculated page size ({total_width}x{total_height}) exceeds pixel limit. "
+                  f"Scaled down to ({total_width}x{total_height}) to prevent MemoryError.")
+        
+        # Final safety check: ensure dimensions are reasonable
+        if total_width > max_width or total_height > max_height:
+            print(f"WARNING: Page size ({total_width}x{total_height}) still exceeds limits. Using fallback size.")
+            return fallback
+        
+        return (total_width, total_height)
+    except Exception as e:
+        print(f"WARNING: Error calculating report page size: {e}. Using fallback size.")
         return fallback
     finally:
         doc.close()
@@ -2213,50 +2343,7 @@ def call_grok_for_section_detection(
         sanitized_pages.append({"page_number": p.get("page_number"), "lines": lines})
 
     user_payload = {
-        "task": (
-            "Segment the handwritten exam answer into logical sections using BOTH the page images and OCR.\n\n"
-            "INSTRUCTIONS:\n"
-            "1) Identify an explicit INTRODUCTION section:\n"
-            "   - If there is a heading like 'Introduction', use that as the section title.\n"
-            "   - If there is no such heading, treat the first paragraph or group of lines that introduce\n"
-            "     the topic as a section titled 'Introduction'.\n"
-            "   - This section must always be the first section in the 'sections' array.\n\n"
-            "2) Identify an explicit CONCLUSION section:\n"
-            "   - If there is a heading like 'Conclusion', 'In conclusion', or similar, use that text as\n"
-            "     the section title.\n"
-            "   - If there is no such heading, treat the final summarising paragraph or lines that wrap up\n"
-            "     the answer as a section titled 'Conclusion'.\n"
-            "   - This section must always be the last section in the 'sections' array.\n\n"
-            "3) Identify all major body sections between Introduction and Conclusion:\n"
-            "   - Look for headings and subheadings using VISUAL CUES from the images:\n"
-            "       • underlined or larger/bolder text,\n"
-            "       • numbered headings (1., 2., 3.; i., ii., iii.),\n"
-            "       • phrases at the start of lines followed by clearly related content,\n"
-            "       • extra spacing above/below a short phrase.\n"
-            "   - For each such heading:\n"
-            "       • create a section with that title,\n"
-            "       • assign level = 1 for main topics, level = 2 for clear subtopics under the\n"
-            "         most recent main heading (use level = 1 if unsure).\n"
-            "   - Include all pages where that section's content continues in 'page_numbers'.\n\n"
-            "4) For each section's 'content_text':\n"
-            "   - Provide a concise summary of the student's content for that section.\n"
-            "   - Do NOT invent new arguments or facts that are not implied by the script.\n"
-            "   - If handwriting is partially unclear, infer only what is reasonably supported.\n\n"
-            "5) Global constraints for the output:\n"
-            "   - The 'sections' array must:\n"
-            "       • start with the Introduction section,\n"
-            "       • list all body sections and sub-sections in the order they appear across pages,\n"
-            "       • end with the Conclusion section.\n"
-            "   - Each section must have: 'title', 'level', 'page_numbers', 'content_text'.\n"
-            "   - Do NOT include any keys other than these four in each section.\n"
-            "   - Do NOT include any top-level keys other than 'sections'.\n\n"
-            "6) Output:\n"
-            "   - Return ONLY a single JSON object of the form:\n"
-            "     {\"sections\": [ {\"title\": ..., \"level\": ..., \"page_numbers\": [...], \"content_text\": ...}, ... ]}\n"
-            "   - Do not wrap the JSON in markdown.\n"
-            "   - Do not add explanations, comments, or any extra text.\n"
-        ),
-        # Send the full OCR text (no truncation) but send only sanitized page content
+        "task": "Segment this handwritten exam answer into logical sections. Use the page images as primary source and OCR as helper.",
         "ocr_full_text": ocr_data.get("full_text", ""),
         "ocr_pages": sanitized_pages,
         "page_images_base64_png": page_images,
@@ -2268,6 +2355,7 @@ def call_grok_for_section_detection(
                     "level": 1,
                     "page_numbers": [1],
                     "content_text": "string",
+                    "comment": "POSITIVE/NEGATIVE: quality evaluation of heading",
                 }
             ]
         },
@@ -2386,6 +2474,7 @@ def call_grok_for_section_detection(
         level = sec.get("level") or 1
         pages = sec.get("page_numbers") or []
         content_text = sec.get("content_text") or sec.get("content") or ""
+        comment = (sec.get("comment") or "").strip()
 
         sections.append(
             {
@@ -2396,6 +2485,7 @@ def call_grok_for_section_detection(
                     set(int(p) for p in pages if isinstance(p, (int, float)))
                 ),
                 "content": content_text,
+                "comment": comment,  # Quality evaluation of heading
                 "line_indices": [],  # not used downstream, kept for compatibility
             }
         )
@@ -3453,6 +3543,27 @@ def _render_subject_report_with_scale(
     Internal helper to render subject report with a given font scale.
     """
     W, H = page_size
+    
+    # Safety check: prevent MemoryError from extremely large images
+    # Estimate memory: W * H * 3 bytes (RGB) = total bytes
+    estimated_mb = (W * H * 3) / (1024 * 1024)
+    max_safe_mb = 200  # ~200MB per image is reasonable
+    
+    if estimated_mb > max_safe_mb:
+        # Scale down to safe size
+        scale = (max_safe_mb / estimated_mb) ** 0.5
+        W = int(W * scale)
+        H = int(H * scale)
+        print(f"WARNING: Page size would require ~{estimated_mb:.1f}MB. "
+              f"Scaling down to ({W}x{H}) to prevent MemoryError.")
+    
+    # Additional safety: hard limits
+    max_width = 6000
+    max_height = 12000
+    if W > max_width or H > max_height:
+        print(f"WARNING: Page size ({W}x{H}) exceeds hard limits. Using fallback size.")
+        W, H = 2977, 4211  # A4 at 200 DPI fallback
+    
     margin = int(W * 0.07)
     line_spacing = 1.4
 
@@ -3469,9 +3580,17 @@ def _render_subject_report_with_scale(
     pages: List[Image.Image] = []
 
     def new_page() -> Tuple[Image.Image, ImageDraw.ImageDraw, int]:
-        img = Image.new("RGB", (W, H), "white")
-        draw = ImageDraw.Draw(img)
-        return img, draw, margin
+        try:
+            img = Image.new("RGB", (W, H), "white")
+            draw = ImageDraw.Draw(img)
+            return img, draw, margin
+        except MemoryError as e:
+            # If still fails, use fallback size
+            print(f"ERROR: MemoryError creating page image ({W}x{H}). Using fallback size.")
+            fallback_w, fallback_h = 2977, 4211  # A4 at 200 DPI
+            img = Image.new("RGB", (fallback_w, fallback_h), "white")
+            draw = ImageDraw.Draw(img)
+            return img, draw, int(fallback_w * 0.07)
 
     img, draw, y = new_page()
 

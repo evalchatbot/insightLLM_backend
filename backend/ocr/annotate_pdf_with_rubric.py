@@ -805,7 +805,7 @@ def annotate_pdf_answer_pages(
             
             # Check image size and downscale if too large BEFORE converting to numpy
             # This prevents MemoryError when converting very large images to numpy arrays
-            max_dimension_before_numpy = 6000  # Maximum dimension before downscaling
+            max_dimension_before_numpy = 6500  # Maximum dimension before downscaling
             pil_w, pil_h = pil_img.size
             max_dim = max(pil_w, pil_h)
             
@@ -989,13 +989,17 @@ def annotate_pdf_answer_pages(
                     box_height = len(wrapped_lines) * int(line_height * 1.2) + int(line_height * 0.4)
 
                     # Draw blue box around suggestion
+                    suggestion_box = (suggestion_x1 - 5, box_start_y, suggestion_x2 + 5, box_start_y + box_height)
                     cv2.rectangle(
                         cv_img,
-                        (suggestion_x1 - 5, box_start_y),
-                        (suggestion_x2 + 5, box_start_y + box_height),
+                        (suggestion_box[0], suggestion_box[1]),
+                        (suggestion_box[2], suggestion_box[3]),
                         BLUE,
                         3,  # Box thickness
                     )
+                    
+                    # Add suggestion box to collision detection list
+                    comment_boxes.append(suggestion_box)
 
                     for line in wrapped_lines:
                         cv2.putText(
@@ -1769,13 +1773,17 @@ def annotate_pdf_answer_pages(
                             continue
 
                         # Draw red box with safe coordinates
+                        summary_box = (current_x1 - 5, box_start_y, current_x2 + 5, box_end_y)
                         cv2.rectangle(
                             cv_img,
-                            (current_x1 - 5, box_start_y),
-                            (current_x2 + 5, box_end_y),
+                            (summary_box[0], summary_box[1]),
+                            (summary_box[2], summary_box[3]),
                             RED,
                             3,  # Box thickness
                         )
+                        
+                        # Add refined rubric summary box to collision detection list
+                        comment_boxes.append(summary_box)
 
                         # Draw text from top of box, working down
                         text_y = box_start_y + int(line_height * 1.2)
@@ -1870,8 +1878,45 @@ def annotate_pdf_answer_pages(
                 print(f"WARNING: cvtColor failed for page {page_number}, using array slicing. Error: {color_error}")
                 cv_img_rgb = cv_img[:, :, ::-1]
             
-            # Convert to PIL Image
-            pil_result = Image.fromarray(cv_img_rgb)
+            # Final safety check: ensure image is small enough for PIL to handle
+            # PIL can fail with MemoryError if image is too large (typically > 100MP or ~10,000x10,000)
+            h_rgb, w_rgb = cv_img_rgb.shape[:2]
+            total_pixels = h_rgb * w_rgb
+            max_pil_pixels = 80000000  # ~80MP limit for PIL (conservative)
+            
+            if total_pixels > max_pil_pixels:
+                # Calculate scale factor to fit within PIL limit
+                scale = (max_pil_pixels / total_pixels) ** 0.5
+                new_w = int(w_rgb * scale)
+                new_h = int(h_rgb * scale)
+                print(f"WARNING: Image too large for PIL ({w_rgb}x{h_rgb}, ~{total_pixels/1e6:.1f}MP). "
+                      f"Downscaling to {new_w}x{new_h} before PIL conversion.")
+                
+                # Use memory-efficient interpolation
+                available_memory = _get_available_memory_mb()
+                interpolation = cv2.INTER_AREA if (available_memory and available_memory < 500) else cv2.INTER_LINEAR
+                
+                try:
+                    cv_img_rgb = cv2.resize(cv_img_rgb, (new_w, new_h), interpolation=interpolation)
+                except Exception as resize_error:
+                    # If resize fails, try even smaller
+                    print(f"WARNING: Resize failed before PIL conversion, trying 50% size. Error: {resize_error}")
+                    new_w = int(w_rgb * 0.5)
+                    new_h = int(h_rgb * 0.5)
+                    cv_img_rgb = cv2.resize(cv_img_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            
+            # Convert to PIL Image with error handling
+            try:
+                pil_result = Image.fromarray(cv_img_rgb)
+            except MemoryError as pil_error:
+                # If still fails, try even smaller size
+                print(f"WARNING: MemoryError converting to PIL Image ({cv_img_rgb.shape[1]}x{cv_img_rgb.shape[0]}). "
+                      f"Trying 50% size. Error: {pil_error}")
+                h_rgb, w_rgb = cv_img_rgb.shape[:2]
+                new_w = int(w_rgb * 0.5)
+                new_h = int(h_rgb * 0.5)
+                cv_img_rgb = cv2.resize(cv_img_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                pil_result = Image.fromarray(cv_img_rgb)
             annotated_pages.append(pil_result)
             
             # Explicitly release memory after each page to prevent accumulation

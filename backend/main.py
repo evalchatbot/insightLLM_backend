@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import BackgroundTasks
 
 from backend.api.routes import assistant, books, chatbot, conversations, ingest, ocr, users, quiz
+from backend.api.routes import ocr_regular
 from backend.utils.rubric_loader import list_subject_rubrics, list_available_subjects
 from backend.api.routes.auth import get_current_user
 from backend.middleware.logging_middleware import setup_api_logging
@@ -57,6 +58,7 @@ app.include_router(conversations.router, dependencies=[Depends(get_current_user)
 app.include_router(books.router, dependencies=[Depends(get_current_user)])
 app.include_router(ingest.router, dependencies=[Depends(get_current_user)])
 app.include_router(ocr.router)  # Removed JWT authentication for Clerk migration
+app.include_router(ocr_regular.router)  # Temporary endpoints using regular files for testing
 app.include_router(quiz.router)
 
 @app.get("/")
