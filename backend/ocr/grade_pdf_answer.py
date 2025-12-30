@@ -2565,10 +2565,6 @@ def build_grok_payload_for_grading(
         "  - question_statement: the exam question as written by the student\n"
         "  - question_expectation: MUST be an array of 3-5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
         "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
-        "  - high_scoring_outline: ALWAYS use title as 'High-Scoring Ideal Outline' and return outline_points you design yourself.\n"
-        "      * Provide 4-6 ordered sections that read like a model answer plan: introduction, body sections for each era/theme, comparative analysis, and a conclusion/way forward.\n"
-        "      * Each outline_points entry must be an object with: heading (section title), summary (2-3 sentences describing what to cover), and key_points (2-4 concise bullets highlighting evidence, theorists, dates, policies, etc.).\n"
-        "      * Summaries and key points must focus on how the student should have answered, not meta commentary.\n"
         "  - overall_comment: 3-5 sentence holistic evaluation.\n"
     )
 
