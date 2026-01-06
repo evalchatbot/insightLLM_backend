@@ -712,7 +712,6 @@ def annotate_pdf_answer_pages(
     sections: List[Dict[str, Any]],
     annotations: List[Dict[str, Any]],
     page_suggestions: Optional[List[Dict[str, Any]]] = None,
-    refined_summary: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Image.Image]:
     """
     Create annotated versions of the answer pages.
@@ -732,7 +731,6 @@ def annotate_pdf_answer_pages(
           → draw a red ✓ near the heading and near the section body region.
     """
     page_suggestions = page_suggestions or []
-    refined_summary = refined_summary or []
     
     # Get PDF file size for memory estimation
     pdf_size_mb = None
@@ -786,10 +784,19 @@ def annotate_pdf_answer_pages(
                 sections_by_id[str(sid)] = sec
 
         print(f"DEBUG: Sections found: {len(sections)}")
-        for idx, sec in enumerate(sections):
-            title = sec.get("title", "Untitled")
-            pages = sec.get("page_numbers", [])
-            print(f"  Section {idx+1}: '{title}' on pages {pages}")
+        if not sections:
+            print("⚠️  WARNING: No sections provided to annotate_pdf_answer_pages!")
+            print("  This will cause headings and section annotations to be missing.")
+        else:
+            for idx, sec in enumerate(sections):
+                title = sec.get("title", "Untitled")
+                pages = sec.get("page_numbers", [])
+                print(f"  Section {idx+1}: '{title}' on pages {pages}")
+                # Validate page_numbers format
+                if pages:
+                    invalid_pages = [p for p in pages if not isinstance(p, (int, float)) and not str(p).isdigit()]
+                    if invalid_pages:
+                        print(f"    WARNING: Section '{title}' has invalid page numbers: {invalid_pages}")
 
         # Drawing constants
         font_face = cv2.FONT_HERSHEY_SIMPLEX
@@ -852,7 +859,8 @@ def annotate_pdf_answer_pages(
             
             orig_h, orig_w, _ = orig_cv.shape
             content_h = orig_h
-            min_page_height = 3500
+            # Reduced min_page_height for answer pages to minimize extra space
+            min_page_height = 2800  # Reduced from 3500
             
             # Explicitly delete pix and img_bytes to free memory immediately
             del pix, img_bytes
@@ -861,12 +869,20 @@ def annotate_pdf_answer_pages(
             left_width = int(0.40 * orig_w)
             right_width = int(0.40 * orig_w)
             new_w = left_width + orig_w + right_width
-            h = max(orig_h, min_page_height)
             margin = int(0.03 * orig_w)
-            y_offset = (h - content_h) // 2
+            # Changed from vertical centering to top-aligned with small margin
+            # This reduces top/bottom space while keeping suggestions/annotations working
+            y_offset = margin  # Changed from (h - content_h) // 2
+            
+            # Ensure canvas height is sufficient: must accommodate y_offset + content_h
+            # For very large pages (like test 5), ensure we have enough space
+            # Calculate required height: margin at top + content height + small bottom margin
+            required_h = y_offset + content_h + margin  # Add bottom margin for safety
+            h = max(orig_h, min_page_height, required_h)  # Ensure h >= required_h
 
             cv_img = np.full((h, new_w, 3), 255, dtype=np.uint8)
-            # Place answer in the center with vertical centering
+            # Place answer at top with small margin
+            # Canvas is guaranteed to be tall enough, so this will always fit
             cv_img[
                 y_offset:y_offset + content_h,
                 left_width:left_width + orig_w,
@@ -1443,7 +1459,11 @@ def annotate_pdf_answer_pages(
                     shifted = shift_rect((x1, y1, x2, y2))
                     cv2.rectangle(cv_img, (shifted[0], shifted[1]), (shifted[2], shifted[3]), RED, box_thickness)
 
-                    header = f"[Introduction] ({rubric_point})".strip()
+                    # PREVIOUS CODE (COMMENTED OUT):
+                    # header = f"[Introduction] ({rubric_point})".strip()
+                    
+                    # NEW: Remove brackets, cleaner format
+                    header = f"Introduction - {rubric_point}".strip()
                     body = comment
                     comment_box, comment_on_right = add_side_comment(header, body)
                     if comment_on_right:
@@ -1480,7 +1500,11 @@ def annotate_pdf_answer_pages(
                     x1, y1, x2, y2 = shifted
                     cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
 
-                    header = f"[Heading Issue] ({rubric_point})".strip()
+                    # PREVIOUS CODE (COMMENTED OUT):
+                    # header = f"[Heading Issue] ({rubric_point})".strip()
+                    
+                    # NEW: Remove brackets, cleaner format
+                    header = f"Heading Issue - {rubric_point}".strip()
                     body = comment
                     if correction:
                         body += f"\nSuggestion: {correction}"
@@ -1516,7 +1540,11 @@ def annotate_pdf_answer_pages(
                     x1, y1, x2, y2 = shifted
                     cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
 
-                    header = f"[Factual Error] ({rubric_point})".strip()
+                    # PREVIOUS CODE (COMMENTED OUT):
+                    # header = f"[Factual Error] ({rubric_point})".strip()
+                    
+                    # NEW: Remove brackets, cleaner format
+                    header = f"Factual Error - {rubric_point}".strip()
                     body = comment
                     if correction:
                         body = f"Correction: {correction}\n{body}"
@@ -1606,10 +1634,41 @@ def annotate_pdf_answer_pages(
                     )
                     found_rects.append(rect)
 
-            # Add heading comments for every section on this page
+            # PREVIOUS CODE (COMMENTED OUT):
+            # # Add heading comments for every section on this page
+            # for sec in sections:
+            #     pages = sec.get("page_numbers") or []
+            #     if page_number not in pages:
+            #         continue
+            
+            # PREVIOUS CODE (COMMENTED OUT):
+            # # Add heading comments for every section on this page
+            # for sec in sections:
+            #     pages = sec.get("page_numbers") or []
+            #     if page_number not in pages:
+            #         continue
+            
+            # NEW: Add heading comments only on the first page of each section
             for sec in sections:
                 pages = sec.get("page_numbers") or []
-                if page_number not in pages:
+                if not pages:
+                    continue
+                # Only show heading on the first page of the section
+                # Safely extract numeric page numbers
+                try:
+                    numeric_pages = [int(p) for p in pages if isinstance(p, (int, float))]
+                    if not numeric_pages:
+                        # Try converting string page numbers
+                        numeric_pages = [int(p) for p in pages if str(p).isdigit()]
+                    if not numeric_pages:
+                        continue  # Skip if no valid page numbers found
+                    first_page = min(numeric_pages)
+                except (ValueError, TypeError) as e:
+                    # If page number extraction fails, skip this section
+                    print(f"WARNING: Failed to extract page numbers for section '{sec.get('title', 'UNKNOWN')}': {e}")
+                    continue
+                
+                if page_number != first_page:
                     continue
 
                 title_text = (sec.get("title") or "").strip()
@@ -1625,7 +1684,11 @@ def annotate_pdf_answer_pages(
                 if not heading_comment:
                     heading_comment = "Heading detected."
 
-                header = f"[Heading] {heading_text}"
+                # PREVIOUS CODE (COMMENTED OUT):
+                # header = f"[Heading] {heading_text}"
+                
+                # NEW: Remove brackets, cleaner format
+                header = f"Heading: {heading_text}"
                 comment_box, comment_on_right = add_side_comment(header, heading_comment)
 
                 heading_bbox = _find_heading_bbox_on_page(exact_heading or heading_text, page_ocr)
@@ -1706,123 +1769,125 @@ def annotate_pdf_answer_pages(
                                     tick_drawn = True
                                     break
 
-            # Add refined rubric summary on the last page (render from BOTTOM UP)
-            if page_number == len(doc) and refined_summary:
-                # Filter to only the 4 required points
-                required_ids = ["argumentation_quality", "presentation", "contemporary_relevance", "length_completeness"]
-                filtered_summary = [item for item in refined_summary if item.get("id") in required_ids]
-
-                # Ensure we have exactly 4 items in the correct order
-                ordered_summary = []
-                for req_id in required_ids:
-                    found = next((item for item in filtered_summary if item.get("id") == req_id), None)
-                    if found:
-                        ordered_summary.append(found)
-
-                if ordered_summary:
-                    # Start from BOTTOM of page and work upward
-                    # Reserve space at bottom for summary annotations
-                    bottom_margin = int(0.07 * h)
-                    left_summary_y = h - bottom_margin
-                    right_summary_y = h - bottom_margin
-
-                    # Render items in REVERSE order (bottom to top)
-                    # Items 0,1 on left; items 2,3 on right
-                    # But we render them backwards so last item appears at bottom
-                    for idx in range(len(ordered_summary) - 1, -1, -1):
-                        item = ordered_summary[idx]
-                        name = item.get("name", "")
-                        rating = (item.get("rating") or "").capitalize()
-                        comment = item.get("comment") or ""
-
-                        # Truncate comment to max 80 characters to keep it concise
-                        if len(comment) > 80:
-                            comment = comment[:77] + "..."
-
-                        header = f"{name} - {rating}"
-
-                        if idx < 2:  # First two on left side
-                            current_x1 = suggestion_x1
-                            current_x2 = suggestion_x2
-                            max_width = suggestion_max_width
-                            current_y_base = left_summary_y
-                        else:  # Last two on right side
-                            current_x1 = comment_x
-                            current_x2 = comment_x2 - 5
-                            max_width = comment_max_width
-                            current_y_base = right_summary_y
-
-                        # Wrap header and comment
-                        header_lines = _wrap_text_cv2(
-                            header, max_width - 20, font_face, font_scale * 0.9, text_thickness
-                        )
-                        comment_lines = _wrap_text_cv2(
-                            comment, max_width - 20, font_face, font_scale * 0.8, text_thickness
-                        )
-
-                        # Calculate total height needed for this box
-                        total_lines = len(header_lines) + len(comment_lines)
-                        box_height = int(total_lines * line_height * 1.0 + line_height * 1.5)
-
-                        # Calculate box position (from bottom up)
-                        box_end_y = current_y_base
-                        box_start_y = max(margin, box_end_y - box_height)  # Don't go above top margin
-
-                        # Skip this item if there's no space
-                        if box_start_y >= box_end_y - int(line_height * 2):
-                            continue
-
-                        # Draw red box with safe coordinates
-                        summary_box = (current_x1 - 5, box_start_y, current_x2 + 5, box_end_y)
-                        cv2.rectangle(
-                            cv_img,
-                            (summary_box[0], summary_box[1]),
-                            (summary_box[2], summary_box[3]),
-                            RED,
-                            3,  # Box thickness
-                        )
-                        
-                        # Add refined rubric summary box to collision detection list
-                        comment_boxes.append(summary_box)
-
-                        # Draw text from top of box, working down
-                        text_y = box_start_y + int(line_height * 1.2)
-
-                        # Draw header
-                        for line in header_lines:
-                            if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
-                                cv2.putText(
-                                    cv_img,
-                                    line,
-                                    (current_x1, text_y),
-                                    font_face,
-                                    font_scale * 0.9,
-                                    RED,
-                                    text_thickness,
-                                    cv2.LINE_AA,
-                                )
-                                text_y += int(line_height * 1.0)
-
-                        # Draw comment
-                        for line in comment_lines:
-                            if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
-                                cv2.putText(
-                                    cv_img,
-                                    line,
-                                    (current_x1, text_y),
-                                    font_face,
-                                    font_scale * 0.8,
-                                    RED,
-                                    text_thickness,
-                                    cv2.LINE_AA,
-                                )
-                                text_y += int(line_height * 0.9)
-
-                        # Update Y position for next item (move UP from current position)
-                        if idx < 2:
-                            left_summary_y = box_start_y - int(line_height * 1.0)
-                        else:
-                            right_summary_y = box_start_y - int(line_height * 1.0)
+            # PREVIOUS CODE (COMMENTED OUT):
+            # # Add refined rubric summary on the last page (render from BOTTOM UP)
+            # # This has been moved to the subject report pages instead
+            # if page_number == len(doc) and refined_summary:
+            #     # Filter to only the 4 required points
+            #     required_ids = ["argumentation_quality", "presentation", "contemporary_relevance", "length_completeness"]
+            #     filtered_summary = [item for item in refined_summary if item.get("id") in required_ids]
+            #
+            #     # Ensure we have exactly 4 items in the correct order
+            #     ordered_summary = []
+            #     for req_id in required_ids:
+            #         found = next((item for item in filtered_summary if item.get("id") == req_id), None)
+            #         if found:
+            #             ordered_summary.append(found)
+            #
+            #     if ordered_summary:
+            #         # Start from BOTTOM of page and work upward
+            #         # Reserve space at bottom for summary annotations
+            #         bottom_margin = int(0.07 * h)
+            #         left_summary_y = h - bottom_margin
+            #         right_summary_y = h - bottom_margin
+            #
+            #         # Render items in REVERSE order (bottom to top)
+            #         # Items 0,1 on left; items 2,3 on right
+            #         # But we render them backwards so last item appears at bottom
+            #         for idx in range(len(ordered_summary) - 1, -1, -1):
+            #             item = ordered_summary[idx]
+            #             name = item.get("name", "")
+            #             rating = (item.get("rating") or "").capitalize()
+            #             comment = item.get("comment") or ""
+            #
+            #             # Truncate comment to max 80 characters to keep it concise
+            #             if len(comment) > 80:
+            #                 comment = comment[:77] + "..."
+            #
+            #             header = f"{name} - {rating}"
+            #
+            #             if idx < 2:  # First two on left side
+            #                 current_x1 = suggestion_x1
+            #                 current_x2 = suggestion_x2
+            #                 max_width = suggestion_max_width
+            #                 current_y_base = left_summary_y
+            #             else:  # Last two on right side
+            #                 current_x1 = comment_x
+            #                 current_x2 = comment_x2 - 5
+            #                 max_width = comment_max_width
+            #                 current_y_base = right_summary_y
+            #
+            #             # Wrap header and comment
+            #             header_lines = _wrap_text_cv2(
+            #                 header, max_width - 20, font_face, font_scale * 0.9, text_thickness
+            #             )
+            #             comment_lines = _wrap_text_cv2(
+            #                 comment, max_width - 20, font_face, font_scale * 0.8, text_thickness
+            #             )
+            #
+            #             # Calculate total height needed for this box
+            #             total_lines = len(header_lines) + len(comment_lines)
+            #             box_height = int(total_lines * line_height * 1.0 + line_height * 1.5)
+            #
+            #             # Calculate box position (from bottom up)
+            #             box_end_y = current_y_base
+            #             box_start_y = max(margin, box_end_y - box_height)  # Don't go above top margin
+            #
+            #             # Skip this item if there's no space
+            #             if box_start_y >= box_end_y - int(line_height * 2):
+            #                 continue
+            #
+            #             # Draw red box with safe coordinates
+            #             summary_box = (current_x1 - 5, box_start_y, current_x2 + 5, box_end_y)
+            #             cv2.rectangle(
+            #                 cv_img,
+            #                 (summary_box[0], summary_box[1]),
+            #                 (summary_box[2], summary_box[3]),
+            #                 RED,
+            #                 3,  # Box thickness
+            #             )
+            #             
+            #             # Add refined rubric summary box to collision detection list
+            #             comment_boxes.append(summary_box)
+            #
+            #             # Draw text from top of box, working down
+            #             text_y = box_start_y + int(line_height * 1.2)
+            #
+            #             # Draw header
+            #             for line in header_lines:
+            #                 if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
+            #                     cv2.putText(
+            #                         cv_img,
+            #                         line,
+            #                         (current_x1, text_y),
+            #                         font_face,
+            #                         font_scale * 0.9,
+            #                         RED,
+            #                         text_thickness,
+            #                         cv2.LINE_AA,
+            #                     )
+            #                     text_y += int(line_height * 1.0)
+            #
+            #             # Draw comment
+            #             for line in comment_lines:
+            #                 if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
+            #                     cv2.putText(
+            #                         cv_img,
+            #                         line,
+            #                         (current_x1, text_y),
+            #                         font_face,
+            #                         font_scale * 0.8,
+            #                         RED,
+            #                         text_thickness,
+            #                         cv2.LINE_AA,
+            #                     )
+            #                     text_y += int(line_height * 0.9)
+            #
+            #             # Update Y position for next item (move UP from current position)
+            #             if idx < 2:
+            #                 left_summary_y = box_start_y - int(line_height * 1.0)
+            #             else:
+            #                 right_summary_y = box_start_y - int(line_height * 1.0)
 
             # Check if image is too large BEFORE color conversion to prevent MemoryError
             # Large images can cause MemoryError when converting colors or to PIL Image

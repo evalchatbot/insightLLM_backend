@@ -26,6 +26,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Test and coverage
 htmlcov/

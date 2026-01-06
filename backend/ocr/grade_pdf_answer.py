@@ -58,9 +58,11 @@ except ImportError:
 def debug_dump_sections(
     sections: List[Dict[str, Any]],
     output_path: str = "debug_sections.json",
+    log_path: Optional[str] = None,
 ) -> None:
     """
     Save detected headings/sections to a JSON file and print a clean summary.
+    Also logs to a text file in the logs folder.
 
     Each section includes:
       - title
@@ -82,22 +84,78 @@ def debug_dump_sections(
             }
         )
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(light_sections, f, ensure_ascii=False, indent=2)
-
-    print("\n==== DETECTED HEADINGS / SECTIONS (from Grok) ====")
-    for sec in light_sections:
-        comment_display = f" | Comment: {sec['comment']}" if sec.get('comment') else ""
-        print(
-            f"[{sec['index']}] "
-            f"Title: {sec['title']!r} | "
-            f"exact_ocr_heading: {sec['exact_ocr_heading']!r} | "
-            f"Level: {sec['level']} | "
-            f"Pages: {sec['page_numbers']}"
-            f"{comment_display}"
-        )
-    print(f"Saved detailed section info to {output_path}")
-    print("=================================================\n")
+    # Always save, even if empty (for debugging purposes)
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(light_sections, f, ensure_ascii=False, indent=2)
+        
+        # Format output for terminal
+        output_lines = []
+        output_lines.append("\n" + "=" * 70)
+        output_lines.append("DETECTED HEADINGS / SECTIONS (from Grok)")
+        output_lines.append("=" * 70)
+        
+        if not light_sections:
+            output_lines.append("⚠️  WARNING: No sections detected! This may cause issues with report generation.")
+        else:
+            output_lines.append(f"\nTotal sections detected: {len(light_sections)}\n")
+            for sec in light_sections:
+                output_lines.append(f"Section {sec['index'] + 1}:")
+                output_lines.append(f"  Title: {sec['title']}")
+                output_lines.append(f"  Exact OCR Heading: {sec['exact_ocr_heading']}")
+                output_lines.append(f"  Level: {sec['level']} {'(Main)' if sec['level'] == 1 else '(Sub)'}")
+                output_lines.append(f"  Pages: {sec['page_numbers']}")
+                if sec.get('comment'):
+                    comment = sec['comment']
+                    # Truncate long comments for display
+                    if len(comment) > 150:
+                        comment = comment[:150] + "..."
+                    output_lines.append(f"  Comment: {comment}")
+                if sec.get('content_preview'):
+                    preview = sec['content_preview']
+                    if len(preview) > 100:
+                        preview = preview[:100] + "..."
+                    output_lines.append(f"  Content Preview: {preview}")
+                output_lines.append("")
+        
+        output_lines.append("=" * 70 + "\n")
+        
+        # Print to terminal
+        for line in output_lines:
+            print(line)
+        
+        # Write to log file if log_path is provided
+        if log_path:
+            try:
+                log_dir = os.path.dirname(log_path) if log_path else None
+                if log_dir:
+                    sections_log_path = os.path.join(log_dir, "sections_log.txt")
+                    # Use datetime.datetime.now() since datetime is imported as a module
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    with open(sections_log_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n{'='*70}\n")
+                        f.write(f"Section Detection Log - {timestamp}\n")
+                        f.write(f"{'='*70}\n")
+                        f.write(f"Total sections: {len(light_sections)}\n")
+                        f.write(f"JSON saved to: {output_path}\n\n")
+                        for line in output_lines:
+                            f.write(line + "\n")
+                        f.write(f"\n{'='*70}\n\n")
+            except Exception as log_err:
+                print(f"WARNING: Failed to write to sections log: {log_err}")
+        
+    except Exception as e:
+        error_msg = f"ERROR: Failed to save debug sections to {output_path}: {e}\n  Sections count: {len(light_sections)}"
+        print(error_msg)
+        if log_path:
+            try:
+                log_dir = os.path.dirname(log_path) if log_path else None
+                if log_dir:
+                    sections_log_path = os.path.join(log_dir, "sections_log.txt")
+                    with open(sections_log_path, "a", encoding="utf-8") as f:
+                        f.write(f"{error_msg}\n")
+            except Exception:
+                pass
 
 
 def _append_log(log_path: Optional[str], level: str, message: str) -> None:
@@ -219,8 +277,7 @@ def validate_refined_summary(summary_list: List[Dict[str, Any]]) -> bool:
     """Validate refined_rubric_summary schema."""
     REQUIRED_KEYS = ["id", "name", "rating", "comment"]
     VALID_RATINGS = {"weak", "average", "good", "excellent"}
-    VALID_IDS = {"argumentation_quality", "presentation",
-                 "contemporary_relevance", "length_completeness"}
+    VALID_IDS = {"length_completeness"}  # Only Length & Completeness is required now
 
     for idx, item in enumerate(summary_list):
         # Check required keys
@@ -480,7 +537,7 @@ def get_report_page_size(
     pdf_path: str,
     dpi: int = 200,
     margin_ratio: float = 0.40,
-    min_height: int = 3500,
+    min_height: int = 3000,
     max_width: int = 6000,
     max_height: int = 12000,
     max_pixels: int = 50000000,  # ~50MP limit (e.g., 5000x10000)
@@ -2266,21 +2323,90 @@ def call_grok_for_section_detection(
             "   - Set title to 'Introduction' for implicit introductions\n"
             "   - For 'exact_ocr_heading': copy the EXACT OCR text of the heading line (or first line if implicit)\n"
             "   - This MUST be the first section in your output\n\n"
-            "2) BODY SECTIONS (IDENTIFY ALL MAJOR HEADINGS):\n"
-            "   - Examine the page images carefully for ALL headings between Introduction and Conclusion\n"
-            "   - Look for these VISUAL CUES in the images:\n"
-            "     • Larger or bolder handwriting\n"
-            "     • Underlined words or phrases\n"
+            # PREVIOUS CODE (COMMENTED OUT):
+            # "2) BODY SECTIONS (IDENTIFY ALL MAJOR HEADINGS):\n"
+            # "   - Examine the page images carefully for ALL headings between Introduction and Conclusion\n"
+            # "   - Look for these VISUAL CUES in the images:\n"
+            # "     • Larger or bolder handwriting\n"
+            # "     • Underlined words or phrases\n"
+            # "     • Extra spacing above and/or below text\n"
+            # "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c)\n"
+            # "     • Short phrases at the start of a line that label the content below\n"
+            # "   - For each heading found:\n"
+            # "     • Create a section with that heading as the title\n"
+            # "     • Set 'level' = 1 for main topics, 'level' = 2 for subtopics under the previous main heading\n"
+            # "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
+            # "     • Include ALL page numbers where this section's content appears\n"
+            # "   - DO NOT skip headings - find ALL of them\n"
+            # "   - DO NOT invent headings that don't exist visually\n\n"
+            
+            # PREVIOUS CODE (COMMENTED OUT):
+            # "2) BODY SECTIONS (BALANCED APPROACH - CRITICAL RULES):\n"
+            # "   - Identify ONLY MAJOR headings that clearly separate distinct topics or arguments\n"
+            # "   - Look for these STRONG VISUAL CUES in the images:\n"
+            # "     • Clearly larger or bolder handwriting (significantly different from body text)\n"
+            # "     • Underlined words or phrases (full underline, not partial)\n"
+            # "     • Extra spacing above AND below text (clear visual separation)\n"
+            # "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c) - ONLY if clearly marking major sections\n"
+            # "     • Short phrases at the start of a line that label a substantial content block below (3+ sentences)\n"
+            # "   - IGNORE these weak indicators (DO NOT create sections for these):\n"
+            # "     • Minor formatting variations (slightly larger text)\n"
+            # "     • Single underlined words within paragraphs\n"
+            # "     • Bullet points or list items (unless they are clearly section headers)\n"
+            # "     • Short phrases that are part of a sentence, not standalone headings\n"
+            # "     • Repeated similar headings (if you see 'Introduction' twice, use only the first)\n"
+            # "   - For each heading found:\n"
+            # "     • Create a section with that heading as the title\n"
+            # "     • Set 'level' = 1 for main topics, 'level' = 2 ONLY for clear subtopics under a main heading\n"
+            # "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
+            # "     • Include ALL page numbers where this section's content appears\n"
+            # "   - AVOID REPETITION:\n"
+            # "     • If you see similar headings (e.g., 'Introduction' and 'Intro', or 'Conclusion' and 'Concluding'), use only ONE\n"
+            # "     • If headings are nearly identical (differ only by minor words), merge them into one section\n"
+            # "     • Check if a heading you're about to add is too similar to an existing one - if so, skip it\n"
+            # "   - TYPICAL EXPECTED RANGE:\n"
+            # "     • For a 3-5 page answer: Expect 3-6 body sections (excluding intro/conclusion)\n"
+            # "     • For a 6-10 page answer: Expect 4-8 body sections\n"
+            # "     • If you find more than 10 sections total, you are likely over-segmenting - reconsider\n"
+            # "   - If NO clear headings exist between intro and conclusion:\n"
+            # "     • Create ONE body section titled 'Main Body' or 'Body' with all content\n"
+            # "     • Do NOT force micro-sections where none exist visually\n\n"
+            
+            "2) BODY SECTIONS (THOROUGH BUT NON-REPETITIVE DETECTION):\n"
+            "   - Be THOROUGH: Identify ALL headings that mark distinct topics or arguments\n"
+            "   - Look for these VISUAL CUES in the images (be comprehensive):\n"
+            "     • Larger or bolder handwriting (even moderately larger counts)\n"
+            "     • Underlined words or phrases (full or partial underlines)\n"
             "     • Extra spacing above and/or below text\n"
             "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c)\n"
-            "     • Short phrases at the start of a line that label the content below\n"
+            "     • Short phrases at the start of a line that label content below (even 2+ sentences)\n"
+            "     • Words written in ALL CAPS or with emphasis\n"
+            "     • Headings that appear centered or indented differently\n"
             "   - For each heading found:\n"
             "     • Create a section with that heading as the title\n"
             "     • Set 'level' = 1 for main topics, 'level' = 2 for subtopics under the previous main heading\n"
             "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
             "     • Include ALL page numbers where this section's content appears\n"
-            "   - DO NOT skip headings - find ALL of them\n"
-            "   - DO NOT invent headings that don't exist visually\n\n"
+            "   - CRITICAL: AVOID DUPLICATES:\n"
+            "     • Before adding a new section, check ALL existing sections\n"
+            "     • If a heading is IDENTICAL (exact same text) to an existing one, SKIP it\n"
+            "     • If headings are VERY SIMILAR (differ only by 1-2 words, same core meaning), use only the FIRST occurrence\n"
+            "     • Examples of duplicates to skip:\n"
+            "       - 'Introduction' appears twice → use only first\n"
+            "       - 'Montesquieu Theory' and 'Montesquieu's Theory' → use only first\n"
+            "       - 'Separation of Powers' and 'Separation of Power' → use only first\n"
+            "     • If headings are DISTINCT (different topics), include BOTH even if they share some words\n"
+            "     • Example of distinct headings (include both):\n"
+            "       - 'Political Context' and 'Economic Context' → both are valid\n"
+            "       - 'Montesquieu's Theory' and 'Locke's Theory' → both are valid\n"
+            "   - EXPECTED RANGE (guidelines, not strict limits):\n"
+            "     • For a 3-5 page answer: Expect 4-8 body sections (excluding intro/conclusion)\n"
+            "     • For a 6-10 page answer: Expect 6-12 body sections\n"
+            "     • If you find fewer than 3 body sections, you may be missing headings - look more carefully\n"
+            "     • If you find more than 15 sections total, reconsider if some are too minor\n"
+            "   - If NO clear headings exist between intro and conclusion:\n"
+            "     • Create ONE body section titled 'Main Body' or 'Body' with all content\n"
+            "     • Do NOT force micro-sections where none exist visually\n\n"
             "3) CONCLUSION (REQUIRED - MUST BE LAST):\n"
             "   - If there is an explicit heading like 'Conclusion' or 'In conclusion', use that text\n"
             "   - If no such heading, identify the final paragraph(s) that summarize/wrap up the answer\n"
@@ -2321,11 +2447,29 @@ def call_grok_for_section_detection(
             "  • 'content_text': string summary\n"
             "  • 'comment': quality evaluation starting with POSITIVE or NEGATIVE (or empty for intro/conclusion)\n"
             "- NO extra fields, NO top-level keys besides 'sections'\n\n"
-            "CONSISTENCY:\n"
+            # PREVIOUS CODE (COMMENTED OUT):
+            # "CONSISTENCY:\n"
+            # "- For the same input, produce consistent segmentation\n"
+            # "- Avoid random or arbitrary splits\n"
+            # "- Prefer fewer, well-justified sections over many uncertain micro-sections\n"
+            # "- Be thorough but not excessive\n"
+            
+            # PREVIOUS CODE (COMMENTED OUT):
+            # "CONSISTENCY AND QUALITY:\n"
+            # "- For the same input, produce consistent segmentation\n"
+            # "- Avoid random or arbitrary splits\n"
+            # "- BALANCE: Be thorough but not excessive - prefer fewer well-justified sections over many uncertain micro-sections\n"
+            # "- QUALITY OVER QUANTITY: It is better to have 3-5 clear sections than 10+ unclear ones\n"
+            # "- If uncertain whether something is a heading, err on the side of NOT creating a separate section\n"
+            
+            "CONSISTENCY AND QUALITY:\n"
             "- For the same input, produce consistent segmentation\n"
             "- Avoid random or arbitrary splits\n"
-            "- Prefer fewer, well-justified sections over many uncertain micro-sections\n"
-            "- Be thorough but not excessive\n"
+            "- BALANCE: Be thorough in finding headings - it's better to detect more headings than miss important ones\n"
+            "- QUALITY: Each heading should mark a distinct topic or argument\n"
+            "- DEDUPLICATION: Avoid exact duplicates and very similar headings (same core meaning)\n"
+            "- If uncertain whether something is a heading, err on the side of INCLUDING it (you can always merge later)\n"
+            "- However, if headings are clearly duplicates (same text or very similar meaning), use only the first occurrence\n"
         ),
     }
 
@@ -2466,8 +2610,124 @@ def call_grok_for_section_detection(
     # If we get here, parsing succeeded
 
     raw_sections = parsed.get("sections", []) or []
+    
+    # Log raw sections before deduplication
+    print(f"DEBUG: Raw sections from Grok: {len(raw_sections)}")
+    if raw_sections:
+        for idx, sec in enumerate(raw_sections):
+            print(f"  Raw[{idx}]: '{sec.get('title', 'NO TITLE')}' on pages {sec.get('page_numbers', [])}")
 
+    # PREVIOUS CODE (COMMENTED OUT):
+    # sections: List[Dict[str, Any]] = []
+    # for sec in raw_sections:
+    #     title = (sec.get("title") or "UNSPECIFIED").strip()
+    #     exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
+    #     level = sec.get("level") or 1
+    #     pages = sec.get("page_numbers") or []
+    #     content_text = sec.get("content_text") or sec.get("content") or ""
+    #     comment = (sec.get("comment") or "").strip()
+    #
+    #     sections.append(
+    #         {
+    #             "title": title,
+    #             "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
+    #             "level": int(level) if isinstance(level, (int, float)) else 1,
+    #             "page_numbers": sorted(
+    #                 set(int(p) for p in pages if isinstance(p, (int, float)))
+    #             ),
+    #             "content": content_text,
+    #             "comment": comment,  # Quality evaluation of heading
+    #             "line_indices": [],  # not used downstream, kept for compatibility
+    #         }
+    #     )
+    #
+    # return sections, token_usage
+
+    # NEW: Add deduplication logic to prevent repeated headings
     sections: List[Dict[str, Any]] = []
+    seen_titles: Set[str] = set()  # Track titles to prevent duplicates
+    seen_exact_headings: Set[str] = set()  # Track exact OCR headings
+    
+    def normalize_for_comparison(text: str) -> str:
+        """Normalize text for duplicate detection."""
+        if not text:
+            return ""
+        # Lowercase, remove extra spaces, remove common variations
+        normalized = text.lower().strip()
+        # Remove common prefixes/suffixes that don't change meaning
+        normalized = re.sub(r"^(the|a|an)\s+", "", normalized)
+        normalized = re.sub(r"'s$", "", normalized)  # "Montesquieu's" vs "Montesquieu"
+        normalized = re.sub(r"\s+", " ", normalized)  # Normalize whitespace
+        return normalized
+    
+    # PREVIOUS CODE (COMMENTED OUT):
+    # for sec in raw_sections:
+    #     title = (sec.get("title") or "UNSPECIFIED").strip()
+    #     exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
+    #     level = sec.get("level") or 1
+    #     pages = sec.get("page_numbers") or []
+    #     content_text = sec.get("content_text") or sec.get("content") or ""
+    #     comment = (sec.get("comment") or "").strip()
+    #
+    #     # Skip Introduction/Conclusion duplicates (always keep first)
+    #     title_lower = title.lower().strip()
+    #     if title_lower in ("introduction", "conclusion"):
+    #         if title_lower in seen_titles:
+    #             print(f"WARNING: Skipping duplicate {title_lower} section")
+    #             continue
+    #         seen_titles.add(title_lower)
+    #     
+    #     # Check for duplicate titles (normalized comparison)
+    #     title_normalized = normalize_for_comparison(title)
+    #     if title_normalized in seen_titles:
+    #         print(f"WARNING: Skipping duplicate heading (normalized): '{title}' (already seen)")
+    #         continue
+    #     
+    #     # Check for duplicate exact OCR headings (exact match)
+    #     exact_normalized = normalize_for_comparison(exact_ocr_heading)
+    #     if exact_normalized in seen_exact_headings and exact_normalized:
+    #         print(f"WARNING: Skipping duplicate exact OCR heading: '{exact_ocr_heading}'")
+    #         continue
+    #     
+    #     # Check for very similar headings (fuzzy match)
+    #     is_duplicate = False
+    #     for seen_title in seen_titles:
+    #         seen_normalized = normalize_for_comparison(seen_title)
+    #         if title_normalized and seen_normalized:
+    #             # If normalized versions are very similar (differ by 1-2 words), skip
+    #             title_words = set(title_normalized.split())
+    #             seen_words = set(seen_normalized.split())
+    #             if len(title_words) > 0 and len(seen_words) > 0:
+    #                 overlap_ratio = len(title_words & seen_words) / max(len(title_words), len(seen_words))
+    #                 # If 80%+ overlap and both are short (likely duplicates), skip
+    #                 if overlap_ratio >= 0.8 and len(title_words) <= 5 and len(seen_words) <= 5:
+    #                     print(f"WARNING: Skipping very similar heading: '{title}' (similar to '{seen_title}')")
+    #                     is_duplicate = True
+    #                     break
+    #     
+    #     if is_duplicate:
+    #         continue
+    #
+    #     # Add to seen sets
+    #     seen_titles.add(title_normalized)
+    #     if exact_normalized:
+    #         seen_exact_headings.add(exact_normalized)
+    #
+    #     sections.append(
+    #         {
+    #             "title": title,
+    #             "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
+    #             "level": int(level) if isinstance(level, (int, float)) else 1,
+    #             "page_numbers": sorted(
+    #                 set(int(p) for p in pages if isinstance(p, (int, float)))
+    #             ),
+    #             "content": content_text,
+    #             "comment": comment,  # Quality evaluation of heading
+    #             "line_indices": [],  # not used downstream, kept for compatibility
+    #         }
+    #     )
+    
+    # NEW: Enhanced deduplication with cross-page duplicate detection
     for sec in raw_sections:
         title = (sec.get("title") or "UNSPECIFIED").strip()
         exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
@@ -2475,6 +2735,87 @@ def call_grok_for_section_detection(
         pages = sec.get("page_numbers") or []
         content_text = sec.get("content_text") or sec.get("content") or ""
         comment = (sec.get("comment") or "").strip()
+
+        # Normalize for comparison
+        title_normalized = normalize_for_comparison(title)
+        exact_normalized = normalize_for_comparison(exact_ocr_heading)
+        
+        # Skip Introduction/Conclusion duplicates (always keep first)
+        # Use normalized version for consistency
+        title_lower = title.lower().strip()
+        if title_lower in ("introduction", "conclusion"):
+            # Check both normalized and lowercase to catch all variations
+            if title_normalized in seen_titles or title_lower in seen_titles:
+                print(f"WARNING: Skipping duplicate {title_lower} section")
+                continue
+            # Add both normalized and lowercase for intro/conclusion
+            seen_titles.add(title_normalized)
+            seen_titles.add(title_lower)
+        
+        # Check for cross-page duplicates: if a previous section ends on page N and this one starts on N+1 with same heading
+        is_cross_page_duplicate = False
+        if pages:
+            current_first_page = min(int(p) for p in pages if isinstance(p, (int, float)))
+            for existing_sec in sections:
+                existing_pages = existing_sec.get("page_numbers", [])
+                if not existing_pages:
+                    continue
+                existing_last_page = max(int(p) for p in existing_pages if isinstance(p, (int, float)))
+                
+                # Check if this section starts right after an existing section ends
+                if current_first_page == existing_last_page + 1:
+                    existing_title = existing_sec.get("title", "").strip()
+                    existing_title_normalized = normalize_for_comparison(existing_title)
+                    
+                    # If headings match (normalized), merge them
+                    if title_normalized == existing_title_normalized and title_normalized:
+                        print(f"WARNING: Merging cross-page duplicate heading '{title}' (page {existing_last_page} -> {current_first_page})")
+                        # Merge: update existing section's page_numbers to include new pages
+                        merged_pages = sorted(set(existing_pages + pages))
+                        existing_sec["page_numbers"] = merged_pages
+                        # Merge content if needed (keep longer or combine)
+                        existing_content = existing_sec.get("content", "")
+                        if len(content_text) > len(existing_content):
+                            existing_sec["content"] = content_text
+                        is_cross_page_duplicate = True
+                        break
+        
+        if is_cross_page_duplicate:
+            continue
+        
+        # Check for duplicate titles (normalized comparison)
+        if title_normalized in seen_titles:
+            print(f"WARNING: Skipping duplicate heading (normalized): '{title}' (already seen)")
+            continue
+        
+        # Check for duplicate exact OCR headings (exact match)
+        if exact_normalized in seen_exact_headings and exact_normalized:
+            print(f"WARNING: Skipping duplicate exact OCR heading: '{exact_ocr_heading}'")
+            continue
+        
+        # Check for very similar headings (fuzzy match)
+        is_duplicate = False
+        for seen_title in seen_titles:
+            seen_normalized = normalize_for_comparison(seen_title)
+            if title_normalized and seen_normalized:
+                # If normalized versions are very similar (differ by 1-2 words), skip
+                title_words = set(title_normalized.split())
+                seen_words = set(seen_normalized.split())
+                if len(title_words) > 0 and len(seen_words) > 0:
+                    overlap_ratio = len(title_words & seen_words) / max(len(title_words), len(seen_words))
+                    # If 80%+ overlap and both are short (likely duplicates), skip
+                    if overlap_ratio >= 0.8 and len(title_words) <= 5 and len(seen_words) <= 5:
+                        print(f"WARNING: Skipping very similar heading: '{title}' (similar to '{seen_title}')")
+                        is_duplicate = True
+                        break
+        
+        if is_duplicate:
+            continue
+
+        # Add to seen sets
+        seen_titles.add(title_normalized)
+        if exact_normalized:
+            seen_exact_headings.add(exact_normalized)
 
         sections.append(
             {
@@ -2490,6 +2831,14 @@ def call_grok_for_section_detection(
             }
         )
 
+    print(f"Detected {len(sections)} sections after deduplication (from {len(raw_sections)} raw sections)")
+    if len(sections) == 0 and len(raw_sections) > 0:
+        print(f"⚠️  WARNING: All {len(raw_sections)} raw sections were filtered out during deduplication!")
+        print("  This may indicate the deduplication logic is too aggressive.")
+        print("  Raw sections that were filtered:")
+        for idx, sec in enumerate(raw_sections):
+            print(f"    [{idx}] '{sec.get('title', 'NO TITLE')}' on pages {sec.get('page_numbers', [])}")
+    
     return sections, token_usage
 
 
@@ -2551,21 +2900,77 @@ def build_grok_payload_for_grading(
         "overall_comment": "",
     }
 
+    # NOTE: Previous, less-strict instructions kept for reference:
+    # previous_instructions = (
+    #     "You are an experienced strict CSS examiner. "
+    #     "Using ONLY the provided subject-wise rubric text, you must grade the student's answer with STRICT marking. "
+    #     "IMPORTANT: Maximum marks awarded should NOT exceed 14 out of 20. "
+    #     "Average/acceptable answers should score LESS than 10 marks. "
+    #     "Only exceptional answers should approach 14 marks. "
+    #     "Derive criteria and marks from the rubric text. Return STRICT JSON.\n\n"
+    #     "Required fields:\n"
+    #     "  - subject\n"
+    #     "  - max_marks: always 20\n"
+    #     "  - total_marks_awarded (cap at 14 maximum)\n"
+    #     "  - question_statement: the exam question as written by the student\n"
+    #     "  - question_expectation: MUST be an array of 3-5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
+    #     "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
+    #     "  - overall_comment: 3-5 sentence holistic evaluation.\n"
+    # )
+
+    # NEW: Stricter marking + hard consistency requirement between criteria sum and total_marks_awarded.
     instructions = (
         "You are an experienced strict CSS examiner. "
-        "Using ONLY the provided subject-wise rubric text, you must grade the student's answer with STRICT marking. "
-        "IMPORTANT: Maximum marks awarded should NOT exceed 14 out of 20. "
-        "Average/acceptable answers should score LESS than 10 marks. "
-        "Only exceptional answers should approach 14 marks. "
-        "Derive criteria and marks from the rubric text. Return STRICT JSON.\n\n"
+        "Using ONLY the provided subject-wise rubric text, you must grade the student's answer with STRICT but FAIR marking.\n\n"
+        "CRITICAL MARKING RULES (MUST FOLLOW):\n"
+        "1. Maximum marks awarded: 14 out of 20 (HARD CAP - NEVER EXCEED)\n"
+        "2. Average/acceptable answers: Score LESS than 10 marks (typically 6–9 marks)\n"
+        "   - Most answers fall into this category\n"
+        "   - If answer covers basics but has gaps, weaknesses, or lacks depth: 6-9 marks\n"
+        "3. Only exceptional answers: Approach 14 marks (typically 12–14 marks)\n"
+        "   - ONLY give 12-14 marks if answer is comprehensive, accurate, well-analyzed, AND has minimal weaknesses\n"
+        "   - If answer has significant weaknesses or gaps: DO NOT give 12-14 marks\n"
+        "   - Default to lower marks (6-9) unless answer is truly exceptional\n"
+        "4. Weak answers: Score 5 marks or less\n"
+        "   - Major gaps, incorrect information, or minimal coverage\n"
+        "5. STRICT CONSISTENCY REQUIREMENT: The sum of all criteria[i].awarded MUST EXACTLY EQUAL total_marks_awarded\n"
+        "   - Calculate: total_marks_awarded = sum of all criteria[i].awarded\n"
+        "   - If the sum exceeds 14, proportionally reduce each criterion's awarded marks until the sum is 14\n"
+        "   - Example: If criteria sum to 16, multiply each by (14/16) and round appropriately\n"
+        "   - NEVER return a total_marks_awarded that differs from the sum of criteria marks\n\n"
+        "FAIR MARKING DECISION PROCESS:\n"
+        "Step 1: Identify ALL weaknesses and gaps in the answer (be thorough)\n"
+        "Step 2: Identify ALL strengths and good points (be fair)\n"
+        "Step 3: If weaknesses exist, start with marks in the 6-9 range (average)\n"
+        "Step 4: Only increase marks if answer is truly exceptional:\n"
+        "   - Comprehensive coverage of all key points\n"
+        "   - Accurate information with minimal errors\n"
+        "   - Well-analyzed with depth and critical thinking\n"
+        "   - Minimal weaknesses (weaknesses should be minor, not significant)\n"
+        "Step 5: Be fair - if strengths significantly outweigh weaknesses, award higher marks\n"
+        "Step 6: Be strict - if weaknesses are significant, do NOT award 12-14 marks\n"
+        "Step 7: Default to conservative marking - it's better to give 8 marks than 14 marks unless truly exceptional\n\n"
+        "STRICT MARKING GUIDELINES:\n"
+        "- Award marks conservatively – partial credit should be rare\n"
+        "- If content is partially correct but incomplete: award roughly 30–50% of max marks for that criterion\n"
+        "- If content is incorrect or missing: award 0 marks for that criterion\n"
+        "- If content is correct but lacks depth/analysis: award roughly 50–70% of max marks\n"
+        "- Only award 80–100% of max marks if content is comprehensive, accurate, and well-analyzed\n"
+        "- Derive criteria and marks from the rubric text – do not invent new criteria\n"
+        "- IMPORTANT: For each criterion, list both strengths AND weaknesses honestly\n"
+        "  * If you identify weaknesses, ensure marks reflect those weaknesses (lower marks)\n"
+        "  * If strengths significantly outweigh weaknesses, award higher marks fairly\n\n"
         "Required fields:\n"
         "  - subject\n"
         "  - max_marks: always 20\n"
-        "  - total_marks_awarded (cap at 14 maximum)\n"
+        "  - total_marks_awarded: MUST equal sum of all criteria[i].awarded, capped at 14 maximum\n"
         "  - question_statement: the exam question as written by the student\n"
-        "  - question_expectation: MUST be an array of 3-5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
+        "  - question_expectation: MUST be an array of 3–5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
         "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
-        "  - overall_comment: 3-5 sentence holistic evaluation.\n"
+        "    * IMPORTANT: After assigning awarded marks to each criterion, verify that sum(criteria[i].awarded) == total_marks_awarded <= 14\n"
+        "    * CRITICAL: Be honest about weaknesses - if weaknesses exist, marks should reflect them\n"
+        "    * FAIR: If strengths significantly outweigh weaknesses, award marks fairly\n"
+        "  - overall_comment: 3–5 sentence holistic evaluation.\n"
     )
 
     content_payload = {
@@ -2716,6 +3121,86 @@ def call_grok_for_grading(
                 ) from exc
 
     raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
+
+
+def validate_and_adjust_grading_result(grading_result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Post-process grading result to enforce strict marking guidelines while maintaining fairness.
+    Only adjusts marks when there's a clear mismatch between weaknesses and awarded marks.
+    """
+    total = grading_result.get("total_marks_awarded", 0)
+    criteria = grading_result.get("criteria", [])
+    
+    if not criteria:
+        return grading_result
+    
+    # Calculate sum of criteria marks
+    criteria_sum = sum(c.get("awarded", 0) for c in criteria)
+    
+    # Check consistency between total and criteria sum
+    if abs(total - criteria_sum) > 0.1:  # Allow small rounding differences
+        print(f"WARNING: total_marks_awarded ({total}) doesn't match criteria sum ({criteria_sum:.1f})")
+        # Fix it
+        grading_result["total_marks_awarded"] = criteria_sum
+        total = criteria_sum
+    
+    # Enforce hard cap of 14
+    if total > 14:
+        print(f"WARNING: Total marks ({total:.1f}) exceeds cap (14), reducing proportionally...")
+        scale_factor = 14.0 / total
+        for crit in criteria:
+            crit["awarded"] = round(crit.get("awarded", 0) * scale_factor, 1)
+        grading_result["total_marks_awarded"] = 14.0
+        total = 14.0
+    
+    # Analyze weaknesses vs strengths to check for fairness
+    total_weaknesses = sum(len(c.get("weaknesses", [])) for c in criteria)
+    total_strengths = sum(len(c.get("strengths", [])) for c in criteria)
+    
+    # Only adjust if there's a clear imbalance AND marks are high
+    # This ensures fairness - we don't want to penalize good answers
+    if total >= 12 and total_weaknesses > 0:
+        # Calculate weakness ratio: if weaknesses significantly outnumber strengths, marks might be too high
+        # But be conservative - only adjust if imbalance is clear (weaknesses > 2x strengths)
+        if total_weaknesses > total_strengths * 2 and total >= 13:
+            # Significant weaknesses but high marks - this might be unfair
+            print(f"INFO: Answer has {total_weaknesses} weaknesses vs {total_strengths} strengths, with marks at {total:.1f}")
+            print(f"  Checking if adjustment is needed for fairness...")
+            
+            # Calculate average marks per criterion to see if they're too high
+            avg_marks_per_criterion = total / len(criteria)
+            max_marks_per_criterion = sum(c.get("max", 0) for c in criteria) / len(criteria)
+            marks_percentage = (avg_marks_per_criterion / max_marks_per_criterion) * 100 if max_marks_per_criterion > 0 else 0
+            
+            # Only reduce if marks are very high (>85% of max) AND there are significant weaknesses
+            if marks_percentage > 85 and total_weaknesses >= 3:
+                # Reduce conservatively - only by 10-15% to maintain fairness
+                reduction_factor = 0.88  # Reduce to 88% of current marks
+                new_total = round(total * reduction_factor, 1)
+                
+                # Apply reduction proportionally to all criteria
+                for crit in criteria:
+                    crit["awarded"] = round(crit.get("awarded", 0) * reduction_factor, 1)
+                grading_result["total_marks_awarded"] = new_total
+                print(f"  Adjusted total marks from {total:.1f} to {new_total:.1f} to better reflect weaknesses")
+            else:
+                print(f"  Marks appear fair given the balance of strengths and weaknesses")
+        elif total >= 14 and total_weaknesses > total_strengths:
+            # At maximum marks (14) but weaknesses exceed strengths - this is likely unfair
+            print(f"INFO: Answer has {total_weaknesses} weaknesses vs {total_strengths} strengths, but marks are at maximum (14)")
+            print(f"  Reducing slightly to better reflect the presence of weaknesses...")
+            
+            # Small reduction to 12-13 range to be fair
+            reduction_factor = 0.90  # Reduce to 90% (12.6, rounds to 12-13)
+            new_total = round(total * reduction_factor, 1)
+            
+            # Apply reduction proportionally
+            for crit in criteria:
+                crit["awarded"] = round(crit.get("awarded", 0) * reduction_factor, 1)
+            grading_result["total_marks_awarded"] = new_total
+            print(f"  Adjusted total marks from {total:.1f} to {new_total:.1f} to maintain fairness")
+    
+    return grading_result
 
 
 # -----------------------------
@@ -2898,12 +3383,14 @@ def call_grok_for_refined_rubric_annotations(
         "       correction = suggestion like 'Remove repetition' or 'Already mentioned on page X',\n"
         "       comment = note indicating where it was first mentioned.\n\n"
         "Additionally, build refined_rubric_summary[]:\n"
-        "   - ONLY include these 4 rubric points:\n"
-        "     1. argumentation_quality (name: 'Argumentation Quality')\n"
-        "     2. presentation (name: 'Presentation Quality')\n"
-        "     3. contemporary_relevance (name: 'Contemporary Relevance')\n"
-        "     4. length_completeness (name: 'Length & Completeness')\n"
-        "   - Each entry: id, name, rating (weak/average/good/excellent), comment (1 sentence max, very concise and brief).\n"
+        "   - ONLY include this 1 rubric point:\n"
+        "     1. length_completeness (name: 'Length & Completeness')\n"
+        "   - Each entry: id, name, rating (weak/average/good/excellent), comment (2-3 sentences, detailed evaluation of length and completeness).\n"
+        "   - The comment should be comprehensive and explain how well the answer covers the question requirements, including:\n"
+        "     * Whether the answer is of adequate length for the question\n"
+        "     * Whether all parts of the question are addressed\n"
+        "     * Whether the coverage is thorough or superficial\n"
+        "   - Do NOT include argumentation_quality, presentation, or contemporary_relevance.\n"
     )
 
 
@@ -2960,28 +3447,10 @@ def call_grok_for_refined_rubric_annotations(
             ],
             "refined_rubric_summary": [
                 {
-                    "id": "argumentation_quality",
-                    "name": "Argumentation Quality",
-                    "rating": "weak/average/good/excellent",
-                    "comment": "string",
-                },
-                {
-                    "id": "presentation",
-                    "name": "Presentation Quality",
-                    "rating": "weak/average/good/excellent",
-                    "comment": "string",
-                },
-                {
-                    "id": "contemporary_relevance",
-                    "name": "Contemporary Relevance",
-                    "rating": "weak/average/good/excellent",
-                    "comment": "string",
-                },
-                {
                     "id": "length_completeness",
                     "name": "Length & Completeness",
                     "rating": "weak/average/good/excellent",
-                    "comment": "string",
+                    "comment": "Detailed 2-3 sentence evaluation of how comprehensively the answer covers the question requirements, including length adequacy and completeness of coverage.",
                 }
             ],
         },
@@ -2998,7 +3467,7 @@ def call_grok_for_refined_rubric_annotations(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+            "model": "grok-4-fast-reasoning",
         "messages": [system_msg, user_msg],
         "temperature": 0.1,
         "max_tokens": 6000,  # Increased for refined rubric annotations
@@ -3497,6 +3966,7 @@ def _wrap_text(
 def render_subject_report_pages(
     grading_result: Dict[str, Any],
     page_size: Tuple[int, int] = (2977, 4211),  # 200 DPI: Width x Height
+    refined_summary: Optional[List[Dict[str, Any]]] = None,  # ADD THIS: refined rubric summary (for Length & Completeness)
 ) -> List[Image.Image]:
     """
     Render the subject-wise marking report on exactly 2 pages max.
@@ -3513,7 +3983,7 @@ def render_subject_report_pages(
     max_attempts = 10
 
     for attempt in range(max_attempts):
-        pages = _render_subject_report_with_scale(grading_result, page_size, font_scale)
+        pages = _render_subject_report_with_scale(grading_result, page_size, font_scale, refined_summary)
 
         if len(pages) <= 2:
             # Success! Fits in 2 pages or less
@@ -3534,6 +4004,7 @@ def _render_subject_report_with_scale(
     grading_result: Dict[str, Any],
     page_size: Tuple[int, int],
     font_scale: float = 1.0,
+    refined_summary: Optional[List[Dict[str, Any]]] = None,  # ADD THIS: refined rubric summary (for Length & Completeness)
 ) -> List[Image.Image]:
     """
     Internal helper to render subject report with a given font scale.
@@ -3561,7 +4032,7 @@ def _render_subject_report_with_scale(
         W, H = 2977, 4211  # A4 at 200 DPI fallback
     
     margin = int(W * 0.07)
-    line_spacing = 1.4
+    line_spacing = 1.3  # Reduced from 1.4 to save space for 2-page fit
 
     # Base font sizes (scaled by font_scale parameter)
     title_font = _get_font(int(90 * font_scale))
@@ -3615,7 +4086,7 @@ def _render_subject_report_with_scale(
         ensure_space(subject_font, 2)
         draw.text((margin, y), f"Subject: {subject}", font=subject_font, fill="black")
         line_h_subj = subject_font.getbbox("Ag")[3] - subject_font.getbbox("Ag")[1]
-        y += int(line_h_subj * line_spacing * 1.5)
+        y += int(line_h_subj * line_spacing * 1.2)  # Reduced from 1.5 to save space
 
     # TOTAL MARKS
     total = grading_result.get("total_marks_awarded", 0)
@@ -3627,7 +4098,7 @@ def _render_subject_report_with_scale(
     y += int(line_h * line_spacing)
     draw_bold_text(f"{total} / {maximum}", total_marks_font, (margin, y), "#B22222")  # Keep red color
     line_h2 = total_marks_font.getbbox("Ag")[3] - total_marks_font.getbbox("Ag")[1]
-    y += int(line_h2 * line_spacing * 2)
+    y += int(line_h2 * line_spacing * 1.5)  # Reduced from 2 to save space
 
     # QUESTION STATEMENT
     question = grading_result.get("question_statement", "")
@@ -3638,7 +4109,7 @@ def _render_subject_report_with_scale(
     heading_x = (W - heading_width) // 2
     draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
     line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * 1.5)  # Increased spacing between heading and question text
+    y += int(line_h_section * 1.2)  # Reduced from 1.5 to save space
     for line in _wrap_text(draw, question, question_text_font, max_text_width):
         ensure_space(question_text_font, 1)
         line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
@@ -3669,8 +4140,8 @@ def _render_subject_report_with_scale(
                     indent_x = margin + int(0.04 * W)
                     draw.text((indent_x, y), line, font=body_font, fill="black")
                 y += int(line_hb * line_spacing)
-            y += int(line_hb * 0.5)
-        y += int(line_hb)
+            y += int(line_hb * 0.3)  # Reduced from 0.5 to save space
+        y += int(line_hb * 0.7)  # Reduced from 1.0 to save space
 
         # CRITERIA BREAKDOWN
     ensure_space(section_heading_font, 2)
@@ -3680,7 +4151,7 @@ def _render_subject_report_with_scale(
     heading_x = (W - heading_width) // 2
     draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
     line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * line_spacing * 1.5)
+    y += int(line_h_section * line_spacing * 1.2)  # Reduced from 1.5 to save space
 
     for crit in grading_result.get("criteria", []):
         name = crit.get("name", "")
@@ -3691,7 +4162,7 @@ def _render_subject_report_with_scale(
         ensure_space(criteria_heading_font, 2)
         line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
         draw_bold_text(header, criteria_heading_font, (margin, y), "black")
-        y += int(line_h_criteria * line_spacing)
+        y += int(line_h_criteria * line_spacing * 0.9)  # Reduced spacing between criteria
 
         # Strengths
         strengths = crit.get("strengths") or []
@@ -3719,7 +4190,53 @@ def _render_subject_report_with_scale(
                     draw.text((margin, y), line, font=body_font, fill="black")
                     y += int(line_hb * line_spacing)
 
-        y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1])
+        y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.7  # Reduced spacing between criteria
+
+    # Add Length & Completeness at the end of the last page (should be page 2)
+    if refined_summary:
+        # Extract only length_completeness
+        length_item = None
+        for item in refined_summary:
+            if item.get("id") == "length_completeness":
+                length_item = item
+                break
+        
+        if length_item:
+            # Add spacing before Length & Completeness section
+            y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 1.2  # Reduced from 2 to save space
+            
+            # Check if we need a new page (reserve space for Length & Completeness)
+            # Estimate space needed: heading + rating + wrapped comment (allow for ~5-6 lines)
+            estimated_lines = 6  # Heading + rating + ~4-5 lines of comment
+            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
+            needed_space = estimated_lines * line_hb * line_spacing
+            
+            if y + needed_space > H - margin:
+                # Move to next page (should be page 2)
+                pages.append(img)
+                img, draw, y = new_page()
+            
+            # Render Length & Completeness section
+            name = length_item.get("name", "Length & Completeness")
+            rating = (length_item.get("rating") or "").capitalize()
+            comment = length_item.get("comment") or ""
+            
+            # Heading with rating (same style as criteria headings)
+            ensure_space(criteria_heading_font, 2)
+            header = f"{name} — {rating}"
+            line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
+            draw_bold_text(header, criteria_heading_font, (margin, y), "black")
+            y += int(line_h_criteria * line_spacing * 1.0)  # Reduced from 1.2 to save space
+            
+            # Comment text (use full width minus margins for better readability)
+            comment_width = W - 2 * margin  # Full width for comment
+            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
+            for line in _wrap_text(draw, comment, body_font, comment_width):
+                ensure_space(body_font, 1)
+                draw.text((margin, y), line, font=body_font, fill="black")
+                y += int(line_hb * line_spacing)
+            
+            y += int(line_hb * 0.5)
 
     pages.append(img)
     return pages
@@ -4160,9 +4677,13 @@ def grade_pdf_answer(
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
-        # Debug dump (only if DEBUG_SECTIONS environment variable is set)
-        if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
-            debug_dump_sections(sections, output_path="debug_sections.json")
+        # PREVIOUS CODE (COMMENTED OUT):
+        # # Debug dump (only if DEBUG_SECTIONS environment variable is set)
+        # if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
+        #     debug_dump_sections(sections, output_path="debug_sections.json")
+        
+        # NEW: Always save debug sections for debugging and report generation
+        debug_dump_sections(sections, output_path="debug_sections.json", log_path=log_path)
 
         # Track total token usage
         total_input_tokens = section_token_usage.get("input_tokens", 0)
@@ -4234,6 +4755,9 @@ def grade_pdf_answer(
         if not grading_result.get("max_marks"):
             grading_result["max_marks"] = 20
 
+        # Validate and adjust marks to ensure fairness (only adjusts if there's clear mismatch)
+        grading_result = validate_and_adjust_grading_result(grading_result)
+
         # Add token usage to grading result before saving
         grading_result["token_usage"] = {
             "input_tokens": total_input_tokens,
@@ -4259,9 +4783,11 @@ def grade_pdf_answer(
             )
         step_start = time.perf_counter()
         report_page_size = get_report_page_size(pdf_path)
+        # Initial render without refined_summary (will be added later)
         subject_report_pages = render_subject_report_pages(
             grading_result,
             page_size=report_page_size,
+            refined_summary=None,  # Will be updated after refined_summary is generated
         )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 6: Render subject report pages"] = step_duration
@@ -4335,6 +4861,16 @@ def grade_pdf_answer(
 
         annotations = refined_result.get("annotations", []) or []
         refined_summary = refined_result.get("refined_rubric_summary", []) or []
+
+        # Re-render subject report pages with refined_summary (Length & Completeness)
+        # This ensures Length & Completeness appears at the end of the second page
+        if refined_summary:
+            print("Re-rendering subject report pages with Length & Completeness...")
+            subject_report_pages = render_subject_report_pages(
+                grading_result,
+                page_size=report_page_size,
+                refined_summary=refined_summary,
+            )
 
         # Validate refined summary schema
         if refined_summary:
@@ -4414,7 +4950,6 @@ def grade_pdf_answer(
             sections=sections,
             annotations=annotations,
             page_suggestions=page_suggestions,
-            refined_summary=refined_summary,
         )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 10: Annotate answer pages"] = step_duration
