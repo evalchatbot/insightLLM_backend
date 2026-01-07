@@ -2922,6 +2922,20 @@ def build_grok_payload_for_grading(
     instructions = (
         "You are an experienced strict CSS examiner. "
         "Using ONLY the provided subject-wise rubric text, you must grade the student's answer with STRICT but FAIR marking.\n\n"
+        "CRITICAL: OCR ERROR HANDLING - ABSOLUTE REQUIREMENT \n"
+        "- The page_images_base64_png are the PRIMARY and ULTIMATE source of truth - these show the actual handwritten student answers\n"
+        "- OCR text (ocr_full_text) is ONLY an approximate transcription helper and contains many errors\n"
+        "- OCR transcription errors are NOT student errors - they are technical limitations of the OCR system\n"
+        "- DO NOT list OCR-induced typos, spelling errors, or transcription mistakes as weaknesses in ANY criterion\n"
+        "- Examples of OCR errors to IGNORE: 'af' for 'of', 'Jhe' for 'The', 'rn' for 'm', 'cl' for 'd', etc.\n"
+        "- When evaluating 'Language, Expression, and Scholarly Tone' or any language-related criterion:\n"
+        "  * ONLY evaluate the actual handwritten content visible in the page images\n"
+        "  * If you see apparent typos in OCR text, check the page images first\n"
+        "  * If the handwriting in the image is correct, do NOT list it as a weakness\n"
+        "  * ONLY list actual weaknesses in the student's writing (poor grammar structure, informal tone, incorrect terminology usage)\n"
+        "- OCR errors should NEVER appear in weaknesses[] arrays for any criterion\n"
+        "- If you cannot determine the actual text from the page image, do NOT assume it's an error - skip that evaluation\n"
+        "- Remember: You are grading the student's handwriting, NOT the OCR transcription quality\n\n"
         "CRITICAL MARKING RULES (MUST FOLLOW):\n"
         "1. Maximum marks awarded: 14 out of 20 (HARD CAP - NEVER EXCEED)\n"
         "2. Average/acceptable answers: Score LESS than 10 marks (typically 6–9 marks)\n"
@@ -4221,11 +4235,14 @@ def _render_subject_report_with_scale(
             rating = (length_item.get("rating") or "").capitalize()
             comment = length_item.get("comment") or ""
             
-            # Heading with rating (same style as criteria headings)
+            # Heading with rating (centered)
             ensure_space(criteria_heading_font, 2)
             header = f"{name} — {rating}"
             line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
-            draw_bold_text(header, criteria_heading_font, (margin, y), "black")
+            # Center the heading
+            heading_width = draw.textlength(header, font=criteria_heading_font)
+            heading_x = (W - heading_width) // 2
+            draw_bold_text(header, criteria_heading_font, (heading_x, y), "black")
             y += int(line_h_criteria * line_spacing * 1.0)  # Reduced from 1.2 to save space
             
             # Comment text (use full width minus margins for better readability)
@@ -4677,13 +4694,10 @@ def grade_pdf_answer(
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
-        # PREVIOUS CODE (COMMENTED OUT):
-        # # Debug dump (only if DEBUG_SECTIONS environment variable is set)
-        # if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
-        #     debug_dump_sections(sections, output_path="debug_sections.json")
-        
-        # NEW: Always save debug sections for debugging and report generation
-        debug_dump_sections(sections, output_path="debug_sections.json", log_path=log_path)
+        # Debug dump (only if DEBUG_SECTIONS environment variable is set)
+        # Disabled by default in production to prevent file accumulation and OOM errors
+        if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
+            debug_dump_sections(sections, output_path="debug_sections.json", log_path=log_path)
 
         # Track total token usage
         total_input_tokens = section_token_usage.get("input_tokens", 0)
