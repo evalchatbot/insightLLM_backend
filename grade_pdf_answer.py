@@ -2054,8 +2054,10 @@ def grade_pdf_answer(
             page_images=page_images,
         )
 
-
-        debug_dump_sections(sections, output_path="debug_sections.json")
+        # Debug dump (only if DEBUG_SECTIONS environment variable is set)
+        # Disabled by default in production to prevent file accumulation and OOM errors
+        if os.getenv("DEBUG_SECTIONS", "").lower() in ("true", "1", "yes"):
+            debug_dump_sections(sections, output_path="debug_sections.json")
 
         # Track total token usage
         total_input_tokens = section_token_usage.get("input_tokens", 0)

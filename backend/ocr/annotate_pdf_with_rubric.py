@@ -1,7 +1,9 @@
 from typing import Any, Dict, List, Tuple, Optional
 import io
 import gc
+import datetime
 import os
+import re
 import sys
 
 import cv2
@@ -712,6 +714,8 @@ def annotate_pdf_answer_pages(
     sections: List[Dict[str, Any]],
     annotations: List[Dict[str, Any]],
     page_suggestions: Optional[List[Dict[str, Any]]] = None,
+    log_path: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> List[Image.Image]:
     """
     Create annotated versions of the answer pages.
@@ -731,6 +735,44 @@ def annotate_pdf_answer_pages(
           → draw a red ✓ near the heading and near the section body region.
     """
     page_suggestions = page_suggestions or []
+
+    def _append_skipped_annotations_log(
+        skipped: List[Dict[str, Any]],
+        *,
+        page_number: int,
+    ) -> None:
+        """
+        Write skipped-annotation diagnostics to a dedicated log file.
+
+        This is intentionally separate from the main OCR log to keep it readable.
+        """
+        if not skipped:
+            return
+        if not log_path:
+            return
+        try:
+            log_dir = os.path.dirname(log_path)
+            if not log_dir:
+                return
+            os.makedirs(log_dir, exist_ok=True)
+            out_path = os.path.join(log_dir, "skipped_annotations_log.txt")
+            ts = datetime.datetime.utcnow().isoformat() + "Z"
+            rid = request_id or "unknown"
+            with open(out_path, "a", encoding="utf-8") as f:
+                f.write(f"{ts} request={rid} page={page_number} skipped={len(skipped)}\n")
+                for item in skipped:
+                    atype = (item.get("type") or "").strip()
+                    reason = (item.get("reason") or "").strip().replace("\n", " ")
+                    target = (item.get("target") or "").strip().replace("\n", " ")
+                    # Keep lines short-ish to avoid huge logs.
+                    if len(target) > 200:
+                        target = target[:200] + "..."
+                    f.write(
+                        f"{ts} request={rid} page={page_number} type={atype} reason={reason} target={target}\n"
+                    )
+        except Exception:
+            # Never fail annotation due to logging.
+            pass
     
     # Get PDF file size for memory estimation
     pdf_size_mb = None
@@ -801,6 +843,7 @@ def annotate_pdf_answer_pages(
         # Drawing constants
         font_face = cv2.FONT_HERSHEY_SIMPLEX
         RED = (0, 0, 255)
+        GREEN = (0, 180, 0)  # slightly darker green for readability (BGR)
 
         for page_idx, page in enumerate(doc):
             page_number = page_idx + 1
@@ -1150,17 +1193,26 @@ def annotate_pdf_answer_pages(
                 """
                 nonlocal comment_y
                 
-                def build_lines(max_width: int) -> Tuple[List[str], List[str], int]:
-                    """Build header and body lines, return total height needed."""
+                def build_lines(
+                    max_width: int,
+                ) -> Tuple[List[str], List[Tuple[str, Tuple[int, int, int]]], int]:
+                    """Build header lines + colored body lines, return total height needed."""
                     header_lines = _wrap_text_cv2(
                         header, max_width - 20, font_face, font_scale * 0.95, text_thickness
                     )
-                    body_lines: List[str] = []
+                    body_lines: List[Tuple[str, Tuple[int, int, int]]] = []
                     if text:
-                        bullet = "- " + text
-                        body_lines = _wrap_text_cv2(
-                            bullet, max_width - 20, font_face, font_scale * 0.85, text_thickness
-                        )
+                        # Preserve explicit newlines (e.g., "Heading:" / "Rephrased:" / "- comment")
+                        # and allow styling specific lines without affecting annotation boxes.
+                        raw_lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+                        for raw in raw_lines:
+                            is_rephrased = raw.lower().startswith("rephrased:")
+                            color = GREEN if is_rephrased else RED
+                            wrapped = _wrap_text_cv2(
+                                raw, max_width - 20, font_face, font_scale * 0.85, text_thickness
+                            )
+                            for wline in wrapped:
+                                body_lines.append((wline, color))
                     height = int(
                         len(header_lines) * line_height * 1.2
                         + len(body_lines) * line_height * 1.0
@@ -1249,8 +1301,8 @@ def annotate_pdf_answer_pages(
                     )
                     text_y += int(line_height * 1.2)
 
-                # Body text (red)
-                for line in body_lines:
+                # Body text (red, except Rephrased:* lines in green)
+                for line, color in body_lines:
                     if text_y > box_y2 - int(line_height * 0.5):
                         break
                     cv2.putText(
@@ -1259,7 +1311,7 @@ def annotate_pdf_answer_pages(
                         (text_x, text_y),
                         font_face,
                         font_scale * 0.85,
-                        RED,
+                        color,
                         text_thickness,
                         cv2.LINE_AA,
                     )
@@ -1402,6 +1454,9 @@ def annotate_pdf_answer_pages(
 
             # Track rectangles already found on this page to handle duplicates
             found_rects: List[Tuple[int, int, int, int]] = []
+            
+            # Track skipped annotations for debugging
+            skipped_annotations: List[Dict[str, Any]] = []
 
             # Draw all negative/problem annotations in red
             for ann in page_anns:
@@ -1478,9 +1533,20 @@ def annotate_pdf_answer_pages(
                 elif atype == "heading_issue":
                     sentiment = (ann.get("sentiment") or "").lower()
                     if sentiment not in ("negative", "weak", "problematic"):
+                        skipped_annotations.append({
+                            "type": atype,
+                            "reason": f"Sentiment '{sentiment}' not in negative/weak/problematic",
+                            "target": target_text[:50],
+                            "page": page_number
+                        })
                         continue
 
                     if not target_text:
+                        skipped_annotations.append({
+                            "type": atype,
+                            "reason": "Missing target_text",
+                            "page": page_number
+                        })
                         continue
 
                     # Use precise word-level matching for headings (they're short)
@@ -1493,33 +1559,40 @@ def annotate_pdf_answer_pages(
                         h=orig_h,
                         already_found=found_rects,
                     )
-                    if not rect:
-                        continue
-
-                    shifted = shift_rect(rect)
-                    x1, y1, x2, y2 = shifted
-                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
-
-                    # PREVIOUS CODE (COMMENTED OUT):
-                    # header = f"[Heading Issue] ({rubric_point})".strip()
                     
-                    # NEW: Remove brackets, cleaner format
+                    # Always show annotation comment, even if text not found
+                    # If rect found: draw box + connector
+                    # If rect not found: just show comment on side (no box/connector)
                     header = f"Heading Issue - {rubric_point}".strip()
-                    body = comment
+                    body_lines = [f"Heading: {target_text}"]
                     if correction:
-                        body += f"\nSuggestion: {correction}"
+                        body_lines.append(f"Rephrased: {correction}")
+                    body_lines.append(f"- {comment}")
+                    body = "\n".join(body_lines)
                     comment_box, comment_on_right = add_side_comment(header, body)
-                    if comment_on_right:
-                        draw_connector(
-                            shifted,
-                            comment_box[0],
-                            (comment_box[1] + comment_box[3]) // 2,
-                        )
-                    found_rects.append(rect)
+                    
+                    if rect:
+                        # Text found: draw box and connector
+                        shifted = shift_rect(rect)
+                        x1, y1, x2, y2 = shifted
+                        cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
+                        if comment_on_right:
+                            draw_connector(
+                                shifted,
+                                comment_box[0],
+                                (comment_box[1] + comment_box[3]) // 2,
+                            )
+                        found_rects.append(rect)
+                    # If rect not found, we still show the comment (already added above)
 
                 # 3) Factual error – precise box on error phrase + right-side comment
                 elif atype == "factual_error":
                     if not target_text:
+                        skipped_annotations.append({
+                            "type": atype,
+                            "reason": "Missing target_text",
+                            "page": page_number
+                        })
                         continue
 
                     # ALWAYS use precise word-level matching for factual errors
@@ -1533,33 +1606,37 @@ def annotate_pdf_answer_pages(
                         already_found=found_rects,
                     )
 
-                    if not rect:
-                        continue
-
-                    shifted = shift_rect(rect)
-                    x1, y1, x2, y2 = shifted
-                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
-
-                    # PREVIOUS CODE (COMMENTED OUT):
-                    # header = f"[Factual Error] ({rubric_point})".strip()
-                    
-                    # NEW: Remove brackets, cleaner format
+                    # Always show annotation comment, even if text not found
+                    # If rect found: draw box + connector
+                    # If rect not found: just show comment on side (no box/connector)
                     header = f"Factual Error - {rubric_point}".strip()
                     body = comment
                     if correction:
                         body = f"Correction: {correction}\n{body}"
                     comment_box, comment_on_right = add_side_comment(header, body)
-                    if comment_on_right:
-                        draw_connector(
-                            shifted,
-                            comment_box[0],
-                            (comment_box[1] + comment_box[3]) // 2,
-                        )
-                    found_rects.append(rect)
+                    
+                    if rect:
+                        # Text found: draw box and connector
+                        shifted = shift_rect(rect)
+                        x1, y1, x2, y2 = shifted
+                        cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
+                        if comment_on_right:
+                            draw_connector(
+                                shifted,
+                                comment_box[0],
+                                (comment_box[1] + comment_box[3]) // 2,
+                            )
+                        found_rects.append(rect)
+                    # If rect not found, we still show the comment (already added above)
 
                 # 4) Grammar & language – small box + inline correction
                 elif atype == "grammar_language":
                     if not target_text:
+                        skipped_annotations.append({
+                            "type": atype,
+                            "reason": "Missing target_text",
+                            "page": page_number
+                        })
                         continue
 
                     # ALWAYS use precise word-level matching for spelling errors
@@ -1572,18 +1649,27 @@ def annotate_pdf_answer_pages(
                         h=orig_h,
                         already_found=found_rects,
                     )
-                    if not rect:
-                        continue
-
-                    shifted = shift_rect(rect)
-                    x1, y1, x2, y2 = shifted
-                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
-                    draw_correction_near_box(shifted, correction)
-                    found_rects.append(rect)
+                    
+                    # For Grammar/Language: only show box on text (no side comment)
+                    # If rect found: draw box + inline correction only
+                    # If rect not found: skip (don't show side comment)
+                    if rect:
+                        # Text found: draw box and inline correction only (no side comment)
+                        shifted = shift_rect(rect)
+                        x1, y1, x2, y2 = shifted
+                        cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
+                        draw_correction_near_box(shifted, correction)
+                        found_rects.append(rect)
+                    # If rect not found, skip this annotation (no side comment for grammar/language)
 
                 # 5) Repetition – box on repeated content + text "repeated"
                 elif atype == "repetition":
                     if not target_text:
+                        skipped_annotations.append({
+                            "type": atype,
+                            "reason": "Missing target_text",
+                            "page": page_number
+                        })
                         continue
 
                     # Use context-aware matching
@@ -1596,42 +1682,54 @@ def annotate_pdf_answer_pages(
                         h=orig_h,
                         already_found=found_rects,
                     )
-                    if not rect:
-                        continue
+                    
+                    # Always show annotation, even if text not found
+                    # If rect found: draw box + "repeated" label
+                    # If rect not found: show as side comment
+                    if rect:
+                        # Text found: draw box and "repeated" label
+                        shifted = shift_rect(rect)
+                        x1, y1, x2, y2 = shifted
+                        cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
 
-                    shifted = shift_rect(rect)
-                    x1, y1, x2, y2 = shifted
-                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), RED, box_thickness)
+                        rep_text = comment if comment else "repeated"
+                        size, _ = cv2.getTextSize(
+                            rep_text, font_face, font_scale * 0.9, text_thickness
+                        )
+                        tx, ty = size
+                        tx1 = x1
+                        ty1 = max(0, y1 - ty - 6)
+                        # Keep text within answer area bounds
+                        answer_area_right = left_width + orig_w - 5
+                        tx2 = min(answer_area_right, x1 + tx + 8)
+                        ty2 = y1
 
-                    rep_text = comment if comment else "repeated"
-                    size, _ = cv2.getTextSize(
-                        rep_text, font_face, font_scale * 0.9, text_thickness
-                    )
-                    tx, ty = size
-                    tx1 = x1
-                    ty1 = max(0, y1 - ty - 6)
-                    # Keep text within answer area bounds
-                    answer_area_right = left_width + orig_w - 5
-                    tx2 = min(answer_area_right, x1 + tx + 8)
-                    ty2 = y1
-
-                    cv2.rectangle(
-                        cv_img,
-                        (tx1 - 2, ty1),
-                        (tx2, ty2),
-                        (255, 255, 255),
-                        thickness=-1,
-                    )
-                    cv2.putText(
-                        cv_img,
-                        rep_text,
-                        (tx1, y1 - 4),
-                        font_face,
-                        font_scale * 0.9,
-                        RED,
-                        text_thickness,
-                        cv2.LINE_AA,
-                    )
+                        cv2.rectangle(
+                            cv_img,
+                            (tx1 - 2, ty1),
+                            (tx2, ty2),
+                            (255, 255, 255),
+                            thickness=-1,
+                        )
+                        cv2.putText(
+                            cv_img,
+                            rep_text,
+                            (tx1, y1 - 4),
+                            font_face,
+                            font_scale * 0.9,
+                            RED,
+                            text_thickness,
+                            cv2.LINE_AA,
+                        )
+                        found_rects.append(rect)
+                    else:
+                        # Text not found: show as side comment
+                        header = f"Repetition - {rubric_point}".strip()
+                        body_lines = [f"Text: {target_text}"]
+                        if comment:
+                            body_lines.append(f"- {comment}")
+                        body = "\n".join(body_lines)
+                        add_side_comment(header, body)
                     found_rects.append(rect)
 
             # PREVIOUS CODE (COMMENTED OUT):
@@ -1653,8 +1751,8 @@ def annotate_pdf_answer_pages(
                 pages = sec.get("page_numbers") or []
                 if not pages:
                     continue
-                # Only show heading on the first page of the section
-                # Safely extract numeric page numbers
+                # Only show heading on the first page of the section.
+                # Safely extract numeric page numbers (robust to 0-based vs 1-based).
                 try:
                     numeric_pages = [int(p) for p in pages if isinstance(p, (int, float))]
                     if not numeric_pages:
@@ -1662,6 +1760,9 @@ def annotate_pdf_answer_pages(
                         numeric_pages = [int(p) for p in pages if str(p).isdigit()]
                     if not numeric_pages:
                         continue  # Skip if no valid page numbers found
+                    # If these look 0-based (common in some pipelines), shift to 1-based.
+                    if min(numeric_pages) == 0:
+                        numeric_pages = [p + 1 for p in numeric_pages]
                     first_page = min(numeric_pages)
                 except (ValueError, TypeError) as e:
                     # If page number extraction fails, skip this section
@@ -1671,27 +1772,68 @@ def annotate_pdf_answer_pages(
                 if page_number != first_page:
                     continue
 
+                # For heading labels:
+                # - exact_ocr_heading: ORIGINAL heading text from OCR (for matching + display)
+                # - rephrased_heading: improved/natural heading suggestion (display in green)
                 title_text = (sec.get("title") or "").strip()
-                exact_heading = sec.get("exact_ocr_heading") or ""
-                heading_text = title_text or exact_heading
-                if not heading_text:
+                exact_heading = (sec.get("exact_ocr_heading") or "").strip()
+                rephrased_heading = (sec.get("rephrased_heading") or "").strip()
+
+                display_heading = exact_heading or title_text
+                if not display_heading:
                     continue
-                heading_norm = heading_text.strip().lower()
+                # NOTE: We will keep using the raw heading for bbox matching (to avoid breaking boxes),
+                # but we can safely clean the DISPLAY text to remove leading enumerations like "e)".
+                heading_norm = display_heading.strip().lower()
                 if "introduction" in heading_norm or "conclusion" in heading_norm:
                     continue
 
-                heading_comment = (sec.get("comment") or "").strip()
-                if not heading_comment:
-                    heading_comment = "Heading detected."
+                def _strip_heading_enumeration_prefix(s: str) -> str:
+                    """
+                    Remove leading enumeration/bullets like:
+                    '(2)', '2.', '2)', 'a)', 'b.', 'i)', '-', '•'
+                    from rephrased headings only (keep original OCR heading as-is).
+                    """
+                    t = (s or "").strip()
+                    # Strip repeatedly because headings can have stacked prefixes like:
+                    # "I (ii) ..." or "(V) ..." or "e) (2) ..."
+                    while True:
+                        before = t
+                        # common bullets
+                        t = re.sub(r"^\s*[-•]+\s*", "", t)
+                        # (2) / (12)
+                        t = re.sub(r"^\s*\(\s*\d+\s*\)\s*", "", t)
+                        # (V) / (iv) etc.
+                        t = re.sub(r"^\s*\(\s*([ivxlcdm]+)\s*\)\s*", "", t, flags=re.IGNORECASE)
+                        # 2. / 2) / 12.
+                        t = re.sub(r"^\s*\d+\s*[\.\)]\s*", "", t)
+                        # a) / b. / A)
+                        t = re.sub(r"^\s*[A-Za-z]\s*[\.\)]\s*", "", t)
+                        # roman numerals i) ii) IV.
+                        t = re.sub(r"^\s*([ivxlcdm]+)\s*[\.\)]\s*", "", t, flags=re.IGNORECASE)
+                        # roman numeral WITHOUT punctuation, e.g. "I (ii) Heading ..."
+                        t = re.sub(r"^\s*([ivxlcdm]+)\s+(?=\()", "", t, flags=re.IGNORECASE)
+                        # Trim again after stripping
+                        t = t.strip()
+                        if t == before.strip():
+                            break
+                    return t.strip()
 
-                # PREVIOUS CODE (COMMENTED OUT):
-                # header = f"[Heading] {heading_text}"
-                
-                # NEW: Remove brackets, cleaner format
-                header = f"Heading: {heading_text}"
-                comment_box, comment_on_right = add_side_comment(header, heading_comment)
+                # For detected headings:
+                # - RED header shows the ORIGINAL OCR heading (or title fallback if OCR missing)
+                # - GREEN body shows exactly one line: "Rephrased: <rephrased_heading>"
+                #   (we do NOT include sec["comment"] here because it duplicates rephrasing and can add bullets like (2)/a)/b)).
+                display_heading_clean = _strip_heading_enumeration_prefix(display_heading)
+                header = f"Heading: {display_heading_clean or display_heading}".strip()
 
-                heading_bbox = _find_heading_bbox_on_page(exact_heading or heading_text, page_ocr)
+                body = ""
+                clean_rephrased = _strip_heading_enumeration_prefix(rephrased_heading)
+                if clean_rephrased and clean_rephrased.strip().lower() != display_heading.strip().lower():
+                    body = f"Rephrased: {clean_rephrased}"
+
+                comment_box, comment_on_right = add_side_comment(header, body)
+
+                heading_bbox = _find_heading_bbox_on_page(exact_heading or display_heading, page_ocr)
                 if heading_bbox and comment_on_right:
                     hx1, hy1, hx2, hy2 = _bbox_to_rect(heading_bbox, pad=4, w=orig_w, h=orig_h)
                     shifted = shift_rect((hx1, hy1, hx2, hy2))
@@ -1982,6 +2124,12 @@ def annotate_pdf_answer_pages(
                 new_h = int(h_rgb * 0.5)
                 cv_img_rgb = cv2.resize(cv_img_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
                 pil_result = Image.fromarray(cv_img_rgb)
+            
+            # Log skipped annotations for this page (separate log file + lightweight console hint)
+            _append_skipped_annotations_log(skipped_annotations, page_number=page_number)
+            if skipped_annotations:
+                print(f"  ⚠ Page {page_number}: Skipped {len(skipped_annotations)} annotations (see skipped_annotations_log.txt).")
+            
             annotated_pages.append(pil_result)
             
             # Explicitly release memory after each page to prevent accumulation
