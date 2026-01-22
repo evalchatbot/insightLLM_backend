@@ -21,6 +21,7 @@ import importlib.util
 
 # Get project root
 project_root = Path(__file__).parent.parent.parent
+backend_root = project_root / "backend"
 
 # Temporarily remove backend.ocr from sys.modules to force regular files
 # This ensures grade_pdf_answer.py uses the regular annotate_pdf_with_rubric.py
@@ -31,21 +32,22 @@ try:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     
-    # Import regular annotate_pdf_with_rubric first
-    # This will be used by grade_pdf_answer when it tries to import
+    # Import annotate_pdf_with_rubric from project root if present, otherwise fall back
+    # to backend/ocr version (root-level file was removed).
     regular_annotate_path = project_root / "annotate_pdf_with_rubric.py"
-    spec_annotate = importlib.util.spec_from_file_location("annotate_pdf_with_rubric", regular_annotate_path)
+    backend_annotate_path = backend_root / "ocr" / "annotate_pdf_with_rubric.py"
+    annotate_path = regular_annotate_path if regular_annotate_path.exists() else backend_annotate_path
+    spec_annotate = importlib.util.spec_from_file_location("annotate_pdf_with_rubric", annotate_path)
     annotate_module = importlib.util.module_from_spec(spec_annotate)
     sys.modules["annotate_pdf_with_rubric"] = annotate_module
     spec_annotate.loader.exec_module(annotate_module)
     annotate_pdf_answer_pages = annotate_module.annotate_pdf_answer_pages
     
-    # Now import grade_pdf_answer
-    # It will try: from backend.ocr.annotate_pdf_with_rubric import ...
-    # But we removed that from sys.modules, so it will fall back to:
-    # from annotate_pdf_with_rubric import ... (which we just loaded)
+    # Now import grade_pdf_answer (prefer root if present, else backend/ocr version).
     regular_grade_path = project_root / "grade_pdf_answer.py"
-    spec_grade = importlib.util.spec_from_file_location("grade_pdf_answer", regular_grade_path)
+    backend_grade_path = backend_root / "ocr" / "grade_pdf_answer.py"
+    grade_path = regular_grade_path if regular_grade_path.exists() else backend_grade_path
+    spec_grade = importlib.util.spec_from_file_location("grade_pdf_answer", grade_path)
     grade_module = importlib.util.module_from_spec(spec_grade)
     sys.modules["grade_pdf_answer"] = grade_module
     spec_grade.loader.exec_module(grade_module)

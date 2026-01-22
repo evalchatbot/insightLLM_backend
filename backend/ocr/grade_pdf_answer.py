@@ -69,6 +69,7 @@ def debug_dump_sections(
       - level (1 = main heading, 2 = subheading)
       - page_numbers
       - first 200 chars of content (for quick checking)
+      - rephrased_heading
     """
     light_sections = []
     for idx, sec in enumerate(sections):
@@ -80,7 +81,7 @@ def debug_dump_sections(
                 "level": sec.get("level"),
                 "page_numbers": sec.get("page_numbers"),
                 "content_preview": (sec.get("content") or "")[:200],
-                "comment": sec.get("comment"),  # Add comment field
+                "rephrased_heading": sec.get("rephrased_heading"),  # Add rephrased heading field
             }
         )
 
@@ -105,12 +106,12 @@ def debug_dump_sections(
                 output_lines.append(f"  Exact OCR Heading: {sec['exact_ocr_heading']}")
                 output_lines.append(f"  Level: {sec['level']} {'(Main)' if sec['level'] == 1 else '(Sub)'}")
                 output_lines.append(f"  Pages: {sec['page_numbers']}")
-                if sec.get('comment'):
-                    comment = sec['comment']
-                    # Truncate long comments for display
-                    if len(comment) > 150:
-                        comment = comment[:150] + "..."
-                    output_lines.append(f"  Comment: {comment}")
+                if sec.get("rephrased_heading"):
+                    rephrased_heading = sec["rephrased_heading"]
+                    # Truncate long values for display
+                    if len(rephrased_heading) > 150:
+                        rephrased_heading = rephrased_heading[:150] + "..."
+                    output_lines.append(f"  Rephrased Heading: {rephrased_heading}")
                 if sec.get('content_preview'):
                     preview = sec['content_preview']
                     if len(preview) > 100:
@@ -2423,19 +2424,25 @@ def call_grok_for_section_detection(
             "- Use your own words but stay faithful to what is written\n"
             "- Do NOT invent arguments or facts not present in the script\n"
             "- If handwriting is unclear, infer only what is reasonably supported\n\n"
-            "HEADING QUALITY EVALUATION (NEW REQUIREMENT):\n"
-            "For each heading/subheading (excluding 'Introduction' and 'Conclusion'), provide a 'comment' evaluating its quality:\n"
-            "- Start with POSITIVE or NEGATIVE to clearly indicate the assessment\n"
-            "- Evaluate based on these criteria:\n"
-            "  • Is it self-explanatory? Does it immediately tell what point is being discussed?\n"
-            "  • Is it directly relevant to the question and reflects exact themes from the question statement?\n"
-            "  • Does it guide the reader by showing how this section contributes to answering the question?\n"
-            "  • Or is it generic, vague, or acts as a decorative slogan rather than a meaningful signpost?\n"
-            "- Examples:\n"
-            "  • POSITIVE: This heading clearly identifies the specific aspect being analyzed and directly addresses a component of the question.\n"
-            "  • NEGATIVE: This heading is too generic and doesn't clearly indicate what specific point will be discussed.\n"
-            "- Keep comments concise (1-2 sentences)\n"
-            "- For 'Introduction' and 'Conclusion' sections, you may set comment to empty string or a brief note\n\n"
+            "HEADING REPHRASE REQUIREMENT:\n"
+            "For each heading/subheading (excluding 'Introduction' and 'Conclusion'), provide:\n"
+            "  - 'rephrased_heading': a clear, CSS-style academic heading that functions as a one-line analytical summary of the paragraph.\n"
+            "Rules for rephrased_heading:\n"
+            "  - Must be fully self-explanatory and understandable without reading the paragraph.\n"
+            "  - Should convey the complete essence of the argument made in the paragraph, not merely the topic.\n" 
+            "  - Must explicitly reflect cause-and-effect relationships where applicable (i.e., the measure/action and the problem or outcome it addresses).\n"
+            "  - All key variables, dimensions, or constraints mentioned in the question statement must be directly addressed or clearly implied in the heading.\n"
+            "  - Headings should analytically link solutions, factors, or mechanisms to the specific challenges or objectives identified in the question.\n"
+            "  - May be written as a concise sentence if required to preserve analytical clarity.\n"
+            "  - Must be directly aligned with the question statement and demonstrate clear relevance.\n"
+            "  - Prefer analytical, declarative phrasing over generic or thematic labels.\n"
+            "  - Avoid vague constructions such as 'Role of', 'Overview of', 'Impact of', or 'Issues', unless analytically qualified.\n"
+            "  - Preserve the original meaning while improving clarity, specificity, and examiner readability.\n"
+            "  - Length should be concise but flexible (ideally 8–18 words) to fully capture causal linkage and argument depth.\n"
+            "  - If the original heading already meets these standards, rephrased_heading may remain unchanged.\n"
+            "For 'Introduction' and 'Conclusion', set rephrased_heading to an empty string.\n\n"
+            "Objective:\n"
+           "  - Ensure each heading encapsulates a complete causal argument that addresses all variables of the question, enabling an examiner to understand both the problem and the proposed mechanism or outcome at a glance.\n\n"
             "OUTPUT FORMAT (CRITICAL):\n"
             "- Return ONLY valid JSON with structure: {\"sections\": [...]}\n"
             "- NO markdown formatting, NO code blocks, NO explanations\n"
@@ -2445,7 +2452,7 @@ def call_grok_for_section_detection(
             "  • 'level': integer (1 for main, 2 for sub)\n"
             "  • 'page_numbers': array of integers\n"
             "  • 'content_text': string summary\n"
-            "  • 'comment': quality evaluation starting with POSITIVE or NEGATIVE (or empty for intro/conclusion)\n"
+            "  • 'rephrased_heading': improved heading suggestion aligned with rubric (empty for intro/conclusion)\n"
             "- NO extra fields, NO top-level keys besides 'sections'\n\n"
             # PREVIOUS CODE (COMMENTED OUT):
             # "CONSISTENCY:\n"
@@ -2499,7 +2506,7 @@ def call_grok_for_section_detection(
                     "level": 1,
                     "page_numbers": [1],
                     "content_text": "string",
-                    "comment": "POSITIVE/NEGATIVE: quality evaluation of heading",
+                    "rephrased_heading": "Improved heading suggestion aligned with rubric",
                 }
             ]
         },
@@ -2516,7 +2523,7 @@ def call_grok_for_section_detection(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+        "model": "grok-4-1-fast-reasoning",
         "messages": [system_msg, user_msg],
         "temperature": 0.1,
         "max_tokens": 4000,  # Sufficient for structure detection
@@ -2727,14 +2734,46 @@ def call_grok_for_section_detection(
     #         }
     #     )
     
+    def _strip_heading_prefix(text: str) -> str:
+        """
+        Remove leading bullet/number prefixes like '1.', '1)', '(1)', 'a)', '(a)', 'Q1.' etc.
+        IMPORTANT: Do NOT eat the first character of normal words like 'Introduction'
+        or 'Judicial'. We only strip if the bullet/number is a separate token
+        followed by space.
+        """
+        if not text:
+            return ""
+        t = text.strip()
+        # Patterns where the bullet token is clearly separated from the heading text
+        patterns = [
+            r"^[\(\[]\s*[0-9A-Za-z]{1,3}[\)\].-]\s+",  # (1) Heading, (a) Heading, [1] Heading
+            r"^[0-9]{1,3}[\).]\s+",                   # 1. Heading, 2) Heading
+            r"^[0-9]{1,3}\s+",                       # 1 Heading
+            r"^[A-Za-z]\s+",                         # a Heading
+        ]
+        for pat in patterns:
+            new_t = re.sub(pat, "", t)
+            if new_t != t:
+                t = new_t
+                break
+        return t.strip()
+
+    # NOTE: Question prefix stripping is implemented in the report renderer
+    # (`_render_subject_report_with_scale`) because it's only a display concern.
+
     # NEW: Enhanced deduplication with cross-page duplicate detection
     for sec in raw_sections:
-        title = (sec.get("title") or "UNSPECIFIED").strip()
-        exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
+        raw_title = (sec.get("title") or "UNSPECIFIED").strip()
+        raw_exact_heading = (sec.get("exact_ocr_heading") or raw_title).strip()
+
+        # Remove leading bullets/numbering from headings
+        title = _strip_heading_prefix(raw_title) or raw_title
+        exact_ocr_heading = _strip_heading_prefix(raw_exact_heading) or raw_exact_heading
         level = sec.get("level") or 1
         pages = sec.get("page_numbers") or []
         content_text = sec.get("content_text") or sec.get("content") or ""
-        comment = (sec.get("comment") or "").strip()
+        rephrased_heading = (sec.get("rephrased_heading") or "").strip()
+        comment = rephrased_heading
 
         # Normalize for comparison
         title_normalized = normalize_for_comparison(title)
@@ -2751,6 +2790,24 @@ def call_grok_for_section_detection(
             # Add both normalized and lowercase for intro/conclusion
             seen_titles.add(title_normalized)
             seen_titles.add(title_lower)
+            # IMPORTANT: Add section immediately and continue to avoid duplicate check later
+            sections.append(
+                {
+                    "title": title,
+                    "title_raw": raw_title,
+                    "exact_ocr_heading": exact_ocr_heading,
+                    "exact_ocr_heading_raw": raw_exact_heading,
+                    "level": int(level) if isinstance(level, (int, float)) else 1,
+                    "page_numbers": sorted(
+                        set(int(p) for p in pages if isinstance(p, (int, float)))
+                    ),
+                    "content": content_text,
+                    "comment": comment,
+                    "rephrased_heading": rephrased_heading,
+                    "line_indices": [],
+                }
+            )
+            continue  # Skip all other duplicate checks for intro/conclusion
         
         # Check for cross-page duplicates: if a previous section ends on page N and this one starts on N+1 with same heading
         is_cross_page_duplicate = False
@@ -2820,13 +2877,16 @@ def call_grok_for_section_detection(
         sections.append(
             {
                 "title": title,
-                "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
+                "title_raw": raw_title,
+                "exact_ocr_heading": exact_ocr_heading,  # Store cleaned OCR text
+                "exact_ocr_heading_raw": raw_exact_heading,  # Preserve original for reference/annotation
                 "level": int(level) if isinstance(level, (int, float)) else 1,
                 "page_numbers": sorted(
                     set(int(p) for p in pages if isinstance(p, (int, float)))
                 ),
                 "content": content_text,
-                "comment": comment,  # Quality evaluation of heading
+                "comment": comment,  # Backward-compatible display for heading annotations
+                "rephrased_heading": rephrased_heading,
                 "line_indices": [],  # not used downstream, kept for compatibility
             }
         )
@@ -2869,11 +2929,7 @@ def build_grok_payload_for_grading(
         "max_marks": 20,
         "total_marks_awarded": 0,
         "question_statement": "",
-        "question_expectation": [
-            "Bullet point 1: Key theme/concept expected",
-            "Bullet point 2: Important theory or framework",
-            "Bullet point 3: Historical context or period"
-        ],
+        "question_demands": "",
         "criteria": [
             {
                 "id": "knowledge_accuracy",
@@ -2913,7 +2969,6 @@ def build_grok_payload_for_grading(
     #     "  - max_marks: always 20\n"
     #     "  - total_marks_awarded (cap at 14 maximum)\n"
     #     "  - question_statement: the exam question as written by the student\n"
-    #     "  - question_expectation: MUST be an array of 3-5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
     #     "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
     #     "  - overall_comment: 3-5 sentence holistic evaluation.\n"
     # )
@@ -2978,12 +3033,21 @@ def build_grok_payload_for_grading(
         "  - subject\n"
         "  - max_marks: always 20\n"
         "  - total_marks_awarded: MUST equal sum of all criteria[i].awarded, capped at 14 maximum\n"
-        "  - question_statement: the exam question as written by the student\n"
-        "  - question_expectation: MUST be an array of 3–5 short, specific bullet points describing what an excellent answer should cover according to the subject rubric. Each bullet should be one clear sentence focusing on key themes, concepts, theories, or historical periods expected.\n"
+        "  - question_statement: the exam question as written by the student (verbatim, not paraphrased)\n"
+        "    * MUST copy the exact question text from the page images/OCR, including punctuation and question marks\n"
+        "    * DO NOT prefix with phrases like 'The question asks' or 'The question requires'\n"
+        "    * If multiple question lines exist, include the full combined question statement\n"
+        "  - question_demands: 1-2 sentence summary of what the question requires (this is a separate summary)\n"
         "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
         "    * IMPORTANT: After assigning awarded marks to each criterion, verify that sum(criteria[i].awarded) == total_marks_awarded <= 14\n"
         "    * CRITICAL: Be honest about weaknesses - if weaknesses exist, marks should reflect them\n"
         "    * FAIR: If strengths significantly outweigh weaknesses, award marks fairly\n"
+        "    * CRITICAL FOR WEAKNESSES: weaknesses[] MUST contain single sentences explaining WHY marks were lost for this criterion\n"
+        "    * Each weakness should be ONE complete sentence that clearly states the reason marks were deducted\n"
+        "    * Example: 'Lacks depth in analyzing historical context' or 'Missing key theoretical framework' or 'Insufficient evidence to support claims'\n"
+        "    * Do NOT use multiple sentences or bullet points within a single weakness entry\n"
+        "    * Focus on specific reasons marks were lost, not general observations\n"
+        "    * Do NOT combine multiple reasons into one sentence - each weakness should be a separate entry\n"
         "  - overall_comment: 3–5 sentence holistic evaluation.\n"
     )
 
@@ -2998,7 +3062,7 @@ def build_grok_payload_for_grading(
     }
 
     return {
-        "model": "grok-4-fast-reasoning",
+        "model": "grok-4-1-fast-reasoning",
         "messages": [
             {
                 "role": "system",
@@ -3335,8 +3399,8 @@ def call_grok_for_refined_rubric_annotations(
         "       context_before = EXACT 3-5 words from OCR before the heading,\n"
         "       context_after = EXACT 3-5 words from OCR after the heading,\n"
         "       sentiment = 'positive',\n"
-        "       correction = '' (empty for positive headings),\n"
-        "       comment = 'Correct heading' or 'Good heading - clear and relevant'.\n"
+        "       correction = a refined/rephrased heading suggestion (even for positive headings),\n"
+        "       comment = POSITIVE: short explanation (1-2 sentences) of why the heading is good.\n"
         "   - For INCORRECT/PROBLEMATIC headings, create type 'heading_issue' with:\n"
         "       rubric_point = 'headings_subheadings',\n"
         "       page = page number of that heading,\n"
@@ -3345,7 +3409,10 @@ def call_grok_for_refined_rubric_annotations(
         "       context_after = EXACT 3-5 words from OCR after the heading,\n"
         "       sentiment = 'negative',\n"
         "       correction = a better alternate heading that would be more self-explanatory and relevant,\n"
-        "       comment = short explanation of the issue (NEVER mention spelling/grammar/OCR errors).\n"
+        "       comment = NEGATIVE: short explanation (1-2 sentences) of the issue (NEVER mention spelling/grammar/OCR errors).\n"
+        "   - For ALL heading_issue annotations, correction MUST be a concise, academic rephrasing that preserves meaning,\n"
+        "     stays tied to the question focus, keeps any time range or key term, and uses <= 12 words unless the original is longer.\n"
+        "   - NEVER leave correction empty for heading_issue; even positive headings need a refined rephrase.\n"
         "   - Focus ONLY on: not being self-explanatory, not directly relevant, vague, unclear, irrelevant.\n"
         "   - IGNORE: spelling mistakes, grammar errors, OCR misreads in headings.\n\n"
         "3) Factual inaccuracies:\n"
@@ -3444,8 +3511,8 @@ def call_grok_for_refined_rubric_annotations(
                     "target_word_or_sentence": "EXACT heading text from OCR",
                     "context_before": "EXACT 3-5 words before",
                     "context_after": "EXACT 3-5 words after",
-                    "correction": "Better heading suggestion or empty if positive",
-                    "comment": "Explanation of issue or 'Correct heading'",
+                    "correction": "Refined/rephrased heading suggestion",
+                    "comment": "POSITIVE/NEGATIVE: concise quality evaluation",
                     "sentiment": "positive/negative",
                 },
                 {
@@ -3481,7 +3548,7 @@ def call_grok_for_refined_rubric_annotations(
     }
 
     payload = {
-            "model": "grok-4-fast-reasoning",
+            "model": "grok-4-1-fast-reasoning",
         "messages": [system_msg, user_msg],
         "temperature": 0.1,
         "max_tokens": 6000,  # Increased for refined rubric annotations
@@ -3809,7 +3876,7 @@ def call_grok_for_page_wise_suggestions(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+        "model": "grok-4-1-fast-reasoning",
         "messages": [system_msg, user_msg],
         "temperature": 0.2,
         "max_tokens": 4000,  # Sufficient for page suggestions
@@ -3890,6 +3957,478 @@ def call_grok_for_page_wise_suggestions(
 
 
 # -----------------------------
+# GROK CALL 5: MARK DEDUCTION ANALYSIS (TESTING ONLY)
+# -----------------------------
+
+
+def call_grok_for_mark_deduction_analysis(
+    grok_api_key: str,
+    grading_result: Dict[str, Any],
+    subject_rubric_text: str,
+    ocr_data: Dict[str, Any],
+    sections: List[Dict[str, Any]],
+    max_retries: int = 3,
+) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    """
+    Analyze the marks breakdown and explain why marks were lost overall.
+    This is for testing purposes only - result is saved to JSON in Tests folder.
+    
+    IMPORTANT: Analyze each criterion internally to inform the overall analysis,
+    but DO NOT output individual criterion breakdowns. Instead, provide an
+    aggregated overall analysis.
+    
+    Output shape:
+    {
+        "total_marks_analysis": {
+            "total_awarded": 8.5,
+            "total_possible": 20,
+            "total_lost": 11.5,
+            "percentage_awarded": 42.5,
+            "overall_summary": "Brief explanation of overall performance"
+        },
+        "overall_why_marks_lost": [
+            "WHY: [Direct reason]. WHERE: [Which criteria]. IMPACT: [Marks lost]."
+        ],
+        "overall_what_was_missing": [
+            "[Missing element]: [Specific detail]"
+        ],
+        "overall_how_to_improve": [
+            "HOW: [Specific action]. WHY: [Reason]. WHERE: [Which criteria]."
+        ],
+        "priority_improvements": [
+            {
+                "priority": 1,
+                "area": "Overall area name (e.g., 'Critical Analysis')",
+                "reason": "Why this is a priority overall",
+                "quick_wins": ["Action 1", "Action 2"]
+            },
+            ...
+        ]
+    }
+    """
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are a STRICT CSS examiner evaluating student answers.\n"
+            "Your task is to evaluate the answer, outline reasons for low score, and suggest improvements.\n\n"
+            "You will receive:\n"
+            "- The grading result (strengths and weaknesses)\n"
+            "- The subject rubric text (for reference on what was expected)\n"
+            "- OCR text and sections structure (for context)\n\n"
+            "Your analysis must be:\n"
+            "- STRICT: Apply rigorous standards - identify all weaknesses clearly\n"
+            "- CRITICAL: Find ALL problems, gaps, and missing elements\n"
+            "- SPECIFIC: Explain exactly what was wrong and what was missing\n"
+            "- SIMPLE: Use clear, easy-to-understand language\n"
+            "- THOROUGH: Leave no weakness unexamined\n"
+            "- HELPFUL: Provide clear suggestions for improvement\n"
+        ),
+    }
+
+    instructions = (
+        "You have THREE SIMPLE TASKS:\n\n"
+        "1. EVALUATE this answer based on the rubric.\n"
+        "   - Look at the answer and see what's wrong\n"
+        "   - Be STRICT - identify all weaknesses\n\n"
+        "2. OUTLINE reasons for low score.\n"
+        "   - Explain why the score is low in simple, clear sentences\n"
+        "   - Write 4-6 reasons, each 1-2 sentences\n"
+        "   - Use simple language - just explain what was wrong\n"
+        "   - Example: 'The answer lacks critical analysis. It only describes events without evaluating them.'\n\n"
+        "3. SUGGEST improvements.\n"
+        "   - Tell the student what was missing and how to fix it\n"
+        "   - Write 5-7 suggestions, each 1-2 sentences\n"
+        "   - Use simple language - explain what to do and why it helps\n"
+        "   - Example: 'Add counterarguments with evidence in each section. This will turn description into critical analysis.'\n\n"
+        "IMPORTANT RULES:\n"
+        "- Write in SIMPLE, CLEAR language - no complex terms\n"
+        "- Keep each item SHORT (1-2 sentences)\n"
+        "- Make it EASY TO UNDERSTAND - the student should know exactly what was wrong\n"
+        "- Be STRICT but FAIR - point out all weaknesses clearly\n"
+        "- Do NOT mention specific criteria names or mark counts - just explain what was wrong\n\n"
+        "OUTPUT FORMAT:\n"
+        "- Return ONLY valid JSON (no markdown, no code blocks)\n"
+        "- Follow the exact schema provided in output_schema\n"
+        "- total_marks_analysis.overall_summary: 1-2 sentences explaining overall performance\n"
+        "- overall_why_marks_lost: 4-6 simple reasons for low score (1-2 sentences each)\n"
+        "- overall_what_was_missing: 6-8 items showing what was missing (1 sentence each)\n"
+        "- overall_how_to_improve: 5-7 suggestions for improvement (1-2 sentences each)\n"
+        "- priority_improvements: Top 3 priority areas with simple explanations\n"
+    )
+
+    # Prepare data payload
+    criteria_data = []
+    for crit in grading_result.get("criteria", []):
+        criteria_data.append({
+            "id": crit.get("id", ""),
+            "name": crit.get("name", ""),
+            "max": crit.get("max", 0),
+            "awarded": crit.get("awarded", 0),
+            "strengths": crit.get("strengths", []),
+            "weaknesses": crit.get("weaknesses", []),
+        })
+
+    user_payload = {
+        "grading_result": {
+            "subject": grading_result.get("subject", ""),
+            "total_marks_awarded": grading_result.get("total_marks_awarded", 0),
+            "max_marks": grading_result.get("max_marks", 20),
+            "criteria": criteria_data,
+            "overall_comment": grading_result.get("overall_comment", ""),
+        },
+        "subject_rubric_text": subject_rubric_text[:5000],  # Limit to avoid token overflow
+        "ocr_full_text": ocr_data.get("full_text", "")[:10000],  # Limit for context
+        "sections": sections,
+        "output_schema": {
+            "total_marks_analysis": {
+                "total_awarded": 0,
+                "total_possible": 20,
+                "total_lost": 0,
+                "percentage_awarded": 0,
+                "overall_summary": "Brief explanation"
+            },
+            "overall_why_marks_lost": [
+                "Simple 1-2 sentence explanation of why marks were lost, written in clear language."
+            ],
+            "overall_what_was_missing": [
+                "Simple 1 sentence explaining what was missing, written in clear language."
+            ],
+            "overall_how_to_improve": [
+                "Simple 1-2 sentence suggestion for improvement, written in clear language."
+            ],
+            "priority_improvements": [
+                {
+                    "priority": 1,
+                    "area": "Overall area name (e.g., 'Critical Analysis')",
+                    "reason": "Why this is a priority overall",
+                    "quick_wins": ["Action 1", "Action 2"]
+                }
+            ]
+        },
+    }
+
+    user_msg = {
+        "role": "user",
+        "content": instructions + "\n\nDATA:\n" + json.dumps(user_payload, ensure_ascii=False),
+    }
+
+    headers = {
+        "Authorization": f"Bearer {grok_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": "grok-4-1-fast-reasoning",
+        "messages": [system_msg, user_msg],
+        "temperature": 0.2,
+        "max_tokens": 6000,
+    }
+
+    for attempt in range(max_retries):
+        if attempt > 0:
+            import time
+            time.sleep(2 ** (attempt - 1))
+            print(f"Retry attempt {attempt + 1}/{max_retries} for mark deduction analysis...")
+
+        try:
+            resp = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=150,
+            )
+
+            if resp.status_code >= 300:
+                if attempt < max_retries - 1:
+                    print(f"API error {resp.status_code}, retrying...")
+                    continue
+                raise RuntimeError(f"Mark deduction analysis API error {resp.status_code}: {resp.text}")
+
+            data = resp.json()
+
+            # Extract token usage
+            usage = data.get("usage", {})
+            token_usage = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+            }
+
+            # Check for truncation
+            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
+            if finish_reason == "length" and attempt < max_retries - 1:
+                payload["max_tokens"] = payload.get("max_tokens", 6000) + 2000
+                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
+                continue
+
+            content = data["choices"][0]["message"]["content"]
+            cleaned = clean_json_from_llm(content)
+            parsed = json.loads(cleaned)
+
+            # Success
+            if attempt > 0:
+                print(f"Successfully parsed mark deduction analysis on attempt {attempt + 1}")
+
+            return parsed, token_usage
+
+        except (requests.Timeout, requests.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                print(f"Network error, retrying...")
+                continue
+            raise RuntimeError(f"Mark deduction analysis network error: {e}") from e
+
+        except json.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                print(f"JSON parse error, retrying...")
+                continue
+            # Try to repair JSON
+            try:
+                repaired = repair_json(cleaned, error_pos=e.pos)
+                parsed = json.loads(repaired)
+                print(f"Successfully parsed after repair on attempt {attempt + 1}")
+                return parsed, token_usage
+            except Exception as repair_exc:
+                raise RuntimeError(
+                    f"Mark deduction analysis JSON parse error: {e}. Repair also failed: {repair_exc}"
+                ) from e
+
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                print(f"Unexpected error: {exc}, retrying...")
+                continue
+            raise RuntimeError(f"Unexpected mark deduction analysis error: {exc}") from exc
+
+    raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
+
+
+def _should_save_test_files() -> bool:
+    """
+    Check if test files should be saved based on environment variable.
+    Defaults to False (production-safe).
+    Set SAVE_TEST_FILES=true in local development.
+    """
+    save_test_files = os.getenv("SAVE_TEST_FILES", "false").lower()
+    return save_test_files in ("true", "1", "yes")
+
+
+def save_mark_deduction_analysis_to_tests(
+    analysis_result: Dict[str, Any],
+    request_id: str,
+    subject: str,
+) -> Optional[str]:
+    """
+    Save mark deduction analysis to Tests folder as JSON.
+    Only saves if SAVE_TEST_FILES environment variable is set to true.
+    
+    Args:
+        analysis_result: The mark deduction analysis result from Grok
+        request_id: The request ID for filename
+        subject: The subject name for filename
+    
+    Returns:
+        Path to the saved file, or None if saving is disabled
+    """
+    if not _should_save_test_files():
+        return None
+    
+    # Get the base directory (where grade_pdf_answer.py is located)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    tests_dir = os.path.join(base_dir, "Tests")
+    
+    # Create Tests directory if it doesn't exist
+    os.makedirs(tests_dir, exist_ok=True)
+    
+    # Create filename with timestamp and request_id
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    filename = f"mark_deduction_analysis_{safe_subject}_{request_id}_{timestamp}.json"
+    filepath = os.path.join(tests_dir, filename)
+    
+    # Save the analysis
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(analysis_result, f, ensure_ascii=False, indent=2)
+    
+    print(f"Mark deduction analysis saved to: {filepath}")
+    return filepath
+
+
+def save_annotations_to_tests(
+    annotations: List[Dict[str, Any]],
+    request_id: str,
+    subject: str,
+) -> Optional[str]:
+    """
+    Save annotations to Tests folder as JSON.
+    Only saves if SAVE_TEST_FILES environment variable is set to true.
+    
+    Args:
+        annotations: The list of validated annotations
+        request_id: The request ID for filename
+        subject: The subject name for filename
+    
+    Returns:
+        Path to the saved file, or None if saving is disabled
+    """
+    if not _should_save_test_files():
+        return None
+    
+    # Get the base directory (where grade_pdf_answer.py is located)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    tests_dir = os.path.join(base_dir, "Tests")
+    
+    # Create Tests directory if it doesn't exist
+    os.makedirs(tests_dir, exist_ok=True)
+    
+    # Create filename with timestamp and request_id
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    filename = f"annotations_{safe_subject}_{request_id}_{timestamp}.json"
+    filepath = os.path.join(tests_dir, filename)
+    
+    # Prepare the data structure
+    annotations_data = {
+        "request_id": request_id,
+        "subject": subject,
+        "timestamp": timestamp,
+        "total_annotations": len(annotations),
+        "annotations": annotations,
+    }
+    
+    # Save the annotations
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(annotations_data, f, ensure_ascii=False, indent=2)
+    
+    print(f"Annotations saved to: {filepath}")
+    return filepath
+
+
+def save_unfiltered_ocr_text(
+    ocr_data: Dict[str, Any],
+    request_id: str,
+    subject: str,
+) -> Optional[str]:
+    """
+    Save unfiltered OCR text to Tests folder as JSON and plain text.
+    This is saved BEFORE any filtering or processing happens.
+    Only saves if SAVE_TEST_FILES environment variable is set to true.
+    
+    Args:
+        ocr_data: The raw OCR data dictionary
+        request_id: The request ID for filename
+        subject: The subject name for filename
+    
+    Returns:
+        Path to the saved JSON file, or None if saving is disabled
+    """
+    if not _should_save_test_files():
+        return None
+    
+    # Get the base directory (where grade_pdf_answer.py is located)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    tests_dir = os.path.join(base_dir, "Tests")
+    
+    # Create Tests directory if it doesn't exist
+    os.makedirs(tests_dir, exist_ok=True)
+    
+    # Create filename with timestamp and request_id
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    
+    # Save as JSON (full OCR data structure)
+    json_filename = f"ocr_unfiltered_{safe_subject}_{request_id}_{timestamp}.json"
+    json_filepath = os.path.join(tests_dir, json_filename)
+    
+    # Extract full text from all pages
+    full_text_pages = []
+    full_text_combined = []
+    
+    pages = ocr_data.get("pages", [])
+    for page_idx, page in enumerate(pages):
+        page_num = page.get("page_number", page_idx + 1)
+        
+        # Try multiple ways to extract text from OCR data structure
+        page_text = page.get("full_text", "")
+        
+        # If full_text is empty, extract from lines array (common OCR structure)
+        if not page_text:
+            lines = page.get("lines", [])
+            if lines:
+                # Extract text from each line
+                line_texts = []
+                for line in lines:
+                    line_text = line.get("text", "") or line.get("line_text", "")
+                    if line_text:
+                        line_texts.append(line_text)
+                page_text = "\n".join(line_texts)
+        
+        # If still empty, try blocks
+        if not page_text:
+            blocks = page.get("blocks", [])
+            if blocks:
+                block_texts = []
+                for block in blocks:
+                    block_text = block.get("text", "")
+                    if block_text:
+                        block_texts.append(block_text)
+                page_text = "\n".join(block_texts)
+        
+        # If still empty, try paragraphs
+        if not page_text:
+            paragraphs = page.get("paragraphs", [])
+            if paragraphs:
+                para_texts = []
+                for para in paragraphs:
+                    para_text = para.get("text", "")
+                    if para_text:
+                        para_texts.append(para_text)
+                page_text = "\n".join(para_texts)
+        
+        full_text_pages.append({
+            "page_number": page_num,
+            "text": page_text,
+            "line_count": len(page_text.splitlines()) if page_text else 0,
+            "char_count": len(page_text) if page_text else 0
+        })
+        if page_text:
+            full_text_combined.append(f"=== PAGE {page_num} ===\n{page_text}\n")
+        else:
+            full_text_combined.append(f"=== PAGE {page_num} ===\n[No text extracted from OCR data]\n")
+    
+    # Prepare the data structure
+    ocr_save_data = {
+        "request_id": request_id,
+        "subject": subject,
+        "timestamp": timestamp,
+        "total_pages": len(pages),
+        "full_ocr_data": ocr_data,  # Complete unfiltered OCR data
+        "extracted_text": {
+            "by_page": full_text_pages,
+            "combined": "\n".join(full_text_combined)
+        }
+    }
+    
+    # Save as JSON
+    with open(json_filepath, "w", encoding="utf-8") as f:
+        json.dump(ocr_save_data, f, ensure_ascii=False, indent=2)
+    
+    # Also save as plain text for easy reading
+    txt_filename = f"ocr_unfiltered_{safe_subject}_{request_id}_{timestamp}.txt"
+    txt_filepath = os.path.join(tests_dir, txt_filename)
+    with open(txt_filepath, "w", encoding="utf-8") as f:
+        f.write("=" * 80 + "\n")
+        f.write(f"UNFILTERED OCR TEXT - {subject}\n")
+        f.write(f"Request ID: {request_id}\n")
+        f.write(f"Timestamp: {timestamp}\n")
+        f.write(f"Total Pages: {len(pages)}\n")
+        f.write("=" * 80 + "\n\n")
+        f.write("\n".join(full_text_combined))
+    
+    print(f"Unfiltered OCR text saved to:")
+    print(f"  JSON: {json_filepath}")
+    print(f"  TXT: {txt_filepath}")
+    return json_filepath
+
+
+# -----------------------------
 # REPORT RENDERING (SUBJECT MARKING)
 # -----------------------------
 
@@ -3932,28 +4471,6 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def _extract_expectation_bullets(expectation_text: Any) -> List[str]:
-    bullet_points: List[str] = []
-    if isinstance(expectation_text, list):
-        bullet_points = [str(p).strip() for p in expectation_text if p]
-    elif expectation_text:
-        expectation_str = str(expectation_text).strip()
-        sentences = re.split(r"(?<=[.!?])\s+", expectation_str)
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if sentence:
-                if sentence.endswith((".", "!", "?")):
-                    sentence = sentence[:-1].strip()
-                bullet_points.append(sentence)
-        if not bullet_points:
-            comma_parts = [p.strip() for p in expectation_str.split(",")]
-            bullet_points = [p for p in comma_parts if p]
-    if not bullet_points:
-        bullet_points = ["No specific expectations provided"]
-    bullet_points = [pt for pt in bullet_points if pt]
-    return bullet_points[:4]
-
-
 def _wrap_text(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -3977,41 +4494,122 @@ def _wrap_text(
         lines.append(current)
     return lines
 
+
+def _calculate_rating(awarded: float, max_marks: float) -> str:
+    """Calculate rating based on awarded/max ratio."""
+    if max_marks == 0:
+        return "N/A"
+    ratio = awarded / max_marks
+    if ratio >= 0.85:
+        return "Excellent"
+    elif ratio >= 0.70:
+        return "Good"
+    elif ratio >= 0.50:
+        return "Average"
+    else:
+        return "Weak"
+
+
+def _combine_strengths_weaknesses(strengths: List[str], weaknesses: List[str]) -> str:
+    """Combine strengths and weaknesses into a single comment string."""
+    parts = []
+    if strengths:
+        strengths_text = ". ".join(strengths)
+        if not strengths_text.endswith("."):
+            strengths_text += "."
+        parts.append(f"Strengths: {strengths_text}")
+    if weaknesses:
+        weaknesses_text = ". ".join(weaknesses)
+        if not weaknesses_text.endswith("."):
+            weaknesses_text += "."
+        parts.append(f"Weaknesses: {weaknesses_text}")
+    if not parts:
+        return "No specific feedback provided."
+    return " ".join(parts)
+
 def render_subject_report_pages(
     grading_result: Dict[str, Any],
     page_size: Tuple[int, int] = (2977, 4211),  # 200 DPI: Width x Height
     refined_summary: Optional[List[Dict[str, Any]]] = None,  # ADD THIS: refined rubric summary (for Length & Completeness)
 ) -> List[Image.Image]:
     """
-    Render the subject-wise marking report on exactly 2 pages max.
-    If content exceeds 2 pages, font sizes are reduced until it fits.
+    Render the subject-wise marking report on a single page.
+    Dynamically adjusts page height to fit content perfectly:
+      - Starts with base height (1.2x original)
+      - Incrementally increases height until content fits
+      - Falls back to font scaling only if height reaches maximum limit
       - SUBJECT NAME (at top)
       - TOTAL MARKS
       - QUESTION STATEMENT
-      - WHAT QUESTION EXPECTS (right after question statement, as single paragraph)
       - CRITERIA breakdown (with strengths & weaknesses)
       (Note: high-scoring outline is on a separate dedicated page)
     """
-    # Try rendering with progressively smaller fonts until it fits in 2 pages
-    font_scale = 1.0
-    max_attempts = 10
-
-    for attempt in range(max_attempts):
-        pages = _render_subject_report_with_scale(grading_result, page_size, font_scale, refined_summary)
-
-        if len(pages) <= 2:
-            # Success! Fits in 2 pages or less
+    W, H = page_size
+    # Start from the base size returned by get_report_page_size().
+    # Then grow height gradually until everything fits on a SINGLE page.
+    base_height_multiplier = 1.0
+    max_height_multiplier = 5.0  # safety upper bound; actual cap enforced in renderer based on memory
+    height_increment = 0.05  # smaller step for a tighter fit
+    
+    # Try dynamic height adjustment first
+    current_height_multiplier = base_height_multiplier
+    font_scale = 1.0  # Keep font size constant initially
+    attempt = 0
+    last_pages: List[Image.Image] = []
+    
+    while current_height_multiplier <= max_height_multiplier:
+        adjusted_page_size = (W, int(H * current_height_multiplier))
+        pages, overflowed = _render_subject_report_with_scale(
+            grading_result, adjusted_page_size, font_scale, refined_summary
+        )
+        last_pages = pages
+        
+        if not overflowed:
             if attempt > 0:
-                print(f"Subject report fit in {len(pages)} pages after reducing font to {font_scale:.1%} of original size")
+                print(
+                    f"Subject report fit on one page with height multiplier "
+                    f"{current_height_multiplier:.2f}x (height: {adjusted_page_size[1]}px)"
+                )
             return pages
-
-        # Too many pages, reduce font size
-        print(f"Subject report has {len(pages)} pages (attempt {attempt+1}), reducing font size...")
-        font_scale *= 0.85  # Reduce by 15% each iteration
-
-    # If we still can't fit after max attempts, return what we have
-    print(f"WARNING: Subject report still has {len(pages)} pages after {max_attempts} attempts to reduce font size")
-    return pages
+        
+        attempt += 1
+        print(
+            f"Subject report overflowed (attempt {attempt}), "
+            f"increasing height to {current_height_multiplier + height_increment:.2f}x..."
+        )
+        current_height_multiplier += height_increment
+    
+    # If height adjustment didn't work, fall back to font scaling (last resort)
+    print(
+        f"WARNING: Subject report still overflows at max height ({max_height_multiplier:.2f}x). "
+        "Falling back to font scaling..."
+    )
+    
+    # Use the maximum height we tried, but now scale fonts
+    max_height_page_size = (W, int(H * max_height_multiplier))
+    font_scale = 1.0
+    min_scale = 0.5
+    
+    while font_scale >= min_scale:
+        pages, overflowed = _render_subject_report_with_scale(
+            grading_result, max_height_page_size, font_scale, refined_summary
+        )
+        last_pages = pages
+        
+        if not overflowed:
+            print(
+                f"Subject report fit after reducing font to {font_scale:.1%} "
+                f"at max height ({max_height_multiplier:.2f}x)"
+            )
+            return pages
+        
+        font_scale *= 0.9  # Reduce by 10% each iteration
+    
+    print(
+        f"WARNING: Subject report still overflows after all adjustments "
+        f"(height: {max_height_multiplier:.2f}x, font: {min_scale:.1%})"
+    )
+    return last_pages
 
 
 def _render_subject_report_with_scale(
@@ -4019,46 +4617,48 @@ def _render_subject_report_with_scale(
     page_size: Tuple[int, int],
     font_scale: float = 1.0,
     refined_summary: Optional[List[Dict[str, Any]]] = None,  # ADD THIS: refined rubric summary (for Length & Completeness)
-) -> List[Image.Image]:
+) -> Tuple[List[Image.Image], bool]:
     """
     Internal helper to render subject report with a given font scale.
+    Returns the rendered pages and a flag indicating whether content overflowed.
     """
     W, H = page_size
-    
-    # Safety check: prevent MemoryError from extremely large images
-    # Estimate memory: W * H * 3 bytes (RGB) = total bytes
-    estimated_mb = (W * H * 3) / (1024 * 1024)
+
+    # Safety check: prevent MemoryError from extremely large images.
+    # IMPORTANT: do NOT change width here (caller expects width to remain stable).
+    # Instead, cap height based on a memory budget for a single RGB image.
     max_safe_mb = 200  # ~200MB per image is reasonable
-    
-    if estimated_mb > max_safe_mb:
-        # Scale down to safe size
-        scale = (max_safe_mb / estimated_mb) ** 0.5
-        W = int(W * scale)
-        H = int(H * scale)
-        print(f"WARNING: Page size would require ~{estimated_mb:.1f}MB. "
-              f"Scaling down to ({W}x{H}) to prevent MemoryError.")
-    
-    # Additional safety: hard limits
-    max_width = 6000
-    max_height = 12000
-    if W > max_width or H > max_height:
-        print(f"WARNING: Page size ({W}x{H}) exceeds hard limits. Using fallback size.")
-        W, H = 2977, 4211  # A4 at 200 DPI fallback
+    max_h_by_memory = int((max_safe_mb * 1024 * 1024) / max(1, W * 3))
+    if H > max_h_by_memory:
+        print(
+            f"WARNING: Requested report height {H}px exceeds safe height {max_h_by_memory}px "
+            f"for width {W}px. Capping height to avoid MemoryError."
+        )
+        H = max_h_by_memory
+
+    # Additional safety: cap absolute height (still width-preserving)
+    max_height = 30000
+    if H > max_height:
+        print(f"WARNING: Report height ({H}px) exceeds hard cap ({max_height}px). Capping.")
+        H = max_height
     
     margin = int(W * 0.07)
-    line_spacing = 1.3  # Reduced from 1.4 to save space for 2-page fit
+    line_spacing = 1.3
 
-    # Base font sizes (scaled by font_scale parameter)
-    title_font = _get_font(int(90 * font_scale))
-    subject_font = _get_font(int(74 * font_scale))
-    section_heading_font = _get_font(int(78 * font_scale))
-    question_text_font = _get_font(int(62 * font_scale))
-    criteria_heading_font = _get_font(int(70 * font_scale))
-    body_font = _get_font(int(58 * font_scale))
-    total_heading_font = _get_font(int(106 * font_scale))
-    total_marks_font = _get_font(int(140 * font_scale))
+    # Base font sizes (scaled by font_scale parameter) tuned to match report screenshot.
+    subject_font = _get_font(int(62 * font_scale))
+    section_heading_font = _get_font(int(60 * font_scale))
+    question_text_font = _get_font(int(54 * font_scale))
+    criteria_heading_font = _get_font(int(60 * font_scale))
+    body_font = _get_font(int(46 * font_scale))
+    total_heading_font = _get_font(int(68 * font_scale))
+    bullet_font = _get_font(int(50 * font_scale))
 
     pages: List[Image.Image] = []
+    overflowed = False
+    # IMPORTANT: The subject report must always be a SINGLE page.
+    # If content doesn't fit, we signal overflow so the caller can increase height.
+    max_report_pages = 1
 
     def new_page() -> Tuple[Image.Image, ImageDraw.ImageDraw, int]:
         try:
@@ -4075,12 +4675,21 @@ def _render_subject_report_with_scale(
 
     img, draw, y = new_page()
 
-    def ensure_space(font_obj: ImageFont.FreeTypeFont, needed_lines: int):
-        nonlocal img, draw, y
+    def ensure_space(font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
+        nonlocal img, draw, y, overflowed
         line_h = font_obj.getbbox("Ag")[3] - font_obj.getbbox("Ag")[1]
         if y + line_h * needed_lines * line_spacing > H - margin:
-            pages.append(img)
-            img, draw, y = new_page()
+            overflowed = True
+            return False
+        return True
+
+    def ensure_space_or_new_page(font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
+        nonlocal img, draw, y, overflowed, pages
+        line_h = font_obj.getbbox("Ag")[3] - font_obj.getbbox("Ag")[1]
+        if y + line_h * needed_lines * line_spacing <= H - margin:
+            return True
+        overflowed = True
+        return False
 
     def draw_bold_text(
         text: str,
@@ -4094,120 +4703,467 @@ def _render_subject_report_with_scale(
 
     max_text_width = W - 2 * margin
 
+    def _strip_question_prefix(text: str) -> str:
+        """
+        Remove leading question numbering like 'Question #1', 'Question 1:', 'Q1)'.
+        Display-only: keeps just the substantive question text.
+        """
+        if not text:
+            return ""
+        t = text.strip()
+        t = re.sub(r"^(question\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"^(q\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
+        return t.strip()
+
     # SUBJECT NAME (at top)
     subject = grading_result.get("subject", "")
     if subject:
-        ensure_space(subject_font, 2)
-        draw.text((margin, y), f"Subject: {subject}", font=subject_font, fill="black")
+        if not ensure_space(subject_font, 2):
+            return [img], True
+        display_subject = str(subject).strip().replace("-", " ").title()
+        draw_bold_text(f"Subject: {display_subject}", subject_font, (margin, y), "black")
         line_h_subj = subject_font.getbbox("Ag")[3] - subject_font.getbbox("Ag")[1]
-        y += int(line_h_subj * line_spacing * 1.2)  # Reduced from 1.5 to save space
+        y += int(line_h_subj * line_spacing * 1.2)
 
-    # TOTAL MARKS
+    # TOTAL MARKS (single red line)
     total = grading_result.get("total_marks_awarded", 0)
     maximum = grading_result.get("max_marks", 20)
 
-    ensure_space(total_heading_font, 2)
-    draw_bold_text("TOTAL MARKS", total_heading_font, (margin, y), "black")
+    if not ensure_space(total_heading_font, 1):
+        return [img], True
+    total_label = "Total Marks Obtained:"
+    total_value = f"{total} / {maximum}"
+    draw_bold_text(total_label, total_heading_font, (margin, y), "#B22222")
+    label_w = int(draw.textlength(total_label + " ", font=total_heading_font))
+    draw_bold_text(total_value, total_heading_font, (margin + label_w, y), "#B22222")
     line_h = total_heading_font.getbbox("Ag")[3] - total_heading_font.getbbox("Ag")[1]
-    y += int(line_h * line_spacing)
-    draw_bold_text(f"{total} / {maximum}", total_marks_font, (margin, y), "#B22222")  # Keep red color
-    line_h2 = total_marks_font.getbbox("Ag")[3] - total_marks_font.getbbox("Ag")[1]
-    y += int(line_h2 * line_spacing * 1.5)  # Reduced from 2 to save space
+    y += int(line_h * line_spacing * 1.4)
 
     # QUESTION STATEMENT
     question = grading_result.get("question_statement", "")
-    ensure_space(section_heading_font, 3)
-    # Center the heading
-    heading_text = "QUESTION STATEMENT"
-    heading_width = draw.textlength(heading_text, font=section_heading_font)
-    heading_x = (W - heading_width) // 2
-    draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
+    if question:
+        question = _strip_question_prefix(question)
+    else:
+        question = "No question statement provided."
+    if not ensure_space(section_heading_font, 2):
+        return [img], True
+    heading_text = "Question Statement:"
+    draw_bold_text(heading_text, section_heading_font, (margin, y), "black")
     line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * 1.2)  # Reduced from 1.5 to save space
-    for line in _wrap_text(draw, question, question_text_font, max_text_width):
-        ensure_space(question_text_font, 1)
-        line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
-        draw_bold_text(line, question_text_font, (margin, y), "black")  # Bold question text
+    y += int(line_h_section * line_spacing)
+
+    # Render the question statement directly under the heading (no extra label).
+    if not ensure_space(question_text_font, 2):
+        return [img], True
+    wrapped_question = _wrap_text(
+        draw,
+        question,
+        question_text_font,
+        max_text_width,
+    ) or [""]
+    line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
+    for line in wrapped_question:
+        if not ensure_space(question_text_font, 1):
+            return [img], True
+        draw.text((margin, y), line, font=question_text_font, fill="black")
         y += int(line_hq * line_spacing)
-    y += int(question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1])
+    y += int(line_hq * 0.6)
 
-    # WHAT QUESTION EXPECTS (right after question statement, as a single paragraph)
-    expectation = grading_result.get("question_expectation", "")
-    expectation_bullets = _extract_expectation_bullets(expectation) if expectation else []
-    if expectation_bullets:
-        ensure_space(section_heading_font, 2)
-        # Center the heading
-        heading_text = "WHAT THE QUESTION EXPECTS"
-        heading_width = draw.textlength(heading_text, font=section_heading_font)
-        heading_x = (W - heading_width) // 2
-        draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
-        line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-        y += int(line_h_section * line_spacing)
-        line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-        for bullet in expectation_bullets:
-            wrapped = _wrap_text(draw, bullet, body_font, max_text_width - int(0.05 * W))
-            ensure_space(body_font, len(wrapped) + 1)
-            for idx, line in enumerate(wrapped):
-                if idx == 0:
-                    draw.text((margin, y), f"- {line}", font=body_font, fill="black")
-                else:
-                    indent_x = margin + int(0.04 * W)
-                    draw.text((indent_x, y), line, font=body_font, fill="black")
+    # MARKS BREAKDOWN
+
+    def _as_int_if_whole(v: float) -> str:
+        try:
+            fv = float(v)
+        except Exception:
+            return str(v)
+        return str(int(fv)) if fv.is_integer() else f"{fv:.1f}"
+
+    def _first_sentence_one_liner(text: str) -> str:
+        t = (text or "").strip()
+        t = re.sub(r'^(Strengths|Weaknesses):\s*', '', t, flags=re.IGNORECASE).strip()
+        # keep just first sentence if model returns multiple
+        parts = re.split(r'[.!?]+', t)
+        first = (parts[0].strip() if parts and parts[0].strip() else t).strip()
+        if first and not first.endswith((".", "!", "?")):
+            first += "."
+        return first
+
+    def _draw_centered_multiline(
+        x0: int,
+        y0: int,
+        x1: int,
+        y1: int,
+        lines: List[str],
+        font: ImageFont.FreeTypeFont,
+        *,
+        fill: str = "black",
+        highlight_line_idxs: Optional[set] = None,
+        highlight_fill: Tuple[int, int, int] = (255, 255, 0),
+        pad_px: int = 2,
+        vpad_px: int = 4,
+        line_adv_px: Optional[int] = None,
+        highlight_pad_y_px: int = 1,
+        bold: bool = False,
+    ) -> None:
+        """Draw multiline text centered in a rectangle; optionally highlight specific lines."""
+        highlight_line_idxs = highlight_line_idxs or set()
+        line_h = font.getbbox("Ag")[3] - font.getbbox("Ag")[1]
+        # Use a slightly larger line advance so multi-line headers never collide.
+        line_adv = line_adv_px if line_adv_px is not None else max(1, int(line_h * 1.50))
+        inner_y0 = y0 + max(0, vpad_px)
+        inner_y1 = y1 - max(0, vpad_px)
+        inner_h = max(0, inner_y1 - inner_y0)
+        total_h = len(lines) * line_adv
+        start_y = inner_y0 + max(0, (inner_h - total_h) // 2)
+        for i, line in enumerate(lines):
+            tw = int(draw.textlength(line, font=font))
+            tx = x0 + max(0, (x1 - x0 - tw) // 2)
+            ty = start_y + i * line_adv
+            if i in highlight_line_idxs:
+                # Keep highlight strictly within this line slot (avoid touching adjacent lines)
+                slot_y0 = ty
+                slot_y1 = ty + line_adv
+                # Keep highlight inside the current line slot with a tiny air gap
+                rect_y0 = max(inner_y0, slot_y0 + 1)
+                rect_y1 = min(inner_y1, slot_y0 + line_h + max(0, highlight_pad_y_px))
+                # Ensure we never touch the next line slot
+                rect_y1 = min(rect_y1, slot_y1 - 3)
+                draw.rectangle(
+                    [(tx - pad_px, rect_y0), (tx + tw + pad_px, rect_y1)],
+                    fill=highlight_fill,
+                )
+            if bold:
+                for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+                    draw.text((tx + dx, ty + dy), line, font=font, fill=fill)
+            else:
+                draw.text((tx, ty), line, font=font, fill=fill)
+
+    def _measure_wrapped_lines(font: ImageFont.FreeTypeFont, text: str, max_w: int) -> List[str]:
+        return _wrap_text(draw, text, font, max_w)
+
+    criteria_list = grading_result.get("criteria", []) or []
+    if not criteria_list:
+        # Heading (matches screenshot casing/placement)
+        if not ensure_space(section_heading_font, 2):
+            return [img], True
+        draw_bold_text("Marks Breakdown", section_heading_font, (margin, y), "black")
+        heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+        y += int(heading_line_h * 1.4)  # more space so it never collides
+
+        if not ensure_space(body_font, 2):
+            return [img], True
+        draw.text((margin, y), "No criteria breakdown available.", font=body_font, fill="gray")
+        y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 2.0)
+    else:
+        # --- Layout constants to match screenshot ---
+        table_left = margin + int(0.02 * W)
+        table_right = W - margin - int(0.02 * W)
+        table_width = table_right - table_left
+
+        # Column widths: Category wide, marks narrow, remarks widest
+        col_category_w = int(table_width * 0.28)
+        col_alloc_w = int(table_width * 0.18)
+        col_obt_w = int(table_width * 0.18)
+        col_remarks_w = table_width - col_category_w - col_alloc_w - col_obt_w
+
+        x_cat0 = table_left
+        x_cat1 = x_cat0 + col_category_w
+        x_alloc1 = x_cat1 + col_alloc_w
+        x_obt1 = x_alloc1 + col_obt_w
+        x_rem1 = table_right
+
+        # Colors / borders
+        grey_row = (200, 200, 200)
+        white = (255, 255, 255)
+        outer_w = max(2, int(2 * font_scale))
+        inner_w = 1
+
+        # Build row payload (pad to 6 rows to match report template)
+        rows: List[Dict[str, str]] = []
+        total_rows = max(6, len(criteria_list))
+        for i in range(total_rows):
+            crit = criteria_list[i] if i < len(criteria_list) else {}
+            name = str(crit.get("name", "") or "").strip()
+            max_marks = crit.get("max", "") if i < len(criteria_list) else ""
+            awarded = crit.get("awarded", "") if i < len(criteria_list) else ""
+            weaknesses = crit.get("weaknesses") or [] if i < len(criteria_list) else []
+
+            remark = ""
+            if weaknesses:
+                remark = _first_sentence_one_liner(str(weaknesses[0]))
+            elif i < len(criteria_list) and float(awarded or 0) < float(max_marks or 0):
+                remark = "Missing required content for this criterion."
+
+            category_text = f"{i+1}. {name}".strip() if name else f"{i+1}."
+            rows.append(
+                {
+                    "category": category_text,
+                    "allocated": _as_int_if_whole(max_marks) if max_marks != "" else "",
+                    "obtained": _as_int_if_whole(awarded) if awarded != "" else "",
+                    "remarks": remark,
+                }
+            )
+
+        # If there isn't enough remaining space, move Marks Breakdown to a new page.
+        # This prevents the table from becoming tiny just to squeeze under earlier content.
+        heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+        gap_after_heading = max(int(0.70 * heading_line_h), int(28 * font_scale))
+
+        # Preferred (readable) table sizing before auto-shrink kicks in
+        preferred_body_px = max(int(56 * font_scale), 32)
+        preferred_header_px = max(int(46 * font_scale), 28)
+
+        def _table_dims_for(body_px: int, header_px: int) -> Tuple[int, int, int, int]:
+            body_f = _get_font(body_px)
+            head_f = _get_font(header_px)
+            line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
+            pad = max(4, int(0.30 * line_h))
+            # row height should not collapse when font_scale is small
+            row_h = max(int(line_h * 2.15), 40)
+            header_h = max(int((head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]) * 2.15), 66)
+            needed = (heading_line_h + gap_after_heading) + header_h + (len(rows) * row_h) + outer_w
+            return row_h, header_h, pad, needed
+
+        _pref_row_h, _pref_header_h, _pref_pad, _pref_needed = _table_dims_for(preferred_body_px, preferred_header_px)
+        if y + _pref_needed > H - margin:
+            pages.append(img)
+            img, draw, y = new_page()
+
+        # Heading (matches screenshot casing/placement)
+        if not ensure_space(section_heading_font, 2):
+            return [img], True
+        draw_bold_text("Marks Breakdown", section_heading_font, (margin, y), "black")
+        y += int(heading_line_h + gap_after_heading)
+
+        # --- Auto-fit loop (robust): dynamic row heights per wrapped content ---
+        # Fixes the "jumbled up" issue by ensuring row height >= required wrapped text height.
+        available_h = (H - margin) - y
+        base_body_px = preferred_body_px
+        base_header_px = preferred_header_px
+        min_px = max(int(24 * font_scale), 24)  # keep readable
+
+        chosen_body_px = base_body_px
+        chosen_header_px = base_header_px
+        chosen_pad = max(6, int(8 * font_scale))
+        chosen_row_heights: List[int] = []
+        chosen_header_h = 0
+        chosen_body_line_h = 0
+        chosen_line_adv = 0
+        chosen_row_lines: List[Dict[str, List[str]]] = []
+
+        def _layout_for(body_px: int, header_px: int) -> Tuple[bool, int, int, int, int, List[int], List[Dict[str, List[str]]]]:
+            body_f = _get_font(body_px)
+            head_f = _get_font(header_px)
+            line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
+            line_adv = max(1, int(line_h * 1.10))  # MUST match drawing advance to avoid spill
+            pad = max(6, int(0.35 * line_h))
+
+            header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
+            # MUST match the line advance used by _draw_centered_multiline for headers,
+            # otherwise text can collide vertically within the header row.
+            header_line_adv = max(1, int(header_line_h * 1.50))
+            header_vpad = max(12, int(header_line_h * 0.65))
+            # header has 3 lines at most in our design; compute exact height
+            header_lines_count = 3
+            header_h = max(108, (header_lines_count * header_line_adv) + 2 * header_vpad)
+
+            row_heights: List[int] = []
+            row_lines: List[Dict[str, List[str]]] = []
+            for r in rows:
+                cat_lines = _measure_wrapped_lines(body_f, r["category"], col_category_w - 2 * pad)
+                rem_lines = _measure_wrapped_lines(body_f, r["remarks"], col_remarks_w - 2 * pad) if r["remarks"] else [""]
+                needed_lines = max(len(cat_lines), len(rem_lines), 1)
+                row_h = max(40, (needed_lines * line_adv) + 2 * pad)
+                row_heights.append(row_h)
+                row_lines.append({"cat": cat_lines, "rem": rem_lines})
+
+            needed_total = header_h + sum(row_heights) + outer_w
+            return (needed_total <= available_h, line_h, line_adv, pad, header_h, row_heights, row_lines)
+
+        for px in range(base_body_px, min_px - 1, -1):
+            header_px = max(min_px, int(px * 0.85))
+            ok, line_h, line_adv, pad, header_h, row_heights, row_lines = _layout_for(px, header_px)
+            if ok:
+                chosen_body_px = px
+                chosen_header_px = header_px
+                chosen_pad = pad
+                chosen_header_h = header_h
+                chosen_row_heights = row_heights
+                chosen_row_lines = row_lines
+                chosen_body_line_h = line_h
+                chosen_line_adv = line_adv
+                break
+
+        body_f = _get_font(chosen_body_px)
+        head_f = _get_font(chosen_header_px)
+        body_line_h = chosen_body_line_h or (body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1])
+
+        table_top = y
+        header_y0 = table_top
+        header_y1 = header_y0 + chosen_header_h
+        table_bottom = header_y1 + sum(chosen_row_heights)
+
+        # --- Draw header background ---
+        draw.rectangle([(table_left, header_y0), (table_right, header_y1)], fill=white)
+
+        # Header text + highlights (yellow behind specific phrases)
+        header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
+        header_line_adv = max(1, int(header_line_h * 1.50))
+        header_vpad = max(12, int(header_line_h * 0.65))
+        _draw_centered_multiline(
+            x_cat0,
+            header_y0,
+            x_cat1,
+            header_y1,
+            ["Category", "(According to the", "rubric)"],
+            head_f,
+            highlight_line_idxs={1, 2},
+            pad_px=max(2, int(2 * font_scale)),
+            vpad_px=header_vpad,
+            line_adv_px=header_line_adv,
+            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
+            bold=True,
+        )
+        _draw_centered_multiline(
+            x_cat1,
+            header_y0,
+            x_alloc1,
+            header_y1,
+            ["Allocated", "Marks"],
+            head_f,
+            vpad_px=header_vpad,
+            line_adv_px=header_line_adv,
+            bold=True,
+        )
+        _draw_centered_multiline(
+            x_alloc1,
+            header_y0,
+            x_obt1,
+            header_y1,
+            ["Obtained", "Marks"],
+            head_f,
+            vpad_px=header_vpad,
+            line_adv_px=header_line_adv,
+            bold=True,
+        )
+        _draw_centered_multiline(
+            x_obt1,
+            header_y0,
+            x_rem1,
+            header_y1,
+            ["Remarks (One liner", "critical feedback against", "each criteria)"],
+            head_f,
+            highlight_line_idxs={1, 2},
+            pad_px=max(2, int(2 * font_scale)),
+            vpad_px=header_vpad,
+            line_adv_px=header_line_adv,
+            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
+            bold=True,
+        )
+
+        # --- Draw body rows (alternating grey like screenshot) ---
+        y_cursor = header_y1
+        for i, r in enumerate(rows):
+            ry0 = y_cursor
+            ry1 = ry0 + chosen_row_heights[i]
+            fill = grey_row if (i % 2 == 0) else white
+            draw.rectangle([(table_left, ry0), (table_right, ry1)], fill=fill)
+
+            # Category cell (left/top aligned)
+            cat_lines = chosen_row_lines[i]["cat"]
+            tx = x_cat0 + chosen_pad
+            ty = ry0 + chosen_pad
+            for line in cat_lines:
+                draw.text((tx, ty), line, font=body_f, fill="black")
+                ty += chosen_line_adv
+
+            # Allocated / Obtained (centered)
+            def _draw_centered_cell_text(x0: int, x1: int, text: str) -> None:
+                tw = int(draw.textlength(text, font=body_f))
+                txc = x0 + max(0, (x1 - x0 - tw) // 2)
+                tyc = ry0 + max(0, ((ry1 - ry0) - body_line_h) // 2)
+                draw.text((txc, tyc), text, font=body_f, fill="black")
+
+            _draw_centered_cell_text(x_cat1, x_alloc1, r["allocated"])
+            _draw_centered_cell_text(x_alloc1, x_obt1, r["obtained"])
+
+            # Remarks (left/top aligned)
+            rem_lines = chosen_row_lines[i]["rem"]
+            tx = x_obt1 + chosen_pad
+            ty = ry0 + chosen_pad
+            for line in rem_lines:
+                draw.text((tx, ty), line, font=body_f, fill="black")
+                ty += chosen_line_adv
+
+            y_cursor = ry1
+
+        # --- Grid lines (inner) ---
+        # Vertical inner borders
+        for x in (x_cat1, x_alloc1, x_obt1):
+            draw.line([(x, table_top), (x, table_bottom)], fill="black", width=inner_w)
+        # Horizontal inner borders: header bottom + row boundaries
+        draw.line([(table_left, header_y1), (table_right, header_y1)], fill="black", width=inner_w)
+        yy = header_y1
+        for i in range(1, len(rows)):
+            yy += chosen_row_heights[i - 1]
+            draw.line([(table_left, yy), (table_right, yy)], fill="black", width=inner_w)
+
+        # Outer border (thicker)
+        draw.rectangle([(table_left, table_top), (table_right, table_bottom)], outline="black", width=outer_w)
+
+        # Give visible breathing room before next section
+        y = table_bottom + max(int(0.30 * body_line_h), int(18 * font_scale))
+
+    # Key gaps + improvements (matching screenshot headings)
+    key_gaps = grading_result.get("overall_what_was_missing", []) or grading_result.get("key_gaps_in_answer", [])
+    how_to_improve = grading_result.get("overall_how_to_improve", []) or grading_result.get("how_to_improve", [])
+
+    def _draw_wrapped_bullets(items: List[str], max_items: int) -> None:
+        nonlocal y
+        line_hb = bullet_font.getbbox("Ag")[3] - bullet_font.getbbox("Ag")[1]
+        bullet = "•"
+        bullet_gap = int(0.02 * W)
+        text_x = margin + bullet_gap
+        text_width = max_text_width - bullet_gap
+        for idx, raw in enumerate(items[:max_items]):
+            text = str(raw).strip()
+            if not text:
+                continue
+            wrapped = _wrap_text(draw, text, bullet_font, text_width) or [""]
+            if not ensure_space_or_new_page(bullet_font, len(wrapped)):
+                return
+            draw.text((margin, y), bullet, font=bullet_font, fill="black")
+            for i, line in enumerate(wrapped):
+                draw.text((text_x, y), line, font=bullet_font, fill="black")
                 y += int(line_hb * line_spacing)
-            y += int(line_hb * 0.3)  # Reduced from 0.5 to save space
-        y += int(line_hb * 0.7)  # Reduced from 1.0 to save space
+            y += int(line_hb * 0.2)
 
-        # CRITERIA BREAKDOWN
-    ensure_space(section_heading_font, 2)
-    # Center the heading
-    heading_text = "MARKS BREAKDOWN"
-    heading_width = draw.textlength(heading_text, font=section_heading_font)
-    heading_x = (W - heading_width) // 2
-    draw_bold_text(heading_text, section_heading_font, (heading_x, y), "black")
+    if not ensure_space_or_new_page(section_heading_font, 2):
+        return [img], True
+    draw_bold_text("Key Gaps in the Answer", section_heading_font, (margin, y), "black")
     line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * line_spacing * 1.2)  # Reduced from 1.5 to save space
+    y += int(line_h_section * line_spacing)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
+    if isinstance(key_gaps, str):
+        key_gaps = [key_gaps]
+    if not key_gaps:
+        key_gaps = ["No key gaps provided."]
+    _draw_wrapped_bullets(key_gaps, max_items=6)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.6)
 
-    for crit in grading_result.get("criteria", []):
-        name = crit.get("name", "")
-        awarded = crit.get("awarded", 0)
-        max_marks = crit.get("max", 0)
-        header = f"{name}  —  {awarded}/{max_marks}"
+    if not ensure_space_or_new_page(section_heading_font, 2):
+        return [img], True
+    draw_bold_text("How to Improve", section_heading_font, (margin, y), "black")
+    y += int(line_h_section * line_spacing)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
+    if isinstance(how_to_improve, str):
+        how_to_improve = [how_to_improve]
+    if not how_to_improve:
+        how_to_improve = ["No improvement suggestions provided."]
+    _draw_wrapped_bullets(how_to_improve, max_items=6)
 
-        ensure_space(criteria_heading_font, 2)
-        line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
-        draw_bold_text(header, criteria_heading_font, (margin, y), "black")
-        y += int(line_h_criteria * line_spacing * 0.9)  # Reduced spacing between criteria
-
-        # Strengths
-        strengths = crit.get("strengths") or []
-        if strengths:
-            ensure_space(body_font, len(strengths) + 1)
-            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-            draw.text((margin, y), "Strengths:", font=body_font, fill="darkgreen")
-            y += int(line_hb * line_spacing)
-            for s in strengths:
-                for line in _wrap_text(draw, f"• {s}", body_font, max_text_width):
-                    ensure_space(body_font, 1)
-                    draw.text((margin, y), line, font=body_font, fill="black")
-                    y += int(line_hb * line_spacing)
-
-        # Weaknesses
-        weaknesses = crit.get("weaknesses") or []
-        if weaknesses:
-            ensure_space(body_font, len(weaknesses) + 1)
-            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-            draw.text((margin, y), "Weaknesses:", font=body_font, fill="darkred")
-            y += int(line_hb * line_spacing)
-            for wtxt in weaknesses:
-                for line in _wrap_text(draw, f"• {wtxt}", body_font, max_text_width):
-                    ensure_space(body_font, 1)
-                    draw.text((margin, y), line, font=body_font, fill="black")
-                    y += int(line_hb * line_spacing)
-
-        y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.7  # Reduced spacing between criteria
-
-    # Add Length & Completeness at the end of the last page (should be page 2)
-    if refined_summary:
+    # Length & Completeness rendering disabled per report format.
+    if False and refined_summary:
         # Extract only length_completeness
         length_item = None
         for item in refined_summary:
@@ -4226,9 +5182,8 @@ def _render_subject_report_with_scale(
             needed_space = estimated_lines * line_hb * line_spacing
             
             if y + needed_space > H - margin:
-                # Move to next page (should be page 2)
-                pages.append(img)
-                img, draw, y = new_page()
+                overflowed = True
+                return [img], True
             
             # Render Length & Completeness section
             name = length_item.get("name", "Length & Completeness")
@@ -4236,7 +5191,8 @@ def _render_subject_report_with_scale(
             comment = length_item.get("comment") or ""
             
             # Heading with rating (centered)
-            ensure_space(criteria_heading_font, 2)
+            if not ensure_space(criteria_heading_font, 2):
+                return [img], True
             header = f"{name} — {rating}"
             line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
             # Center the heading
@@ -4249,68 +5205,18 @@ def _render_subject_report_with_scale(
             comment_width = W - 2 * margin  # Full width for comment
             line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
             for line in _wrap_text(draw, comment, body_font, comment_width):
-                ensure_space(body_font, 1)
+                if not ensure_space(body_font, 1):
+                    return [img], True
                 draw.text((margin, y), line, font=body_font, fill="black")
                 y += int(line_hb * line_spacing)
             
             y += int(line_hb * 0.5)
 
     pages.append(img)
-    return pages
+    return pages, overflowed
 
 
 
-
-# -----------------------------------------
-# PAGE: WHAT THE QUESTION EXPECTS (BULLETS)
-# -----------------------------------------
-
-def render_question_expectations_page(
-    expectation_text: Any,
-    page_size: Tuple[int, int] = (2480, 3508),
-) -> Image.Image:
-    """
-    Render a dedicated page for "What the Question Expects" broken into bullets.
-
-    The expectation_text can be a string or list; it will be converted to bullet points.
-    """
-    W, H = page_size
-    margin = int(W * 0.07)
-    line_spacing = 1.4
-
-    title_font = _get_font(72)  # Increased from 60
-    body_font = _get_font(48)  # Increased from 36
-
-    img = Image.new("RGB", (W, H), "white")
-    draw = ImageDraw.Draw(img)
-    y = margin
-
-    max_text_width = W - 2 * margin
-
-    # Title
-    draw.text((margin, y), "WHAT THE QUESTION EXPECTS", font=title_font, fill="black")
-    line_h_title = title_font.getbbox("Ag")[3] - title_font.getbbox("Ag")[1]
-    y += int(line_h_title * line_spacing * 1.5)
-
-    bullet_points = _extract_expectation_bullets(expectation_text)
-    line_h_body = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-
-    for point in bullet_points:
-        wrapped_lines = _wrap_text(draw, point, body_font, max_text_width - int(0.08 * W))
-        needed_lines = len(wrapped_lines)
-        if y + line_h_body * needed_lines * line_spacing > H - margin:
-            break
-
-        for idx, line in enumerate(wrapped_lines):
-            if idx == 0:
-                draw.text((margin, y), f"- {line}", font=body_font, fill="black")
-            else:
-                draw.text((margin + int(0.04 * W), y), line, font=body_font, fill="black")
-            y += int(line_h_body * line_spacing)
-
-        y += int(line_h_body * 0.5)
-
-    return img
 
 # -----------------------------
 # REFINED RUBRIC SUMMARY PAGE
@@ -4779,11 +5685,88 @@ def grade_pdf_answer(
             "total_tokens": total_input_tokens + total_output_tokens
         }
         print(f"OCR completed. Token usage: Input: {total_input_tokens}, Output: {total_output_tokens}")
+        
+                # Save unfiltered OCR text BEFORE any processing/filtering
+        try:
+            ocr_filepath = save_unfiltered_ocr_text(
+                ocr_data=ocr_data,
+                request_id=request_id,
+                subject=subject,
+            )
+            if ocr_filepath:
+                _append_log(
+                    log_path,
+                    "INFO",
+                    f"request={request_id} unfiltered_ocr_saved file={ocr_filepath}",
+                )
+        except Exception as e:
+            print(f"  ⚠ Warning: Failed to save unfiltered OCR text: {e}")
+            _append_log(
+                log_path,
+                "WARNING",
+                f"request={request_id} unfiltered_ocr_save_failed error={e}",
+            )
 
         print("Saving grading JSON...")
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(grading_result, f, ensure_ascii=False, indent=2)
         print(f"Grading JSON saved to {output_json_path}")
+
+        print("Step 5.5: Analyzing mark deductions (testing only)...")
+        if progress_tracker:
+            progress_tracker.update_progress(
+                request_id=request_id,
+                step="Mark deduction analysis",
+                step_number=5,
+                total_steps=TOTAL_STEPS,
+                progress_percent=62.0,
+                message="Analyzing why marks were lost...",
+            )
+        step_start = time.perf_counter()
+        try:
+            mark_deduction_analysis, mark_analysis_token_usage = call_grok_for_mark_deduction_analysis(
+                grok_api_key=grok_key,
+                grading_result=grading_result,
+                subject_rubric_text=subject_rubric_text,
+                ocr_data=ocr_data,
+                sections=sections,
+            )
+            
+            # Merge mark deduction analysis into grading_result for report rendering.
+            grading_result["overall_why_marks_lost"] = mark_deduction_analysis.get("overall_why_marks_lost", [])
+            grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
+            grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
+            grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
+            
+            # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
+            analysis_filepath = save_mark_deduction_analysis_to_tests(
+                analysis_result=mark_deduction_analysis,
+                request_id=request_id,
+                subject=subject,
+            )
+            
+            step_duration = time.perf_counter() - step_start
+            step_timings["Step 5.5: Mark deduction analysis"] = step_duration
+            _append_log(
+                log_path,
+                "INFO",
+                f"request={request_id} step=5.5 name=mark_deduction_analysis duration_ms={int(step_duration * 1000)} file={analysis_filepath}",
+            )
+            print(f"  ✓ Completed in {_format_time(step_duration)}")
+            print(f"  ✓ Analysis saved to: {analysis_filepath}")
+            
+            # Accumulate token usage (optional, for tracking)
+            total_input_tokens += mark_analysis_token_usage.get("input_tokens", 0)
+            total_output_tokens += mark_analysis_token_usage.get("output_tokens", 0)
+            
+        except Exception as e:
+            # Don't fail the pipeline if this testing step fails
+            print(f"  ⚠ Warning: Mark deduction analysis failed: {e}")
+            _append_log(
+                log_path,
+                "WARNING",
+                f"request={request_id} mark_deduction_analysis_failed error={e}",
+            )
 
         print("Step 6: Rendering subject-wise report pages...")
         if progress_tracker:
@@ -4797,10 +5780,12 @@ def grade_pdf_answer(
             )
         step_start = time.perf_counter()
         report_page_size = get_report_page_size(pdf_path)
+        # render_subject_report_pages now dynamically adjusts height to fit content perfectly
+        # It starts with 1.2x height and increases incrementally until content fits
         # Initial render without refined_summary (will be added later)
         subject_report_pages = render_subject_report_pages(
             grading_result,
-            page_size=report_page_size,
+            page_size=report_page_size,  # Base size - function will adjust height dynamically
             refined_summary=None,  # Will be updated after refined_summary is generated
         )
         step_duration = time.perf_counter() - step_start
@@ -4876,13 +5861,46 @@ def grade_pdf_answer(
         annotations = refined_result.get("annotations", []) or []
         refined_summary = refined_result.get("refined_rubric_summary", []) or []
 
+        def _normalize_heading_key(text: str) -> str:
+            return re.sub(r"\s+", " ", (text or "").strip().lower())
+        
+        def _is_intro_or_conclusion_heading(text: str) -> bool:
+            """Check if a heading text is Introduction or Conclusion (or common variations)."""
+            if not text:
+                return False
+            normalized = _normalize_heading_key(text)
+            # Check for common variations including ones with missing first letter due to prefix stripping
+            intro_patterns = ["introduction", "ntroduction", "intro"]
+            conclusion_patterns = ["conclusion", "onclusion", "conclude"]
+            return any(pattern in normalized for pattern in intro_patterns) or \
+                   any(pattern in normalized for pattern in conclusion_patterns)
+
+        heading_corrections: Dict[str, str] = {}
+        for sec in sections:
+            exact_heading = sec.get("exact_ocr_heading") or ""
+            title = sec.get("title") or ""
+            if exact_heading and title:
+                heading_corrections[_normalize_heading_key(exact_heading)] = title
+
+        for ann in annotations:
+            if (ann.get("type") or "").lower() != "heading_issue":
+                continue
+            if (ann.get("correction") or "").strip():
+                continue
+            target_heading = ann.get("target_word_or_sentence") or ""
+            normalized_target = _normalize_heading_key(target_heading)
+            fallback = heading_corrections.get(normalized_target)
+            if fallback:
+                ann["correction"] = fallback
+
         # Re-render subject report pages with refined_summary (Length & Completeness)
-        # This ensures Length & Completeness appears at the end of the second page
+        # This ensures Length & Completeness appears at the end of the report page
+        # Height will be dynamically adjusted again to fit the additional content
         if refined_summary:
             print("Re-rendering subject report pages with Length & Completeness...")
             subject_report_pages = render_subject_report_pages(
                 grading_result,
-                page_size=report_page_size,
+                page_size=report_page_size,  # Base size - function will adjust height dynamically
                 refined_summary=refined_summary,
             )
 
@@ -4899,6 +5917,39 @@ def grade_pdf_answer(
                     f"request={request_id} refined_summary_validation_failed error={e}",
                 )
 
+        # Filter annotations to only show specific rubric points:
+        # 1. Introduction (introduction_quality)
+        # 2. Heading & Subheadings (headings_subheadings)
+        # 4. Factual Accuracy (factual_accuracy)
+        # Grammar & Language (grammar_language) - shown as boxes only (no side comments)
+        allowed_rubric_points = {
+            "introduction_quality",
+            "headings_subheadings",
+            "factual_accuracy",
+            "grammar_language",  # Allowed but only shows box on text (no side comment)
+        }
+        
+        filtered_annotations = []
+        for ann in annotations:
+            rubric_point = (ann.get("rubric_point") or "").lower().strip()
+            ann_type = (ann.get("type") or "").lower()
+            
+            # Only keep annotations with allowed rubric points
+            if rubric_point not in allowed_rubric_points:
+                continue
+            
+            # Also filter out Introduction/Conclusion heading annotations (they're extra and not needed)
+            if ann_type == "heading_issue":
+                target_heading = ann.get("target_word_or_sentence") or ""
+                correction = ann.get("correction") or ""
+                # Skip if target heading or correction is Introduction/Conclusion
+                if _is_intro_or_conclusion_heading(target_heading) or \
+                   _is_intro_or_conclusion_heading(correction):
+                    continue
+            
+            filtered_annotations.append(ann)
+        annotations = filtered_annotations
+        
         # Validate annotations schema
         valid_annotations = []
         for idx, ann in enumerate(annotations):
@@ -4913,6 +5964,28 @@ def grade_pdf_answer(
                 f"request={request_id} annotation_validation_skipped count={skipped_count}",
             )
         annotations = valid_annotations
+        
+        # Save annotations to Tests folder (only if SAVE_TEST_FILES is enabled)
+        if annotations:
+            try:
+                annotations_filepath = save_annotations_to_tests(
+                    annotations=annotations,
+                    request_id=request_id,
+                    subject=subject,
+                )
+                if annotations_filepath:
+                    _append_log(
+                        log_path,
+                        "INFO",
+                        f"request={request_id} annotations_saved file={annotations_filepath} count={len(annotations)}",
+                    )
+            except Exception as e:
+                print(f"  ⚠ Warning: Failed to save annotations: {e}")
+                _append_log(
+                    log_path,
+                    "WARNING",
+                    f"request={request_id} annotations_save_failed error={e}",
+                )
 
         print("Step 9: Calling Grok for page-wise improvement suggestions...")
         if progress_tracker:
@@ -4964,6 +6037,8 @@ def grade_pdf_answer(
             sections=sections,
             annotations=annotations,
             page_suggestions=page_suggestions,
+            log_path=log_path,
+            request_id=request_id,
         )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 10: Annotate answer pages"] = step_duration
@@ -4977,7 +6052,7 @@ def grade_pdf_answer(
         #print("Step 11: Rendering refined rubric summary page...")
         #refined_summary_page = render_refined_rubric_summary_page(refined_summary)
         # Assemble final PDF incrementally to avoid memory accumulation:
-        #   1) Subject report pages (includes marks table and question expectations)
+        #   1) Subject report pages (includes marks table)
         #   2) Annotated answer pages (with left-side improvement suggestions)
         #   3) Refined rubric summary page
 
@@ -5006,7 +6081,7 @@ def grade_pdf_answer(
             for page in pdf_reader.pages:
                 pdf_writer.add_page(page)
         
-        # Add subject report pages (small, 1-2 pages, acceptable to keep in memory)
+        # Add subject report pages (small, single page, acceptable to keep in memory)
         for page in subject_report_pages:
             add_image_to_pdf(page)
         
