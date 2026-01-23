@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import BackgroundTasks
 
-from backend.api.routes import assistant, books, chatbot, conversations, ingest, ocr, users, quiz
+from backend.api.routes import assistant, books, chatbot, conversations, ingest, ocr, users, quiz, essay
 from backend.api.routes import ocr_regular
 from backend.utils.rubric_loader import list_subject_rubrics, list_available_subjects
 from backend.api.routes.auth import get_current_user
@@ -30,6 +30,15 @@ app = FastAPI(title="NotebookLM Backend", version="0.1.0")
 
 # Set up comprehensive API logging
 setup_api_logging(app)
+
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if "/progress/" in record.getMessage() or "/status/" in record.getMessage():
+            return False
+        return True
+
+# Filter out noise from uvicorn access logs
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 # CORS (set your frontend origin)
 app.add_middleware(
@@ -58,6 +67,7 @@ app.include_router(conversations.router, dependencies=[Depends(get_current_user)
 app.include_router(books.router, dependencies=[Depends(get_current_user)])
 app.include_router(ingest.router, dependencies=[Depends(get_current_user)])
 app.include_router(ocr.router)  # Removed JWT authentication for Clerk migration
+app.include_router(essay.router) # Essay grading pipeline
 app.include_router(ocr_regular.router)  # Temporary endpoints using regular files for testing
 app.include_router(quiz.router)
 

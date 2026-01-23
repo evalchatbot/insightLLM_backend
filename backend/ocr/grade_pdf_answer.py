@@ -5015,10 +5015,13 @@ def _render_subject_report_with_scale(
             header_y0,
             x_cat1,
             header_y1,
-            ["Category"],
+            ["Category", "(According to the", "rubric)"],
             head_f,
+            highlight_line_idxs={1, 2},
+            pad_px=max(2, int(2 * font_scale)),
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
+            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
             bold=True,
         )
         _draw_centered_multiline(
@@ -5048,10 +5051,13 @@ def _render_subject_report_with_scale(
             header_y0,
             x_rem1,
             header_y1,
-            ["Remarks"],
+            ["Remarks (One liner", "critical feedback against", "each criteria)"],
             head_f,
+            highlight_line_idxs={1, 2},
+            pad_px=max(2, int(2 * font_scale)),
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
+            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
             bold=True,
         )
 
@@ -5733,6 +5739,62 @@ def grade_pdf_answer(
                 log_path,
                 "WARNING",
                 f"request={request_id} grading_json_logs_save_failed error={e}",
+            )
+
+        print("Step 5.5: Analyzing mark deductions (testing only)...")
+        if progress_tracker:
+            progress_tracker.update_progress(
+                request_id=request_id,
+                step="Mark deduction analysis",
+                step_number=5,
+                total_steps=TOTAL_STEPS,
+                progress_percent=62.0,
+                message="Analyzing why marks were lost...",
+            )
+        step_start = time.perf_counter()
+        try:
+            mark_deduction_analysis, mark_analysis_token_usage = call_grok_for_mark_deduction_analysis(
+                grok_api_key=grok_key,
+                grading_result=grading_result,
+                subject_rubric_text=subject_rubric_text,
+                ocr_data=ocr_data,
+                sections=sections,
+            )
+            
+            # Merge mark deduction analysis into grading_result for report rendering.
+            grading_result["overall_why_marks_lost"] = mark_deduction_analysis.get("overall_why_marks_lost", [])
+            grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
+            grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
+            grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
+            
+            # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
+            analysis_filepath = save_mark_deduction_analysis_to_tests(
+                analysis_result=mark_deduction_analysis,
+                request_id=request_id,
+                subject=subject,
+            )
+            
+            step_duration = time.perf_counter() - step_start
+            step_timings["Step 5.5: Mark deduction analysis"] = step_duration
+            _append_log(
+                log_path,
+                "INFO",
+                f"request={request_id} step=5.5 name=mark_deduction_analysis duration_ms={int(step_duration * 1000)} file={analysis_filepath}",
+            )
+            print(f"  ✓ Completed in {_format_time(step_duration)}")
+            print(f"  ✓ Analysis saved to: {analysis_filepath}")
+            
+            # Accumulate token usage (optional, for tracking)
+            total_input_tokens += mark_analysis_token_usage.get("input_tokens", 0)
+            total_output_tokens += mark_analysis_token_usage.get("output_tokens", 0)
+            
+        except Exception as e:
+            # Don't fail the pipeline if this testing step fails
+            print(f"  ⚠ Warning: Mark deduction analysis failed: {e}")
+            _append_log(
+                log_path,
+                "WARNING",
+                f"request={request_id} mark_deduction_analysis_failed error={e}",
             )
 
         print("Step 5.5: Analyzing mark deductions (testing only)...")
