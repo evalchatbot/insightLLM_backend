@@ -277,6 +277,32 @@ class OCRJobManager:
             True if job is cancelled, False otherwise
         """
         return self._job_cancellation_flags.get(job_id, False)
+
+    def update_job_status(self, job_id: str, status: JobStatus, started_at: float = None) -> None:
+        """Manually update job status (for external runners)."""
+        job = self._load_job(job_id)
+        if job:
+            job.status = status
+            if started_at:
+                job.started_at = started_at
+            self._save_job(job)
+
+    def complete_job(self, job_id: str) -> None:
+        """Manually mark job as completed (for external runners)."""
+        job = self._load_job(job_id)
+        if job:
+            job.status = JobStatus.COMPLETED
+            job.completed_at = time.time()
+            self._save_job(job)
+
+    def fail_job(self, job_id: str, error: str) -> None:
+        """Manually mark job as failed (for external runners)."""
+        job = self._load_job(job_id)
+        if job:
+            job.status = JobStatus.FAILED
+            job.error = error
+            job.completed_at = time.time()
+            self._save_job(job)
     
     def cleanup_old_jobs(self, max_age_seconds: int = 86400) -> None:
         """

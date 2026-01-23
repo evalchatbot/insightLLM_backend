@@ -75,13 +75,14 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
                 request_info["body_error"] = str(e)
         
         # Log the incoming request
-        log_api_request(
-            self.logger,
-            method=method,
-            endpoint=request.url.path,
-            user_id=user_id,
-            request_data=request_info
-        )
+        if "/api/ocr/progress/" not in request.url.path and "/api/essay/status/" not in request.url.path:
+            log_api_request(
+                self.logger,
+                method=method,
+                endpoint=request.url.path,
+                user_id=user_id,
+                request_data=request_info
+            )
         
         # Process the request
         try:
@@ -89,17 +90,20 @@ class APILoggingMiddleware(BaseHTTPMiddleware):
             execution_time = time.time() - start_time
             
             # Log successful response
-            log_api_response(
-                self.logger,
-                method=method,
-                endpoint=request.url.path,
-                status_code=response.status_code,
-                execution_time=execution_time
-            )
+            if "/api/ocr/progress/" not in request.url.path and "/api/essay/status/" not in request.url.path:
+                log_api_response(
+                    self.logger,
+                    method=method,
+                    endpoint=request.url.path,
+                    status_code=response.status_code,
+                    execution_time=execution_time
+                )
             
             # Log response details for debugging
-            response_headers = dict(response.headers)
-            self.logger.debug(f"[API] Response headers: {response_headers}")
+            # Only log headers for non-polling requests
+            if "/api/ocr/progress/" not in request.url.path and "/api/essay/status/" not in request.url.path:
+               response_headers = dict(response.headers)
+               self.logger.debug(f"[API] Response headers: {response_headers}")
             
             return response
             
