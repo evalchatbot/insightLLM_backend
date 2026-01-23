@@ -2929,15 +2929,13 @@ def build_grok_payload_for_grading(
         "max_marks": 20,
         "total_marks_awarded": 0,
         "question_statement": "",
-        "question_demands": "",
         "criteria": [
             {
                 "id": "knowledge_accuracy",
                 "name": "Knowledge & Accuracy",
                 "max": 8,
                 "awarded": 5,
-                "strengths": ["..."],
-                "weaknesses": ["..."],
+                "remark": "One-liner critical feedback against this criterion",
             }
         ],
         "high_scoring_outline": {
@@ -2953,7 +2951,6 @@ def build_grok_payload_for_grading(
                 }
             ],
         },
-        "overall_comment": "",
     }
 
     # NOTE: Previous, less-strict instructions kept for reference:
@@ -2969,8 +2966,7 @@ def build_grok_payload_for_grading(
     #     "  - max_marks: always 20\n"
     #     "  - total_marks_awarded (cap at 14 maximum)\n"
     #     "  - question_statement: the exam question as written by the student\n"
-    #     "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
-    #     "  - overall_comment: 3-5 sentence holistic evaluation.\n"
+    #     "  - criteria[]: each criterion with id, name, max, awarded, remark\n"
     # )
 
     # NEW: Stricter marking + hard consistency requirement between criteria sum and total_marks_awarded.
@@ -2981,24 +2977,24 @@ def build_grok_payload_for_grading(
         "- The page_images_base64_png are the PRIMARY and ULTIMATE source of truth - these show the actual handwritten student answers\n"
         "- OCR text (ocr_full_text) is ONLY an approximate transcription helper and contains many errors\n"
         "- OCR transcription errors are NOT student errors - they are technical limitations of the OCR system\n"
-        "- DO NOT list OCR-induced typos, spelling errors, or transcription mistakes as weaknesses in ANY criterion\n"
+        "- DO NOT mention OCR-induced typos, spelling errors, or transcription mistakes in remarks for ANY criterion\n"
         "- Examples of OCR errors to IGNORE: 'af' for 'of', 'Jhe' for 'The', 'rn' for 'm', 'cl' for 'd', etc.\n"
         "- When evaluating 'Language, Expression, and Scholarly Tone' or any language-related criterion:\n"
         "  * ONLY evaluate the actual handwritten content visible in the page images\n"
         "  * If you see apparent typos in OCR text, check the page images first\n"
         "  * If the handwriting in the image is correct, do NOT list it as a weakness\n"
-        "  * ONLY list actual weaknesses in the student's writing (poor grammar structure, informal tone, incorrect terminology usage)\n"
-        "- OCR errors should NEVER appear in weaknesses[] arrays for any criterion\n"
+        "  * ONLY mention actual weaknesses in the student's writing (poor grammar structure, informal tone, incorrect terminology usage)\n"
+        "- OCR errors should NEVER appear in remarks for any criterion\n"
         "- If you cannot determine the actual text from the page image, do NOT assume it's an error - skip that evaluation\n"
         "- Remember: You are grading the student's handwriting, NOT the OCR transcription quality\n\n"
         "CRITICAL MARKING RULES (MUST FOLLOW):\n"
         "1. Maximum marks awarded: 14 out of 20 (HARD CAP - NEVER EXCEED)\n"
         "2. Average/acceptable answers: Score LESS than 10 marks (typically 6–9 marks)\n"
         "   - Most answers fall into this category\n"
-        "   - If answer covers basics but has gaps, weaknesses, or lacks depth: 6-9 marks\n"
+        "   - If answer covers basics but has gaps or lacks depth: 6-9 marks\n"
         "3. Only exceptional answers: Approach 14 marks (typically 12–14 marks)\n"
-        "   - ONLY give 12-14 marks if answer is comprehensive, accurate, well-analyzed, AND has minimal weaknesses\n"
-        "   - If answer has significant weaknesses or gaps: DO NOT give 12-14 marks\n"
+        "   - ONLY give 12-14 marks if answer is comprehensive, accurate, well-analyzed, AND has minimal issues\n"
+        "   - If answer has significant gaps or weaknesses: DO NOT give 12-14 marks\n"
         "   - Default to lower marks (6-9) unless answer is truly exceptional\n"
         "4. Weak answers: Score 5 marks or less\n"
         "   - Major gaps, incorrect information, or minimal coverage\n"
@@ -3008,16 +3004,15 @@ def build_grok_payload_for_grading(
         "   - Example: If criteria sum to 16, multiply each by (14/16) and round appropriately\n"
         "   - NEVER return a total_marks_awarded that differs from the sum of criteria marks\n\n"
         "FAIR MARKING DECISION PROCESS:\n"
-        "Step 1: Identify ALL weaknesses and gaps in the answer (be thorough)\n"
-        "Step 2: Identify ALL strengths and good points (be fair)\n"
-        "Step 3: If weaknesses exist, start with marks in the 6-9 range (average)\n"
-        "Step 4: Only increase marks if answer is truly exceptional:\n"
+        "Step 1: Identify key strengths and weaknesses in the answer (be thorough)\n"
+        "Step 2: If significant weaknesses exist, start with marks in the 6-9 range (average)\n"
+        "Step 3: Only increase marks if answer is truly exceptional:\n"
         "   - Comprehensive coverage of all key points\n"
         "   - Accurate information with minimal errors\n"
         "   - Well-analyzed with depth and critical thinking\n"
         "   - Minimal weaknesses (weaknesses should be minor, not significant)\n"
-        "Step 5: Be fair - if strengths significantly outweigh weaknesses, award higher marks\n"
-        "Step 6: Be strict - if weaknesses are significant, do NOT award 12-14 marks\n"
+        "Step 4: Be fair - if strengths significantly outweigh weaknesses, award higher marks\n"
+        "Step 5: Be strict - if weaknesses are significant, do NOT award 12-14 marks\n"
         "Step 7: Default to conservative marking - it's better to give 8 marks than 14 marks unless truly exceptional\n\n"
         "STRICT MARKING GUIDELINES:\n"
         "- Award marks conservatively – partial credit should be rare\n"
@@ -3026,9 +3021,11 @@ def build_grok_payload_for_grading(
         "- If content is correct but lacks depth/analysis: award roughly 50–70% of max marks\n"
         "- Only award 80–100% of max marks if content is comprehensive, accurate, and well-analyzed\n"
         "- Derive criteria and marks from the rubric text – do not invent new criteria\n"
-        "- IMPORTANT: For each criterion, list both strengths AND weaknesses honestly\n"
-        "  * If you identify weaknesses, ensure marks reflect those weaknesses (lower marks)\n"
-        "  * If strengths significantly outweigh weaknesses, award higher marks fairly\n\n"
+        "- IMPORTANT: For each criterion, provide a single one-liner critical remark that explains the key feedback\n"
+        "  * The remark should be honest and reflect why marks were awarded or deducted\n"
+        "  * If marks are high, the remark should highlight strengths\n"
+        "  * If marks are low, the remark should clearly state the key weakness or gap\n"
+        "  * Ensure marks and remark are consistent - if remark identifies weaknesses, marks should reflect them\n\n"
         "Required fields:\n"
         "  - subject\n"
         "  - max_marks: always 20\n"
@@ -3037,18 +3034,13 @@ def build_grok_payload_for_grading(
         "    * MUST copy the exact question text from the page images/OCR, including punctuation and question marks\n"
         "    * DO NOT prefix with phrases like 'The question asks' or 'The question requires'\n"
         "    * If multiple question lines exist, include the full combined question statement\n"
-        "  - question_demands: 1-2 sentence summary of what the question requires (this is a separate summary)\n"
-        "  - criteria[]: each criterion with id, name, max, awarded, strengths[], weaknesses[]\n"
+        "  - criteria[]: each criterion with id, name, max, awarded, remark\n"
         "    * IMPORTANT: After assigning awarded marks to each criterion, verify that sum(criteria[i].awarded) == total_marks_awarded <= 14\n"
-        "    * CRITICAL: Be honest about weaknesses - if weaknesses exist, marks should reflect them\n"
-        "    * FAIR: If strengths significantly outweigh weaknesses, award marks fairly\n"
-        "    * CRITICAL FOR WEAKNESSES: weaknesses[] MUST contain single sentences explaining WHY marks were lost for this criterion\n"
-        "    * Each weakness should be ONE complete sentence that clearly states the reason marks were deducted\n"
-        "    * Example: 'Lacks depth in analyzing historical context' or 'Missing key theoretical framework' or 'Insufficient evidence to support claims'\n"
-        "    * Do NOT use multiple sentences or bullet points within a single weakness entry\n"
-        "    * Focus on specific reasons marks were lost, not general observations\n"
-        "    * Do NOT combine multiple reasons into one sentence - each weakness should be a separate entry\n"
-        "  - overall_comment: 3–5 sentence holistic evaluation.\n"
+        "    * remark: A single one-liner critical feedback sentence for this criterion\n"
+        "    * The remark should be concise (one sentence) and provide key feedback about why marks were awarded/deducted\n"
+        "    * Examples: 'Lacks depth in analyzing historical context' or 'Demonstrates strong knowledge with accurate facts and references' or 'Missing key theoretical framework'\n"
+        "    * The remark should be critical and specific - focus on the most important aspect that influenced the marks\n"
+        "    * DO NOT use multiple sentences - keep it to one clear, concise sentence\n"
     )
 
     content_payload = {
@@ -3204,7 +3196,7 @@ def call_grok_for_grading(
 def validate_and_adjust_grading_result(grading_result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Post-process grading result to enforce strict marking guidelines while maintaining fairness.
-    Only adjusts marks when there's a clear mismatch between weaknesses and awarded marks.
+    Ensures consistency between criteria marks and total marks awarded.
     """
     total = grading_result.get("total_marks_awarded", 0)
     criteria = grading_result.get("criteria", [])
@@ -3230,53 +3222,6 @@ def validate_and_adjust_grading_result(grading_result: Dict[str, Any]) -> Dict[s
             crit["awarded"] = round(crit.get("awarded", 0) * scale_factor, 1)
         grading_result["total_marks_awarded"] = 14.0
         total = 14.0
-    
-    # Analyze weaknesses vs strengths to check for fairness
-    total_weaknesses = sum(len(c.get("weaknesses", [])) for c in criteria)
-    total_strengths = sum(len(c.get("strengths", [])) for c in criteria)
-    
-    # Only adjust if there's a clear imbalance AND marks are high
-    # This ensures fairness - we don't want to penalize good answers
-    if total >= 12 and total_weaknesses > 0:
-        # Calculate weakness ratio: if weaknesses significantly outnumber strengths, marks might be too high
-        # But be conservative - only adjust if imbalance is clear (weaknesses > 2x strengths)
-        if total_weaknesses > total_strengths * 2 and total >= 13:
-            # Significant weaknesses but high marks - this might be unfair
-            print(f"INFO: Answer has {total_weaknesses} weaknesses vs {total_strengths} strengths, with marks at {total:.1f}")
-            print(f"  Checking if adjustment is needed for fairness...")
-            
-            # Calculate average marks per criterion to see if they're too high
-            avg_marks_per_criterion = total / len(criteria)
-            max_marks_per_criterion = sum(c.get("max", 0) for c in criteria) / len(criteria)
-            marks_percentage = (avg_marks_per_criterion / max_marks_per_criterion) * 100 if max_marks_per_criterion > 0 else 0
-            
-            # Only reduce if marks are very high (>85% of max) AND there are significant weaknesses
-            if marks_percentage > 85 and total_weaknesses >= 3:
-                # Reduce conservatively - only by 10-15% to maintain fairness
-                reduction_factor = 0.88  # Reduce to 88% of current marks
-                new_total = round(total * reduction_factor, 1)
-                
-                # Apply reduction proportionally to all criteria
-                for crit in criteria:
-                    crit["awarded"] = round(crit.get("awarded", 0) * reduction_factor, 1)
-                grading_result["total_marks_awarded"] = new_total
-                print(f"  Adjusted total marks from {total:.1f} to {new_total:.1f} to better reflect weaknesses")
-            else:
-                print(f"  Marks appear fair given the balance of strengths and weaknesses")
-        elif total >= 14 and total_weaknesses > total_strengths:
-            # At maximum marks (14) but weaknesses exceed strengths - this is likely unfair
-            print(f"INFO: Answer has {total_weaknesses} weaknesses vs {total_strengths} strengths, but marks are at maximum (14)")
-            print(f"  Reducing slightly to better reflect the presence of weaknesses...")
-            
-            # Small reduction to 12-13 range to be fair
-            reduction_factor = 0.90  # Reduce to 90% (12.6, rounds to 12-13)
-            new_total = round(total * reduction_factor, 1)
-            
-            # Apply reduction proportionally
-            for crit in criteria:
-                crit["awarded"] = round(crit.get("awarded", 0) * reduction_factor, 1)
-            grading_result["total_marks_awarded"] = new_total
-            print(f"  Adjusted total marks from {total:.1f} to {new_total:.1f} to maintain fairness")
     
     return grading_result
 
@@ -4012,7 +3957,7 @@ def call_grok_for_mark_deduction_analysis(
             "You are a STRICT CSS examiner evaluating student answers.\n"
             "Your task is to evaluate the answer, outline reasons for low score, and suggest improvements.\n\n"
             "You will receive:\n"
-            "- The grading result (strengths and weaknesses)\n"
+            "- The grading result (with criteria remarks)\n"
             "- The subject rubric text (for reference on what was expected)\n"
             "- OCR text and sections structure (for context)\n\n"
             "Your analysis must be:\n"
@@ -4064,8 +4009,7 @@ def call_grok_for_mark_deduction_analysis(
             "name": crit.get("name", ""),
             "max": crit.get("max", 0),
             "awarded": crit.get("awarded", 0),
-            "strengths": crit.get("strengths", []),
-            "weaknesses": crit.get("weaknesses", []),
+            "remark": crit.get("remark", ""),
         })
 
     user_payload = {
@@ -4074,7 +4018,6 @@ def call_grok_for_mark_deduction_analysis(
             "total_marks_awarded": grading_result.get("total_marks_awarded", 0),
             "max_marks": grading_result.get("max_marks", 20),
             "criteria": criteria_data,
-            "overall_comment": grading_result.get("overall_comment", ""),
         },
         "subject_rubric_text": subject_rubric_text[:5000],  # Limit to avoid token overflow
         "ocr_full_text": ocr_data.get("full_text", "")[:10000],  # Limit for context
@@ -4541,7 +4484,7 @@ def render_subject_report_pages(
       - SUBJECT NAME (at top)
       - TOTAL MARKS
       - QUESTION STATEMENT
-      - CRITERIA breakdown (with strengths & weaknesses)
+      - CRITERIA breakdown (with remarks)
       (Note: high-scoring outline is on a separate dedicated page)
     """
     W, H = page_size
@@ -4886,12 +4829,10 @@ def _render_subject_report_with_scale(
             name = str(crit.get("name", "") or "").strip()
             max_marks = crit.get("max", "") if i < len(criteria_list) else ""
             awarded = crit.get("awarded", "") if i < len(criteria_list) else ""
-            weaknesses = crit.get("weaknesses") or [] if i < len(criteria_list) else []
+            remark = crit.get("remark", "") if i < len(criteria_list) else ""
 
-            remark = ""
-            if weaknesses:
-                remark = _first_sentence_one_liner(str(weaknesses[0]))
-            elif i < len(criteria_list) and float(awarded or 0) < float(max_marks or 0):
+            # If no remark provided but marks are less than max, provide default
+            if not remark and i < len(criteria_list) and float(awarded or 0) < float(max_marks or 0):
                 remark = "Missing required content for this criterion."
 
             category_text = f"{i+1}. {name}".strip() if name else f"{i+1}."
@@ -5015,13 +4956,11 @@ def _render_subject_report_with_scale(
             header_y0,
             x_cat1,
             header_y1,
-            ["Category", "(According to the", "rubric)"],
+            ["Category"],
             head_f,
-            highlight_line_idxs={1, 2},
             pad_px=max(2, int(2 * font_scale)),
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
-            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
             bold=True,
         )
         _draw_centered_multiline(
@@ -5029,8 +4968,9 @@ def _render_subject_report_with_scale(
             header_y0,
             x_alloc1,
             header_y1,
-            ["Allocated", "Marks"],
+            ["Allocated Marks"],
             head_f,
+            pad_px=max(2, int(2 * font_scale)),
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
             bold=True,
@@ -5040,10 +4980,11 @@ def _render_subject_report_with_scale(
             header_y0,
             x_obt1,
             header_y1,
-            ["Obtained", "Marks"],
+            ["Obtained Marks"],
             head_f,
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
+            pad_px=max(2, int(2 * font_scale)),
             bold=True,
         )
         _draw_centered_multiline(
@@ -5051,13 +4992,11 @@ def _render_subject_report_with_scale(
             header_y0,
             x_rem1,
             header_y1,
-            ["Remarks (One liner", "critical feedback against", "each criteria)"],
+            ["Remarks"],
             head_f,
-            highlight_line_idxs={1, 2},
-            pad_px=max(2, int(2 * font_scale)),
             vpad_px=header_vpad,
             line_adv_px=header_line_adv,
-            highlight_pad_y_px=max(1, int(header_line_h * 0.08)),
+            pad_px=max(2, int(2 * font_scale)),
             bold=True,
         )
 
