@@ -636,12 +636,6 @@ def get_report_page_size(
         
         # Cap width at max_width to prevent extremely wide pages
         if total_width > max_width:
-            # Scale down proportionally: reduce orig_w to fit within max_width
-            # total_width = orig_w + 2 * margin = orig_w + 2 * (orig_w * margin_ratio)
-            # total_width = orig_w * (1 + 2 * margin_ratio)
-            # orig_w = total_width / (1 + 2 * margin_ratio)
-            # We want: new_total_width <= max_width
-            # new_orig_w = max_width / (1 + 2 * margin_ratio)
             new_orig_w = int(max_width / (1 + 2 * margin_ratio))
             new_margin = int(new_orig_w * margin_ratio)
             total_width = new_orig_w + 2 * new_margin
@@ -2324,55 +2318,6 @@ def call_grok_for_section_detection(
             "   - Set title to 'Introduction' for implicit introductions\n"
             "   - For 'exact_ocr_heading': copy the EXACT OCR text of the heading line (or first line if implicit)\n"
             "   - This MUST be the first section in your output\n\n"
-            # PREVIOUS CODE (COMMENTED OUT):
-            # "2) BODY SECTIONS (IDENTIFY ALL MAJOR HEADINGS):\n"
-            # "   - Examine the page images carefully for ALL headings between Introduction and Conclusion\n"
-            # "   - Look for these VISUAL CUES in the images:\n"
-            # "     • Larger or bolder handwriting\n"
-            # "     • Underlined words or phrases\n"
-            # "     • Extra spacing above and/or below text\n"
-            # "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c)\n"
-            # "     • Short phrases at the start of a line that label the content below\n"
-            # "   - For each heading found:\n"
-            # "     • Create a section with that heading as the title\n"
-            # "     • Set 'level' = 1 for main topics, 'level' = 2 for subtopics under the previous main heading\n"
-            # "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
-            # "     • Include ALL page numbers where this section's content appears\n"
-            # "   - DO NOT skip headings - find ALL of them\n"
-            # "   - DO NOT invent headings that don't exist visually\n\n"
-            
-            # PREVIOUS CODE (COMMENTED OUT):
-            # "2) BODY SECTIONS (BALANCED APPROACH - CRITICAL RULES):\n"
-            # "   - Identify ONLY MAJOR headings that clearly separate distinct topics or arguments\n"
-            # "   - Look for these STRONG VISUAL CUES in the images:\n"
-            # "     • Clearly larger or bolder handwriting (significantly different from body text)\n"
-            # "     • Underlined words or phrases (full underline, not partial)\n"
-            # "     • Extra spacing above AND below text (clear visual separation)\n"
-            # "     • Numbered headings: 1., 2., 3., or i., ii., iii., or (a), (b), (c) - ONLY if clearly marking major sections\n"
-            # "     • Short phrases at the start of a line that label a substantial content block below (3+ sentences)\n"
-            # "   - IGNORE these weak indicators (DO NOT create sections for these):\n"
-            # "     • Minor formatting variations (slightly larger text)\n"
-            # "     • Single underlined words within paragraphs\n"
-            # "     • Bullet points or list items (unless they are clearly section headers)\n"
-            # "     • Short phrases that are part of a sentence, not standalone headings\n"
-            # "     • Repeated similar headings (if you see 'Introduction' twice, use only the first)\n"
-            # "   - For each heading found:\n"
-            # "     • Create a section with that heading as the title\n"
-            # "     • Set 'level' = 1 for main topics, 'level' = 2 ONLY for clear subtopics under a main heading\n"
-            # "     • For 'exact_ocr_heading': copy the EXACT OCR text of that heading line (word-for-word, with any typos)\n"
-            # "     • Include ALL page numbers where this section's content appears\n"
-            # "   - AVOID REPETITION:\n"
-            # "     • If you see similar headings (e.g., 'Introduction' and 'Intro', or 'Conclusion' and 'Concluding'), use only ONE\n"
-            # "     • If headings are nearly identical (differ only by minor words), merge them into one section\n"
-            # "     • Check if a heading you're about to add is too similar to an existing one - if so, skip it\n"
-            # "   - TYPICAL EXPECTED RANGE:\n"
-            # "     • For a 3-5 page answer: Expect 3-6 body sections (excluding intro/conclusion)\n"
-            # "     • For a 6-10 page answer: Expect 4-8 body sections\n"
-            # "     • If you find more than 10 sections total, you are likely over-segmenting - reconsider\n"
-            # "   - If NO clear headings exist between intro and conclusion:\n"
-            # "     • Create ONE body section titled 'Main Body' or 'Body' with all content\n"
-            # "     • Do NOT force micro-sections where none exist visually\n\n"
-            
             "2) BODY SECTIONS (THOROUGH BUT NON-REPETITIVE DETECTION):\n"
             "   - Be THOROUGH: Identify ALL headings that mark distinct topics or arguments\n"
             "   - Look for these VISUAL CUES in the images (be comprehensive):\n"
@@ -2454,21 +2399,6 @@ def call_grok_for_section_detection(
             "  • 'content_text': string summary\n"
             "  • 'rephrased_heading': improved heading suggestion aligned with rubric (empty for intro/conclusion)\n"
             "- NO extra fields, NO top-level keys besides 'sections'\n\n"
-            # PREVIOUS CODE (COMMENTED OUT):
-            # "CONSISTENCY:\n"
-            # "- For the same input, produce consistent segmentation\n"
-            # "- Avoid random or arbitrary splits\n"
-            # "- Prefer fewer, well-justified sections over many uncertain micro-sections\n"
-            # "- Be thorough but not excessive\n"
-            
-            # PREVIOUS CODE (COMMENTED OUT):
-            # "CONSISTENCY AND QUALITY:\n"
-            # "- For the same input, produce consistent segmentation\n"
-            # "- Avoid random or arbitrary splits\n"
-            # "- BALANCE: Be thorough but not excessive - prefer fewer well-justified sections over many uncertain micro-sections\n"
-            # "- QUALITY OVER QUANTITY: It is better to have 3-5 clear sections than 10+ unclear ones\n"
-            # "- If uncertain whether something is a heading, err on the side of NOT creating a separate section\n"
-            
             "CONSISTENCY AND QUALITY:\n"
             "- For the same input, produce consistent segmentation\n"
             "- Avoid random or arbitrary splits\n"
@@ -2624,32 +2554,7 @@ def call_grok_for_section_detection(
         for idx, sec in enumerate(raw_sections):
             print(f"  Raw[{idx}]: '{sec.get('title', 'NO TITLE')}' on pages {sec.get('page_numbers', [])}")
 
-    # PREVIOUS CODE (COMMENTED OUT):
-    # sections: List[Dict[str, Any]] = []
-    # for sec in raw_sections:
-    #     title = (sec.get("title") or "UNSPECIFIED").strip()
-    #     exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
-    #     level = sec.get("level") or 1
-    #     pages = sec.get("page_numbers") or []
-    #     content_text = sec.get("content_text") or sec.get("content") or ""
-    #     comment = (sec.get("comment") or "").strip()
-    #
-    #     sections.append(
-    #         {
-    #             "title": title,
-    #             "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
-    #             "level": int(level) if isinstance(level, (int, float)) else 1,
-    #             "page_numbers": sorted(
-    #                 set(int(p) for p in pages if isinstance(p, (int, float)))
-    #             ),
-    #             "content": content_text,
-    #             "comment": comment,  # Quality evaluation of heading
-    #             "line_indices": [],  # not used downstream, kept for compatibility
-    #         }
-    #     )
-    #
-    # return sections, token_usage
-
+    
     # NEW: Add deduplication logic to prevent repeated headings
     sections: List[Dict[str, Any]] = []
     seen_titles: Set[str] = set()  # Track titles to prevent duplicates
@@ -2667,72 +2572,7 @@ def call_grok_for_section_detection(
         normalized = re.sub(r"\s+", " ", normalized)  # Normalize whitespace
         return normalized
     
-    # PREVIOUS CODE (COMMENTED OUT):
-    # for sec in raw_sections:
-    #     title = (sec.get("title") or "UNSPECIFIED").strip()
-    #     exact_ocr_heading = (sec.get("exact_ocr_heading") or title).strip()
-    #     level = sec.get("level") or 1
-    #     pages = sec.get("page_numbers") or []
-    #     content_text = sec.get("content_text") or sec.get("content") or ""
-    #     comment = (sec.get("comment") or "").strip()
-    #
-    #     # Skip Introduction/Conclusion duplicates (always keep first)
-    #     title_lower = title.lower().strip()
-    #     if title_lower in ("introduction", "conclusion"):
-    #         if title_lower in seen_titles:
-    #             print(f"WARNING: Skipping duplicate {title_lower} section")
-    #             continue
-    #         seen_titles.add(title_lower)
-    #     
-    #     # Check for duplicate titles (normalized comparison)
-    #     title_normalized = normalize_for_comparison(title)
-    #     if title_normalized in seen_titles:
-    #         print(f"WARNING: Skipping duplicate heading (normalized): '{title}' (already seen)")
-    #         continue
-    #     
-    #     # Check for duplicate exact OCR headings (exact match)
-    #     exact_normalized = normalize_for_comparison(exact_ocr_heading)
-    #     if exact_normalized in seen_exact_headings and exact_normalized:
-    #         print(f"WARNING: Skipping duplicate exact OCR heading: '{exact_ocr_heading}'")
-    #         continue
-    #     
-    #     # Check for very similar headings (fuzzy match)
-    #     is_duplicate = False
-    #     for seen_title in seen_titles:
-    #         seen_normalized = normalize_for_comparison(seen_title)
-    #         if title_normalized and seen_normalized:
-    #             # If normalized versions are very similar (differ by 1-2 words), skip
-    #             title_words = set(title_normalized.split())
-    #             seen_words = set(seen_normalized.split())
-    #             if len(title_words) > 0 and len(seen_words) > 0:
-    #                 overlap_ratio = len(title_words & seen_words) / max(len(title_words), len(seen_words))
-    #                 # If 80%+ overlap and both are short (likely duplicates), skip
-    #                 if overlap_ratio >= 0.8 and len(title_words) <= 5 and len(seen_words) <= 5:
-    #                     print(f"WARNING: Skipping very similar heading: '{title}' (similar to '{seen_title}')")
-    #                     is_duplicate = True
-    #                     break
-    #     
-    #     if is_duplicate:
-    #         continue
-    #
-    #     # Add to seen sets
-    #     seen_titles.add(title_normalized)
-    #     if exact_normalized:
-    #         seen_exact_headings.add(exact_normalized)
-    #
-    #     sections.append(
-    #         {
-    #             "title": title,
-    #             "exact_ocr_heading": exact_ocr_heading,  # Store exact OCR text
-    #             "level": int(level) if isinstance(level, (int, float)) else 1,
-    #             "page_numbers": sorted(
-    #                 set(int(p) for p in pages if isinstance(p, (int, float)))
-    #             ),
-    #             "content": content_text,
-    #             "comment": comment,  # Quality evaluation of heading
-    #             "line_indices": [],  # not used downstream, kept for compatibility
-    #         }
-    #     )
+    
     
     def _strip_heading_prefix(text: str) -> str:
         """
@@ -2953,21 +2793,6 @@ def build_grok_payload_for_grading(
         },
     }
 
-    # NOTE: Previous, less-strict instructions kept for reference:
-    # previous_instructions = (
-    #     "You are an experienced strict CSS examiner. "
-    #     "Using ONLY the provided subject-wise rubric text, you must grade the student's answer with STRICT marking. "
-    #     "IMPORTANT: Maximum marks awarded should NOT exceed 14 out of 20. "
-    #     "Average/acceptable answers should score LESS than 10 marks. "
-    #     "Only exceptional answers should approach 14 marks. "
-    #     "Derive criteria and marks from the rubric text. Return STRICT JSON.\n\n"
-    #     "Required fields:\n"
-    #     "  - subject\n"
-    #     "  - max_marks: always 20\n"
-    #     "  - total_marks_awarded (cap at 14 maximum)\n"
-    #     "  - question_statement: the exam question as written by the student\n"
-    #     "  - criteria[]: each criterion with id, name, max, awarded, remark\n"
-    # )
 
     # NEW: Stricter marking + hard consistency requirement between criteria sum and total_marks_awarded.
     instructions = (
