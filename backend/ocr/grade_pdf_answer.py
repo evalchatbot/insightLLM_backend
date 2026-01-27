@@ -10,6 +10,7 @@
 #   7) Annotate answer pages according to simplified rules.
 #   8) Merge all pages into final PDF.
 
+# -------- 1. Standard library (alphabetical) --------
 import argparse
 import base64
 import datetime
@@ -17,34 +18,50 @@ import gc
 import io
 import json
 import os
+import random
 import re
+import shutil
 import sys
 import tempfile
-import uuid
-import shutil
 import time
 import traceback
-import random
-from functools import lru_cache
-from typing import Any, Dict, List, Tuple, Optional, Set
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+# -------- 2. Third-party (alphabetical by package) --------
+import cv2
+import fitz  # PyMuPDF
+import numpy as np
 import requests
+from docx import Document
 from dotenv import load_dotenv
 from google.api_core.client_options import ClientOptions
 from google.cloud import vision
-import fitz  # PyMuPDF
-from docx import Document
 from PIL import Image, ImageDraw, ImageFont
-import cv2
-import numpy as np
-from PyPDF2 import PdfWriter, PdfReader
+from PyPDF2 import PdfReader, PdfWriter
 
+# -------- 3. Local (try/except for package vs standalone) --------
 try:
     from backend.ocr.annotate_pdf_with_rubric import annotate_pdf_answer_pages
+    from backend.ocr.grok_client import (
+        GROK_MODEL,
+        GROK_REQUEST_TIMEOUT,
+        GrokAPIError,
+        call_grok_api,
+    )
+    from backend.ocr.ocr_vision import run_ocr_on_pdf
     from backend.ocr.progress_tracker import OCRProgressTracker
 except ImportError:
     from annotate_pdf_with_rubric import annotate_pdf_answer_pages
+    from grok_client import (
+        GROK_MODEL,
+        GROK_REQUEST_TIMEOUT,
+        GrokAPIError,
+        call_grok_api,
+    )
+    from ocr_vision import run_ocr_on_pdf
     from progress_tracker import OCRProgressTracker
 
 
@@ -52,7 +69,44 @@ except ImportError:
 # UTILS & ENV
 # -----------------------------
 
+# -----------------------------
+# CONSTANTS
+# -----------------------------
+# GROK_CHAT_URL, GROK_MODEL, GROK_REQUEST_TIMEOUT -> backend.ocr.grok_client
+MAX_MARKS_CAP = 14
+DEFAULT_MAX_MARKS = 20
 
+
+def _get_ocr_config() -> Dict[str, Any]:
+    """
+    Read OCR-related settings from environment variables.
+    Used by grade_pdf_answer to pass config into run_ocr_on_pdf.
+    All OCR_* env vars and their defaults are documented here.
+    """
+    def _truthy(s: str) -> bool:
+        return (s or "").strip().lower() in ("true", "1", "yes", "on")
+
+    return {
+        "per_page_timeout": float(os.getenv("OCR_PER_PAGE_TIMEOUT", "120.0")),
+        "overall_timeout": float(os.getenv("OCR_OVERALL_TIMEOUT", "600.0")),
+        "max_retries": int(os.getenv("OCR_MAX_RETRIES", "3")),
+        "retry_base_delay": float(os.getenv("OCR_RETRY_BASE_DELAY", "1.0")),
+        "retry_max_delay": float(os.getenv("OCR_RETRY_MAX_DELAY", "60.0")),
+        "retry_jitter_range": float(os.getenv("OCR_RETRY_JITTER_RANGE", "0.2")),
+        "rate_limit_base_delay": float(os.getenv("OCR_RATE_LIMIT_BASE_DELAY", "5.0")),
+        "rate_limit_max_delay": float(os.getenv("OCR_RATE_LIMIT_MAX_DELAY", "300.0")),
+        "concurrent_pages": int(os.getenv("OCR_CONCURRENT_PAGES", "2")),
+        "batch_size": int(os.getenv("OCR_BATCH_SIZE", "5")),
+        "batch_failure_threshold": float(os.getenv("OCR_BATCH_FAILURE_THRESHOLD", "0.5")),
+        "adaptive_concurrency_enabled": _truthy(os.getenv("OCR_ADAPTIVE_CONCURRENCY_ENABLED", "true")),
+        "adaptive_min_concurrency": int(os.getenv("OCR_ADAPTIVE_MIN_CONCURRENCY", "1")),
+        "adaptive_max_concurrency": int(os.getenv("OCR_ADAPTIVE_MAX_CONCURRENCY", "4")),
+        "adaptive_latency_threshold_ms": float(os.getenv("OCR_ADAPTIVE_LATENCY_THRESHOLD_MS", "90000.0")),
+        "adaptive_stable_batches": int(os.getenv("OCR_ADAPTIVE_STABLE_BATCHES", "2")),
+        "image_optimization_enabled": _truthy(os.getenv("OCR_IMAGE_OPTIMIZATION_ENABLED", "true")),
+        "image_max_dimension": int(os.getenv("OCR_IMAGE_MAX_DIMENSION", "2048")),
+        "image_min_dimension_for_optimization": int(os.getenv("OCR_IMAGE_MIN_DIMENSION_FOR_OPTIMIZATION", "1500")),
+    }
 
 
 def debug_dump_sections(
@@ -215,58 +269,6 @@ def _format_time(seconds: float) -> str:
 
 
 
-
-
-def clean_json_from_llm(text: str) -> str:
-    """
-    Remove markdown code fences and extract JSON from LLM responses.
-    Handles various formats: ```json ... ```, ``` ... ```, or plain JSON.
-    """
-    text = text.strip()
-    
-    # Remove markdown code fences
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z0-9]*\n?", "", text)
-        text = re.sub(r"\n?```$", "", text)
-        text = text.strip()
-    
-    # Try to extract JSON object/array if wrapped in text
-    # Look for JSON object starting with {
-    json_match = re.search(r'(\{[\s\S]*\})', text)
-    if json_match:
-        text = json_match.group(1)
-    
-    return text.strip()
-
-
-def repair_json(text: str, error_pos: Optional[int] = None) -> str:
-    """
-    Attempt to repair common JSON issues:
-    - Trailing commas before closing brackets/braces
-    - Control characters
-    - Unclosed strings (basic handling)
-    """
-    # Remove trailing commas before } or ]
-    text = re.sub(r',(\s*[}\]])', r'\1', text)
-    
-    # Remove control characters except newlines and tabs
-    text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\t\r')
-    
-    # If error position is known, try to fix around that area
-    if error_pos is not None and error_pos < len(text):
-        # Try to add missing comma if we're at a position that might need one
-        # This is a heuristic - look for patterns like "value }" or "value ]"
-        if error_pos > 0:
-            # Check context around error position
-            start = max(0, error_pos - 50)
-            end = min(len(text), error_pos + 50)
-            context = text[start:end]
-            
-            # Try to fix common patterns: "value }" -> "value, }" (but be careful)
-            # This is a last resort and might not always work correctly
-            pass  # Keep it simple for now - trailing comma removal is the main fix
-    
-    return text
 
 
 # -----------------------------
@@ -671,1485 +673,7 @@ def get_report_page_size(
         doc.close()
 
 
-# -----------------------------
-# OCR WITH GOOGLE VISION
-# -----------------------------
-
-
-def _bbox_to_tuples(bbox) -> List[Tuple[int, int]]:
-    return [(v.x, v.y) for v in bbox.vertices]
-
-
-def _paragraph_text(paragraph) -> str:
-    words = []
-    for word in paragraph.words:
-        symbols = "".join(symbol.text for symbol in word.symbols)
-        words.append(symbols)
-    return " ".join(words).strip()
-
-
-def _is_noise_text(text: str, bbox: List[Tuple[int, int]], page_w: int, page_h: int) -> bool:
-    """
-    Filter out background noise from OCR results.
-    Returns True if the text is likely noise.
-    """
-    if not text or not bbox:
-        return True
-
-    # Filter very short text (1-2 chars) that's likely noise
-    if len(text.strip()) <= 2:
-        return True
-
-    # Calculate bbox dimensions
-    xs = [p[0] for p in bbox]
-    ys = [p[1] for p in bbox]
-    if not xs or not ys:
-        return True
-
-    width = max(xs) - min(xs)
-    height = max(ys) - min(ys)
-
-    # Filter extremely small text (likely artifacts)
-    if width < 10 or height < 10:
-        return True
-
-    # Filter text at extreme edges (often page numbers or noise)
-    center_x = (min(xs) + max(xs)) / 2
-    center_y = (min(ys) + max(ys)) / 2
-
-    margin = 30  # pixels
-    if center_x < margin or center_x > page_w - margin:
-        if center_y < margin or center_y > page_h - margin:
-            return True
-
-    return False
-
-
-def _is_retryable_error(
-    error: Exception,
-    response: Optional[vision.AnnotateImageResponse] = None,
-) -> Tuple[bool, str]:
-    """
-    Determine if an error should be retried based on error type and message.
-    
-    Args:
-        error: The exception that was raised
-        response: Optional Vision API response object (for checking response.error)
-    
-    Returns:
-        Tuple of (is_retryable: bool, error_category: str)
-        error_category: One of: 'network_error', 'rate_limit', 'server_error', 
-                       'timeout', 'auth_error', 'invalid_input', 'not_found', 'unknown'
-    """
-    error_type = type(error).__name__
-    error_msg = str(error).lower()
-    
-    # Check Google Vision API response errors first (if available)
-    if response and hasattr(response, 'error') and response.error.message:
-        api_error_msg = response.error.message.lower()
-        
-        # Rate limit errors
-        if any(keyword in api_error_msg for keyword in [
-            'resource_exhausted', 'rate limit', 'quota', '429', 'rate limit'
-        ]):
-            return True, 'rate_limit'
-        
-        # Server errors
-        if any(keyword in api_error_msg for keyword in [
-            'unavailable', 'deadline_exceeded', 'internal error', '500', '502', '503', '504'
-        ]):
-            return True, 'server_error'
-        
-        # Non-retryable API errors
-        if any(keyword in api_error_msg for keyword in [
-            'permission_denied', 'invalid_argument', 'invalid_image', 
-            'not_found', '401', '403', '400', '404', '422'
-        ]):
-            if 'permission_denied' in api_error_msg or '401' in api_error_msg or '403' in api_error_msg:
-                return False, 'auth_error'
-            elif 'invalid' in api_error_msg or '400' in api_error_msg or '422' in api_error_msg:
-                return False, 'invalid_input'
-            elif 'not_found' in api_error_msg or '404' in api_error_msg:
-                return False, 'not_found'
-    
-    # Check exception types
-    # Network/Connection errors (retryable)
-    if error_type in ['ConnectionError', 'ConnectionResetError', 'ConnectionAbortedError']:
-        return True, 'network_error'
-    
-    if 'connection' in error_msg or 'network' in error_msg or 'dns' in error_msg or 'socket' in error_msg:
-        return True, 'network_error'
-    
-    # Timeout errors (retryable, but conditional)
-    if error_type == 'TimeoutError' or 'timeout' in error_msg or 'deadline' in error_msg:
-        return True, 'timeout'
-    
-    # Rate limit errors (retryable)
-    if '429' in error_msg or 'rate limit' in error_msg or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-        return True, 'rate_limit'
-    
-    # Server errors (retryable)
-    if any(code in error_msg for code in ['500', '502', '503', '504']):
-        return True, 'server_error'
-    if 'unavailable' in error_msg or 'internal error' in error_msg or 'gateway' in error_msg:
-        return True, 'server_error'
-    
-    # Authentication/Permission errors (non-retryable)
-    if error_type in ['PermissionError']:
-        return False, 'auth_error'
-    if any(keyword in error_msg for keyword in [
-        'auth', 'permission', 'unauthorized', 'forbidden', '401', '403'
-    ]):
-        return False, 'auth_error'
-    
-    # Invalid request errors (non-retryable)
-    if error_type == 'ValueError':
-        return False, 'invalid_input'
-    if any(keyword in error_msg for keyword in [
-        'invalid', 'bad request', '400', '422', 'invalid_argument', 'invalid_image'
-    ]):
-        return False, 'invalid_input'
-    
-    # Not found errors (non-retryable)
-    if '404' in error_msg or 'not found' in error_msg:
-        return False, 'not_found'
-    
-    # Format/corruption errors (non-retryable)
-    if any(keyword in error_msg for keyword in [
-        'format', 'corrupt', 'unsupported', 'too large', 'size limit'
-    ]):
-        return False, 'invalid_input'
-    
-    # Default: For unknown errors, be conservative and don't retry
-    # This can be adjusted based on observed error patterns
-    return False, 'unknown'
-
-
-def _calculate_backoff_delay(
-    attempt_number: int,
-    base_delay: float = 1.0,
-    max_delay: float = 60.0,
-    jitter_range: float = 0.2,
-    is_rate_limit: bool = False,
-    rate_limit_base_delay: float = 5.0,
-    rate_limit_max_delay: float = 300.0,
-    retry_after: Optional[float] = None,
-) -> float:
-    """
-    Calculate exponential backoff delay with jitter.
-    
-    Formula: delay = base_delay * (2 ^ (attempt_number - 1)) + jitter
-    - Exponential growth per attempt
-    - Capped at max_delay
-    - Jitter added to prevent thundering herd
-    
-    Args:
-        attempt_number: Current attempt number (1-indexed, attempt 1 = no wait)
-        base_delay: Base delay in seconds (default: 1.0)
-        max_delay: Maximum delay in seconds (default: 60.0)
-        jitter_range: Jitter range (0.0-1.0) for randomization (default: 0.2 = ±20%)
-        is_rate_limit: If True, use rate limit specific delays
-        rate_limit_base_delay: Base delay for rate limits (default: 5.0)
-        rate_limit_max_delay: Max delay for rate limits (default: 300.0)
-        retry_after: Optional Retry-After header value in seconds (takes precedence)
-    
-    Returns:
-        Delay in seconds (float)
-    
-    Examples:
-        # Standard backoff (attempt 2, base=1.0, max=60.0, jitter=0.2)
-        # delay = 1.0 * 2^1 = 2.0s, jitter = ±0.4s → 1.6-2.4s
-        
-        # Rate limit backoff (attempt 3, base=5.0, max=300.0, jitter=0.2)
-        # delay = 5.0 * 2^2 = 20.0s, jitter = ±4.0s → 16.0-24.0s
-        
-        # With Retry-After header
-        # delay = retry_after (e.g., 30.0s) - no jitter applied
-    """
-    # If Retry-After header is provided, use it directly (no jitter)
-    if retry_after is not None and retry_after > 0:
-        return float(retry_after)
-    
-    # Use rate limit parameters if this is a rate limit error
-    if is_rate_limit:
-        effective_base = rate_limit_base_delay
-        effective_max = rate_limit_max_delay
-    else:
-        effective_base = base_delay
-        effective_max = max_delay
-    
-    # Calculate exponential delay: base * (2 ^ (attempt - 1))
-    # Attempt 1 = no wait (2^0 = 1, but we don't wait before first attempt)
-    # Attempt 2 = base * 2^1 = base * 2
-    # Attempt 3 = base * 2^2 = base * 4
-    # etc.
-    if attempt_number <= 1:
-        # First attempt has no backoff (immediate)
-        return 0.0
-    
-    exponential_delay = effective_base * (2 ** (attempt_number - 1))
-    
-    # Cap at maximum delay
-    capped_delay = min(exponential_delay, effective_max)
-    
-    # Add jitter: random variation of ±jitter_range percentage
-    # Example: jitter_range=0.2 means ±20% variation
-    # jitter = random.uniform(-0.2, 0.2) * capped_delay
-    jitter = random.uniform(-jitter_range, jitter_range) * capped_delay
-    final_delay = capped_delay + jitter
-    
-    # Ensure delay is non-negative
-    return max(0.0, final_delay)
-
-
-def _check_retry_budget(
-    elapsed_time: float,
-    overall_timeout: Optional[float],
-    backoff_delay: float,
-    estimated_attempt_time: float,
-    safety_margin: float = 5.0,
-) -> bool:
-    """
-    Check if retry budget allows another retry attempt.
-    
-    Determines if there's enough time remaining in the overall timeout budget
-    to perform another retry attempt (including backoff delay and estimated attempt time).
-    
-    Args:
-        elapsed_time: Time already spent on processing (seconds)
-        overall_timeout: Overall timeout budget (None = no limit)
-        backoff_delay: Calculated backoff delay before retry (seconds)
-        estimated_attempt_time: Estimated time for the retry attempt (seconds)
-        safety_margin: Safety margin to avoid cutting it too close (default: 5.0 seconds)
-    
-    Returns:
-        True if retry budget allows another attempt, False otherwise
-    
-    Examples:
-        # Overall timeout = 600s, elapsed = 580s, backoff = 2s, attempt = 10s
-        # Remaining = 20s, needed = 12s → True (within budget)
-        
-        # Overall timeout = 600s, elapsed = 590s, backoff = 5s, attempt = 10s
-        # Remaining = 10s, needed = 15s → False (exceeds budget)
-    """
-    # If no overall timeout, always allow retry
-    if overall_timeout is None:
-        return True
-    
-    # Calculate remaining budget
-    remaining_budget = overall_timeout - elapsed_time
-    
-    # Calculate total retry cost (backoff + attempt + safety margin)
-    retry_cost = backoff_delay + estimated_attempt_time + safety_margin
-    
-    # Check if retry would exceed budget
-    return retry_cost <= remaining_budget
-
-
-def _estimate_attempt_time(
-    per_page_timeout: float,
-    previous_attempt_duration: Optional[float] = None,
-) -> float:
-    """
-    Estimate time for a retry attempt.
-    
-    Uses conservative estimate based on per-page timeout or previous attempt duration.
-    
-    Args:
-        per_page_timeout: Per-page timeout (used as max estimate)
-        previous_attempt_duration: Duration of previous attempt (if available)
-    
-    Returns:
-        Estimated attempt time in seconds
-    """
-    # If we have previous attempt duration, use it as estimate (with small buffer)
-    if previous_attempt_duration is not None:
-        # Use previous duration + 10% buffer as estimate
-        return previous_attempt_duration * 1.1
-    
-    # Otherwise, use per-page timeout as conservative estimate
-    # This assumes worst case: attempt takes full timeout
-    return per_page_timeout
-
-
-def _call_vision_with_retry(
-    vision_client: vision.ImageAnnotatorClient,
-    vision_image: vision.Image,
-    timeout_seconds: float,
-    page_number: int,
-    max_retries: int = 3,
-    retry_base_delay: float = 1.0,
-    retry_max_delay: float = 60.0,
-    retry_jitter_range: float = 0.2,
-    rate_limit_base_delay: float = 5.0,
-    rate_limit_max_delay: float = 300.0,
-    overall_timeout: Optional[float] = None,
-    overall_start_time: Optional[float] = None,
-    log_path: Optional[str] = None,
-    request_id: Optional[str] = None,
-    retry_stats: Optional[Dict[str, Any]] = None,
-) -> vision.AnnotateImageResponse:
-    """
-    Call Google Vision API with timeout protection and retry logic.
-    
-    Wraps `_call_vision_with_timeout()` with retry logic, exponential backoff,
-    and budget management. Retries transient failures while failing fast on
-    permanent errors.
-    
-    Args:
-        vision_client: Google Vision client
-        vision_image: Image to process
-        timeout_seconds: Maximum time per attempt (seconds)
-        page_number: Page number for error messages
-        max_retries: Maximum retry attempts (default: 3)
-        retry_base_delay: Base delay for exponential backoff (default: 1.0)
-        retry_max_delay: Maximum delay between retries (default: 60.0)
-        retry_jitter_range: Jitter range for randomization (default: 0.2)
-        rate_limit_base_delay: Base delay for rate limit errors (default: 5.0)
-        rate_limit_max_delay: Max delay for rate limit errors (default: 300.0)
-        overall_timeout: Overall timeout budget (None = no limit)
-        overall_start_time: Start time for overall timeout tracking (None = current time)
-        log_path: Optional path to log file
-        request_id: Optional request ID for logging
-    
-    Returns:
-        Vision API response
-    
-    Raises:
-        TimeoutError: If timeout occurs and retries exhausted or budget exceeded
-        RuntimeError: If API call fails with non-retryable error or all retries exhausted
-    """
-    if overall_start_time is None:
-        overall_start_time = time.perf_counter()
-    
-    last_error: Optional[Exception] = None
-    last_response: Optional[vision.AnnotateImageResponse] = None
-    previous_attempt_duration: Optional[float] = None
-    
-    # Initialize retry statistics if not provided
-    if retry_stats is None:
-        retry_stats = {
-            "total_attempts": 0,
-            "successful_retries": 0,
-            "exhausted_retries": 0,
-            "rate_limit_events": 0,
-            "non_retryable_errors": 0,
-            "budget_exceeded": 0,
-            "retry_attempts_by_category": {},
-        }
-    
-    for attempt in range(1, max_retries + 1):
-        attempt_start_time = time.perf_counter()
-        retry_stats["total_attempts"] += 1
-        
-        try:
-            # Make API call with timeout
-            response = _call_vision_with_timeout(
-                vision_client=vision_client,
-                vision_image=vision_image,
-                timeout_seconds=timeout_seconds,
-                page_number=page_number,
-            )
-            
-            # Store response for potential error classification
-            last_response = response
-            
-            # Success on first attempt
-            if attempt == 1:
-                return response
-            
-            # Success after retry
-            attempt_duration = time.perf_counter() - attempt_start_time
-            retry_stats["successful_retries"] += 1
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_retry_success page={page_number} "
-                f"attempt={attempt}/{max_retries} total_attempts={attempt} "
-                f"duration_ms={int(attempt_duration * 1000)}",
-            )
-            # Return response with retry stats (for potential future use)
-            return response
-            
-        except Exception as e:
-            last_error = e
-            attempt_duration = time.perf_counter() - attempt_start_time
-            previous_attempt_duration = attempt_duration
-            
-            # Note: last_response may not be available if exception occurred before API call
-            # Error classification will work with exception type and message patterns
-            
-            # Classify error
-            is_retryable, error_category = _is_retryable_error(e, last_response)
-            
-            # Non-retryable error: fail fast
-            if not is_retryable:
-                retry_stats["non_retryable_errors"] += 1
-                _append_log(
-                    log_path,
-                    "ERROR",
-                    f"request={request_id} ocr_non_retryable page={page_number} "
-                    f"attempt={attempt} error_category={error_category} error={str(e)}",
-                )
-                raise RuntimeError(
-                    f"OCR failed on page {page_number} (non-retryable {error_category}): {str(e)}"
-                ) from e
-            
-            # Check if we have retries remaining
-            if attempt >= max_retries:
-                # All retries exhausted
-                retry_stats["exhausted_retries"] += 1
-                # Track retry attempts by category
-                if error_category not in retry_stats["retry_attempts_by_category"]:
-                    retry_stats["retry_attempts_by_category"][error_category] = 0
-                retry_stats["retry_attempts_by_category"][error_category] += 1
-                _append_log(
-                    log_path,
-                    "ERROR",
-                    f"request={request_id} ocr_retry_exhausted page={page_number} "
-                    f"attempts={max_retries} error_category={error_category} error={str(e)}",
-                )
-                raise RuntimeError(
-                    f"OCR failed on page {page_number} after {max_retries} attempts "
-                    f"({error_category}): {str(e)}"
-                ) from e
-            
-            # Track retry attempts by category
-            if error_category not in retry_stats["retry_attempts_by_category"]:
-                retry_stats["retry_attempts_by_category"][error_category] = 0
-            retry_stats["retry_attempts_by_category"][error_category] += 1
-            
-            # Calculate backoff delay
-            is_rate_limit = (error_category == 'rate_limit')
-            if is_rate_limit:
-                retry_stats["rate_limit_events"] += 1
-            backoff_delay = _calculate_backoff_delay(
-                attempt_number=attempt + 1,  # Next attempt number
-                base_delay=retry_base_delay,
-                max_delay=retry_max_delay,
-                jitter_range=retry_jitter_range,
-                is_rate_limit=is_rate_limit,
-                rate_limit_base_delay=rate_limit_base_delay,
-                rate_limit_max_delay=rate_limit_max_delay,
-                retry_after=None,  # TODO: Extract from response headers if available
-            )
-            
-            # Estimate attempt time for budget check
-            estimated_attempt_time = _estimate_attempt_time(
-                per_page_timeout=timeout_seconds,
-                previous_attempt_duration=previous_attempt_duration,
-            )
-            
-            # Check retry budget
-            elapsed_time = time.perf_counter() - overall_start_time
-            if not _check_retry_budget(
-                elapsed_time=elapsed_time,
-                overall_timeout=overall_timeout,
-                backoff_delay=backoff_delay,
-                estimated_attempt_time=estimated_attempt_time,
-            ):
-                # Budget exceeded, stop retrying
-                retry_stats["budget_exceeded"] += 1
-                _append_log(
-                    log_path,
-                    "WARNING",
-                    f"request={request_id} ocr_retry_budget_exceeded page={page_number} "
-                    f"attempt={attempt} elapsed_s={elapsed_time:.1f} "
-                    f"overall_timeout_s={overall_timeout} backoff_s={backoff_delay:.1f} "
-                    f"estimated_s={estimated_attempt_time:.1f}",
-                )
-                raise TimeoutError(
-                    f"OCR retry budget exceeded on page {page_number} at attempt {attempt}: "
-                    f"elapsed {elapsed_time:.1f}s, would need {backoff_delay + estimated_attempt_time:.1f}s"
-                )
-            
-            # Log retry attempt
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_retry_attempt page={page_number} "
-                f"attempt={attempt + 1}/{max_retries} error_category={error_category} "
-                f"wait_s={backoff_delay:.2f} previous_duration_ms={int(previous_attempt_duration * 1000)}",
-            )
-            
-            # Special logging for rate limits
-            if is_rate_limit:
-                _append_log(
-                    log_path,
-                    "WARNING",
-                    f"request={request_id} ocr_rate_limit page={page_number} "
-                    f"attempt={attempt + 1} wait_s={backoff_delay:.2f}",
-                )
-            
-            # Wait before retry
-            time.sleep(backoff_delay)
-            
-            # Continue to next retry attempt
-            continue
-    
-    # Should never reach here, but handle just in case
-    if last_error:
-        raise RuntimeError(
-            f"OCR failed on page {page_number} after {max_retries} attempts: {str(last_error)}"
-        ) from last_error
-    
-    raise RuntimeError(f"OCR failed on page {page_number}: unexpected error")
-
-
-def _call_vision_with_timeout(
-    vision_client: vision.ImageAnnotatorClient,
-    vision_image: vision.Image,
-    timeout_seconds: float,
-    page_number: int,
-) -> vision.AnnotateImageResponse:
-    """
-    Call Google Vision API with timeout protection.
-    
-    Args:
-        vision_client: Google Vision client
-        vision_image: Image to process
-        timeout_seconds: Maximum time to wait for response
-        page_number: Page number for error messages
-    
-    Returns:
-        Vision API response
-    
-    Raises:
-        TimeoutError: If the API call exceeds timeout_seconds
-        RuntimeError: If the API call fails with an error
-    """
-    def _make_api_call():
-        """Make the actual API call in a separate thread."""
-        return vision_client.document_text_detection(image=vision_image)
-    
-    # Use ThreadPoolExecutor to enforce timeout
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_make_api_call)
-        try:
-            response = future.result(timeout=timeout_seconds)
-            
-            # Check for API errors
-            if response.error.message:
-                raise RuntimeError(
-                    f"OCR failed on page {page_number}: {response.error.message}"
-                )
-            
-            return response
-            
-        except FutureTimeoutError:
-            # Cancel the future if possible
-            future.cancel()
-            raise TimeoutError(
-                f"OCR timeout on page {page_number}: "
-                f"exceeded {timeout_seconds} seconds"
-            )
-        except Exception as e:
-            # Re-raise other exceptions with context
-            if isinstance(e, (TimeoutError, RuntimeError)):
-                raise
-            raise RuntimeError(
-                f"OCR error on page {page_number}: {str(e)}"
-            ) from e
-
-
-def _optimize_image_for_ocr(
-    img: Image.Image,
-    max_dimension: int,
-    min_dimension_for_optimization: int,
-    enabled: bool = True,
-) -> Tuple[Image.Image, float, float]:
-    """
-    Optimize image for OCR by downscaling if it exceeds maximum dimensions.
-    Preserves aspect ratio and returns scale factors for bounding box adjustment.
-    
-    Args:
-        img: PIL Image to optimize
-        max_dimension: Maximum width or height (downscale if larger)
-        min_dimension_for_optimization: Only optimize if dimension exceeds this
-        enabled: Whether optimization is enabled
-    
-    Returns:
-        Tuple of (optimized_image, scale_x, scale_y)
-        - optimized_image: Optimized PIL Image (or original if not optimized)
-        - scale_x: X-axis scale factor (original_width / optimized_width, 1.0 if not scaled)
-        - scale_y: Y-axis scale factor (original_height / optimized_height, 1.0 if not scaled)
-    """
-    if not enabled:
-        return img, 1.0, 1.0
-    
-    original_w, original_h = img.size
-    max_dim = max(original_w, original_h)
-    
-    # Only optimize if image exceeds minimum dimension threshold
-    if max_dim <= min_dimension_for_optimization:
-        return img, 1.0, 1.0
-    
-    # Calculate new dimensions preserving aspect ratio
-    if original_w > original_h:
-        # Landscape: limit width
-        if original_w > max_dimension:
-            new_w = max_dimension
-            new_h = int(original_h * (max_dimension / original_w))
-        else:
-            return img, 1.0, 1.0
-    else:
-        # Portrait or square: limit height
-        if original_h > max_dimension:
-            new_h = max_dimension
-            new_w = int(original_w * (max_dimension / original_h))
-        else:
-            return img, 1.0, 1.0
-    
-    # Downscale using high-quality resampling
-    optimized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    
-    # Calculate scale factors for bounding box adjustment
-    scale_x = original_w / new_w
-    scale_y = original_h / new_h
-    
-    return optimized_img, scale_x, scale_y
-
-
-def _process_single_page_ocr(
-    vision_client: vision.ImageAnnotatorClient,
-    img: Image.Image,
-    page_num: int,
-    per_page_timeout: float,
-    overall_timeout: Optional[float],
-    overall_start_time: float,
-    max_retries: int,
-    retry_base_delay: float,
-    retry_max_delay: float,
-    retry_jitter_range: float,
-    rate_limit_base_delay: float,
-    rate_limit_max_delay: float,
-    log_path: Optional[str],
-    request_id: Optional[str],
-    image_optimization_enabled: bool = True,
-    image_max_dimension: int = 2048,
-    image_min_dimension_for_optimization: int = 1500,
-) -> Tuple[int, Dict[str, Any], Dict[str, Any], Optional[str]]:
-    """
-    Process a single page OCR. This function is designed to be called in parallel.
-    
-    Returns:
-        Tuple of (page_number, page_output_dict, retry_stats_dict, full_text, error_message)
-        - page_output_dict: Page OCR data or error info
-        - retry_stats_dict: Retry statistics for this page
-        - full_text: Extracted text from page (empty string if error)
-        - error_message: None if success, error message if failed
-    """
-    page_retry_stats = {
-        "total_attempts": 0,
-        "successful_retries": 0,
-        "exhausted_retries": 0,
-        "rate_limit_events": 0,
-        "non_retryable_errors": 0,
-        "budget_exceeded": 0,
-        "retry_attempts_by_category": {},
-    }
-    
-    try:
-        # Check overall timeout before processing
-        if overall_timeout is not None:
-            elapsed = time.perf_counter() - overall_start_time
-            if elapsed >= overall_timeout:
-                error_msg = f"OCR overall timeout exceeded at page {page_num}: {elapsed:.1f}s >= {overall_timeout}s"
-                _append_log(
-                    log_path,
-                    "WARNING",
-                    f"request={request_id} ocr_overall_timeout page={page_num} "
-                    f"elapsed={elapsed:.1f}s limit={overall_timeout}s",
-                )
-                return (
-                    page_num,
-                    {
-                        "page_number": page_num,
-                        "lines": [],
-                        "error": "timeout",
-                        "error_message": error_msg,
-                    },
-                    page_retry_stats,
-                    "",  # No text on error
-                    error_msg,
-                )
-        
-        # Store original dimensions for bounding box adjustment and noise filtering
-        original_page_w, original_page_h = img.size
-        
-        # Optimize image for OCR (downscale if too large)
-        optimized_img, scale_x, scale_y = _optimize_image_for_ocr(
-            img=img,
-            max_dimension=image_max_dimension,
-            min_dimension_for_optimization=image_min_dimension_for_optimization,
-            enabled=image_optimization_enabled,
-        )
-        
-        # Log optimization if applied
-        if scale_x != 1.0 or scale_y != 1.0:
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_image_optimized page={page_num} "
-                f"original_size={original_page_w}x{original_page_h} "
-                f"optimized_size={optimized_img.size[0]}x{optimized_img.size[1]} "
-                f"scale_x={scale_x:.2f} scale_y={scale_y:.2f}",
-            )
-        
-        # Use optimized image for OCR
-        buffer = io.BytesIO()
-        optimized_img.save(buffer, format="PNG")
-        vision_image = vision.Image(content=buffer.getvalue())
-        
-        # Use original dimensions for noise filtering (bounding boxes will be adjusted)
-        page_w, page_h = original_page_w, original_page_h
-        
-        # Call Vision API with timeout protection and retry logic
-        page_start_time = time.perf_counter()
-        response = _call_vision_with_retry(
-            vision_client=vision_client,
-            vision_image=vision_image,
-            timeout_seconds=per_page_timeout,
-            page_number=page_num,
-            max_retries=max_retries,
-            retry_base_delay=retry_base_delay,
-            retry_max_delay=retry_max_delay,
-            retry_jitter_range=retry_jitter_range,
-            rate_limit_base_delay=rate_limit_base_delay,
-            rate_limit_max_delay=rate_limit_max_delay,
-            overall_timeout=overall_timeout,
-            overall_start_time=overall_start_time,
-            log_path=log_path,
-            request_id=request_id,
-            retry_stats=page_retry_stats,
-        )
-        page_duration = time.perf_counter() - page_start_time
-        
-        _append_log(
-            log_path,
-            "INFO",
-            f"request={request_id} ocr_page_complete page={page_num} "
-            f"duration_ms={int(page_duration * 1000)}",
-        )
-        
-        # Process the response
-        page_lines: List[Dict[str, Any]] = []
-        annotation = response.full_text_annotation
-        full_text = ""
-        
-        if annotation:
-            full_text = annotation.text.strip()
-            for page in annotation.pages:
-                for block in page.blocks:
-                    for paragraph in block.paragraphs:
-                        text = _paragraph_text(paragraph)
-                        para_bbox = _bbox_to_tuples(paragraph.bounding_box)
-                        
-                        # Adjust bounding box for image optimization (scale up to original dimensions)
-                        if scale_x != 1.0 or scale_y != 1.0:
-                            para_bbox = [
-                                (int(x * scale_x), int(y * scale_y)) for x, y in para_bbox
-                            ]
-                        
-                        # Filter noise (using original page dimensions)
-                        if _is_noise_text(text, para_bbox, page_w, page_h):
-                            continue
-                        
-                        word_entries: List[Dict[str, Any]] = []
-                        for word in paragraph.words:
-                            w_text = "".join(
-                                symbol.text for symbol in word.symbols
-                            ).strip()
-                            if not w_text:
-                                continue
-                            word_bbox = _bbox_to_tuples(word.bounding_box)
-                            
-                            # Adjust bounding box for image optimization (scale up to original dimensions)
-                            if scale_x != 1.0 or scale_y != 1.0:
-                                word_bbox = [
-                                    (int(x * scale_x), int(y * scale_y)) for x, y in word_bbox
-                                ]
-                            
-                            # Filter noise words (using original page dimensions)
-                            if _is_noise_text(w_text, word_bbox, page_w, page_h):
-                                continue
-                            
-                            word_entries.append({
-                                "text": w_text,
-                                "bbox": word_bbox,
-                            })
-                        
-                        if word_entries:  # Only add paragraph if it has valid words
-                            page_lines.append({
-                                "text": text,
-                                "bbox": para_bbox,
-                                "words": word_entries,
-                            })
-        else:
-            text_annotations = response.text_annotations
-            if text_annotations:
-                full_text = text_annotations[0].description.strip()
-                for ta in text_annotations[1:]:
-                    ta_bbox = _bbox_to_tuples(ta.bounding_poly)
-                    
-                    # Adjust bounding box for image optimization (scale up to original dimensions)
-                    if scale_x != 1.0 or scale_y != 1.0:
-                        ta_bbox = [
-                            (int(x * scale_x), int(y * scale_y)) for x, y in ta_bbox
-                        ]
-                    
-                    # Filter noise (using original page dimensions)
-                    if not _is_noise_text(ta.description, ta_bbox, page_w, page_h):
-                        page_lines.append({
-                            "text": ta.description,
-                            "bbox": ta_bbox,
-                            "words": [],
-                        })
-        
-        return (
-            page_num,
-            {"page_number": page_num, "lines": page_lines},
-            page_retry_stats,
-            full_text,
-            None,  # No error
-        )
-        
-    except TimeoutError as e:
-        # Handle per-page timeout
-        error_msg = str(e)
-        _append_log(
-            log_path,
-            "ERROR",
-            f"request={request_id} ocr_page_timeout page={page_num} "
-            f"timeout={per_page_timeout}s error={error_msg}",
-        )
-        return (
-            page_num,
-            {
-                "page_number": page_num,
-                "lines": [],
-                "error": "timeout",
-                "error_message": error_msg,
-            },
-            page_retry_stats,
-            "",  # No text on error
-            error_msg,
-        )
-        
-    except RuntimeError as e:
-        # Handle API errors
-        error_msg = str(e)
-        _append_log(
-            log_path,
-            "ERROR",
-            f"request={request_id} ocr_page_error page={page_num} error={error_msg}",
-        )
-        return (
-            page_num,
-            {
-                "page_number": page_num,
-                "lines": [],
-                "error": "api_error",
-                "error_message": error_msg,
-            },
-            page_retry_stats,
-            "",  # No text on error
-            error_msg,
-        )
-        
-    except Exception as e:
-        # Handle unexpected errors
-        error_msg = str(e)
-        _append_log(
-            log_path,
-            "ERROR",
-            f"request={request_id} ocr_page_unexpected_error page={page_num} "
-            f"error={error_msg}",
-        )
-        return (
-            page_num,
-            {
-                "page_number": page_num,
-                "lines": [],
-                "error": "unexpected_error",
-                "error_message": error_msg,
-            },
-            page_retry_stats,
-            "",  # No text on error
-            error_msg,
-        )
-
-
-def run_ocr_on_pdf(
-    vision_client: vision.ImageAnnotatorClient,
-    pdf_path: str,
-    per_page_timeout: float = 120.0,
-    overall_timeout: Optional[float] = None,
-    log_path: Optional[str] = None,
-    request_id: Optional[str] = None,
-    max_retries: int = 3,
-    progress_tracker: Optional[Any] = None,
-    retry_base_delay: float = 1.0,
-    retry_max_delay: float = 60.0,
-    retry_jitter_range: float = 0.2,
-    rate_limit_base_delay: float = 5.0,
-    rate_limit_max_delay: float = 300.0,
-    concurrent_pages: int = 2,
-    batch_size: int = 5,
-    batch_failure_threshold: float = 0.5,
-    adaptive_concurrency_enabled: bool = True,
-    adaptive_min_concurrency: int = 1,
-    adaptive_max_concurrency: int = 4,
-    adaptive_latency_threshold_ms: float = 90000.0,
-    adaptive_stable_batches: int = 2,
-    image_optimization_enabled: bool = True,
-    image_max_dimension: int = 2048,
-    image_min_dimension_for_optimization: int = 1500,
-) -> Dict[str, Any]:
-    """
-    Run Google Cloud Vision DOCUMENT_TEXT_DETECTION on each page of the PDF.
-    Filters out background noise and artifacts.
-    
-    Args:
-        vision_client: Google Vision client
-        pdf_path: Path to PDF file
-        per_page_timeout: Maximum seconds per page OCR call (default: 120)
-        overall_timeout: Maximum seconds for entire OCR process (default: None = no limit)
-        log_path: Optional path to log file for timeout logging
-        request_id: Optional request ID for logging
-        max_retries: Maximum retry attempts per page (default: 3)
-        retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
-        retry_max_delay: Maximum delay in seconds between retries (default: 60.0)
-        retry_jitter_range: Jitter range (0.0-1.0) for backoff randomization (default: 0.2)
-        rate_limit_base_delay: Base delay in seconds for rate limit backoff (default: 5.0)
-        rate_limit_max_delay: Maximum delay in seconds for rate limit backoff (default: 300.0)
-        concurrent_pages: Number of pages to process in parallel (default: 2)
-        batch_size: Number of pages to process per batch (default: 5)
-        batch_failure_threshold: Stop processing if batch failure rate exceeds this (0.0-1.0, default: 0.5)
-    
-    Returns:
-        Dictionary with 'pages' (list of page OCR data) and 'full_text' (concatenated text)
-    
-    Raises:
-        TimeoutError: If overall timeout is exceeded or per-page timeout occurs
-        RuntimeError: If OCR processing fails
-    """
-    # Track overall processing time for timeout enforcement
-    overall_start_time = time.perf_counter()
-    
-    doc = fitz.open(pdf_path)
-    try:
-        images = []
-        for page in doc:
-            # Check overall timeout before processing each page
-            if overall_timeout is not None:
-                elapsed = time.perf_counter() - overall_start_time
-                if elapsed >= overall_timeout:
-                    raise TimeoutError(
-                        f"OCR overall timeout exceeded: {elapsed:.1f}s >= {overall_timeout}s"
-                    )
-            
-            pix = page.get_pixmap(dpi=200)
-            img_bytes = pix.tobytes("png")
-            pil_img = Image.open(io.BytesIO(img_bytes))
-            images.append(pil_img)
-
-        pages_output: List[Dict[str, Any]] = []
-        full_text_parts: List[str] = []
-        failed_pages: List[Dict[str, Any]] = []  # Track failed pages for partial success
-        
-        # Track aggregate retry statistics across all pages
-        aggregate_retry_stats = {
-            "total_retry_attempts": 0,
-            "successful_retries": 0,
-            "exhausted_retries": 0,
-            "rate_limit_events": 0,
-            "non_retryable_errors": 0,
-            "budget_exceeded": 0,
-            "retry_attempts_by_category": {},
-        }
-
-        # CONDITIONAL PARALLEL OCR: Only parallelize when beneficial
-        # Small files (≤5 pages): Sequential processing (no parallel overhead)
-        # Medium files (6-15 pages): Low concurrency (2 pages)
-        # Large files (16+ pages): Higher concurrency (up to 4 pages)
-        total_pages = len(images)
-        if total_pages <= 5:
-            # Small files: Use sequential processing to avoid parallel overhead
-            concurrent_pages = 1
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_conditional_parallel pages={total_pages} "
-                f"mode=sequential reason=small_file",
-            )
-        elif total_pages <= 15:
-            # Medium files: Use low concurrency (2 pages)
-            concurrent_pages = min(2, total_pages)
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_conditional_parallel pages={total_pages} "
-                f"mode=low_concurrency concurrent_pages={concurrent_pages}",
-            )
-        else:
-            # Large files: Use higher concurrency (up to 4 pages)
-            concurrent_pages = min(4, total_pages)
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_conditional_parallel pages={total_pages} "
-                f"mode=high_concurrency concurrent_pages={concurrent_pages}",
-            )
-        
-        # Ensure concurrent_pages is at least 1 and not more than total pages
-        concurrent_pages = max(1, min(concurrent_pages, total_pages))
-        
-        # Create list to store results (maintains order by page number)
-        results: List[Tuple[int, Dict[str, Any], Dict[str, Any], str, Optional[str]]] = []
-        
-        # WARM-UP PHASE: Process page 1 sequentially first to warm up API connections
-        # This prevents cold-start overhead when parallel processing begins
-        if len(images) > 0:
-            warmup_start_time = time.perf_counter()
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_warmup_start page=1",
-            )
-            
-            # Process page 1 sequentially (outside ThreadPoolExecutor)
-            page1_result = _process_single_page_ocr(
-                vision_client=vision_client,
-                img=images[0],
-                page_num=1,
-                per_page_timeout=per_page_timeout,
-                overall_timeout=overall_timeout,
-                overall_start_time=overall_start_time,
-                max_retries=max_retries,
-                retry_base_delay=retry_base_delay,
-                retry_max_delay=retry_max_delay,
-                retry_jitter_range=retry_jitter_range,
-                rate_limit_base_delay=rate_limit_base_delay,
-                rate_limit_max_delay=rate_limit_max_delay,
-                log_path=log_path,
-                request_id=request_id,
-                image_optimization_enabled=image_optimization_enabled,
-                image_max_dimension=image_max_dimension,
-                image_min_dimension_for_optimization=image_min_dimension_for_optimization,
-            )
-            results.append(page1_result)
-            
-            # Update progress after page 1
-            if progress_tracker:
-                total_pages = len(images)
-                progress_tracker.update_progress(
-                    request_id=request_id,
-                    step="OCR Processing",
-                    step_number=2,
-                    total_steps=11,  # Will be updated dynamically
-                    progress_percent=15.0 + (1 / total_pages) * 30.0,  # 15-45% for OCR
-                    message=f"Processing page 1 of {total_pages}...",
-                    details={"pages_completed": 1, "total_pages": total_pages},
-                )
-            
-            warmup_duration = time.perf_counter() - warmup_start_time
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_warmup_complete page=1 duration_ms={int(warmup_duration * 1000)}",
-            )
-        
-        # BATCH ORCHESTRATION PHASE: Process remaining pages (2+) in batches
-        remaining_pages = len(images) - 1  # Exclude page 1 which was already processed
-        
-        if remaining_pages > 0:
-            # Adjust concurrent_pages for remaining pages
-            effective_concurrency = max(1, min(concurrent_pages, remaining_pages))
-            
-            # Initialize adaptive concurrency tracking
-            if adaptive_concurrency_enabled:
-                # Ensure concurrency is within adaptive bounds
-                effective_concurrency = max(adaptive_min_concurrency, min(effective_concurrency, adaptive_max_concurrency))
-                stable_batch_count = 0  # Count consecutive stable batches
-                previous_concurrency = effective_concurrency
-            
-            # Calculate number of batches
-            num_batches = (remaining_pages + batch_size - 1) // batch_size  # Ceiling division
-            
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_batch_orchestration_start total_pages={len(images)} "
-                f"remaining_pages={remaining_pages} batch_size={batch_size} num_batches={num_batches} "
-                f"concurrent_pages={effective_concurrency} "
-                f"adaptive_enabled={adaptive_concurrency_enabled}",
-            )
-            
-            # Process pages in batches
-            remaining_indices = list(range(1, len(images)))  # Indices for pages 2+
-            batch_num = 0
-            should_continue = True
-            
-            while remaining_indices and should_continue:
-                batch_num += 1
-                
-                # Check overall timeout before starting batch
-                if overall_timeout is not None:
-                    elapsed = time.perf_counter() - overall_start_time
-                    if elapsed >= overall_timeout:
-                        _append_log(
-                            log_path,
-                            "WARNING",
-                            f"request={request_id} ocr_batch_timeout_check batch={batch_num} "
-                            f"elapsed={elapsed:.1f}s limit={overall_timeout}s stopping",
-                        )
-                        break
-                
-                # Get next batch of pages
-                batch_indices = remaining_indices[:batch_size]
-                batch_pages = [idx + 1 for idx in batch_indices]  # Convert to page numbers (1-indexed)
-                batch_start_time = time.perf_counter()
-                
-                _append_log(
-                    log_path,
-                    "INFO",
-                    f"request={request_id} ocr_batch_start batch={batch_num}/{num_batches} "
-                    f"pages={batch_pages} size={len(batch_pages)}",
-                )
-                
-                # Process batch in parallel
-                batch_results: List[Tuple[int, Dict[str, Any], Dict[str, Any], str, Optional[str]]] = []
-                batch_futures = {}
-                
-                with ThreadPoolExecutor(max_workers=min(effective_concurrency, len(batch_indices))) as executor:
-                    # Submit batch tasks
-                    for idx in batch_indices:
-                        page_num = idx + 1
-                        future = executor.submit(
-                            _process_single_page_ocr,
-                            vision_client,
-                            images[idx],
-                            page_num,
-                            per_page_timeout,
-                            overall_timeout,
-                            overall_start_time,
-                            max_retries,
-                            retry_base_delay,
-                            retry_max_delay,
-                            retry_jitter_range,
-                            rate_limit_base_delay,
-                            rate_limit_max_delay,
-                            log_path,
-                            request_id,
-                            image_optimization_enabled,
-                            image_max_dimension,
-                            image_min_dimension_for_optimization,
-                        )
-                        batch_futures[future] = page_num
-                    
-                    # Collect batch results
-                    for future in batch_futures:
-                        try:
-                            result = future.result()
-                            batch_results.append(result)
-                        except Exception as e:
-                            # Handle unexpected executor errors
-                            page_num = batch_futures[future]
-                            error_msg = f"Executor error on page {page_num}: {str(e)}"
-                            _append_log(
-                                log_path,
-                                "ERROR",
-                                f"request={request_id} ocr_executor_error page={page_num} error={error_msg}",
-                            )
-                            batch_results.append((
-                                page_num,
-                                {
-                                    "page_number": page_num,
-                                    "lines": [],
-                                    "error": "executor_error",
-                                    "error_message": error_msg,
-                                },
-                                {
-                                    "total_attempts": 0,
-                                    "successful_retries": 0,
-                                    "exhausted_retries": 0,
-                                    "rate_limit_events": 0,
-                                    "non_retryable_errors": 0,
-                                    "budget_exceeded": 0,
-                                    "retry_attempts_by_category": {},
-                                },
-                                "",  # No text on error
-                                error_msg,
-                            ))
-                
-                # Analyze batch results
-                batch_duration = time.perf_counter() - batch_start_time
-                batch_success = sum(1 for r in batch_results if r[4] is None)  # Count successes (error_msg is None)
-                batch_failures = len(batch_results) - batch_success
-                batch_failure_rate = batch_failures / len(batch_results) if batch_results else 0.0
-                
-                # Calculate batch metrics for adaptive concurrency
-                batch_rate_limit_events = sum(r[2].get("rate_limit_events", 0) for r in batch_results)
-                batch_total_attempts = sum(r[2].get("total_attempts", 0) for r in batch_results)
-                
-                # Calculate average latency per page in batch (for successful pages)
-                successful_results = [r for r in batch_results if r[4] is None]
-                if successful_results:
-                    # Estimate average latency from retry stats (rough approximation)
-                    # In practice, we'd track actual page durations, but for now use batch duration / pages
-                    avg_latency_ms = (batch_duration / len(successful_results)) * 1000 if successful_results else 0
-                else:
-                    avg_latency_ms = 0
-                
-                # Add batch results to overall results
-                results.extend(batch_results)
-                
-                # Update progress after batch completes
-                if progress_tracker:
-                    total_pages = len(images)
-                    pages_completed = len(results)  # Total pages completed so far
-                    progress_percent = 15.0 + (pages_completed / total_pages) * 30.0  # 15-45% for OCR
-                    progress_tracker.update_progress(
-                        request_id=request_id,
-                        step="OCR Processing",
-                        step_number=2,
-                        total_steps=11,
-                        progress_percent=progress_percent,
-                        message=f"Processing page {pages_completed} of {total_pages}...",
-                        details={"pages_completed": pages_completed, "total_pages": total_pages},
-                    )
-                
-                # Remove processed indices
-                remaining_indices = remaining_indices[len(batch_indices):]
-                
-                _append_log(
-                    log_path,
-                    "INFO",
-                    f"request={request_id} ocr_batch_complete batch={batch_num}/{num_batches} "
-                    f"pages={batch_pages} duration_ms={int(batch_duration * 1000)} "
-                    f"success={batch_success} failures={batch_failures} "
-                    f"failure_rate={batch_failure_rate:.2%} "
-                    f"rate_limits={batch_rate_limit_events} avg_latency_ms={int(avg_latency_ms)}",
-                )
-                
-                # ADAPTIVE CONCURRENCY: Adjust concurrency based on batch performance
-                if adaptive_concurrency_enabled and batch_num > 1:  # Start adapting after first batch
-                    concurrency_changed = False
-                    new_concurrency = effective_concurrency
-                    
-                    # Reduce concurrency if rate limits occurred
-                    if batch_rate_limit_events > 0:
-                        new_concurrency = max(adaptive_min_concurrency, effective_concurrency - 1)
-                        if new_concurrency < effective_concurrency:
-                            concurrency_changed = True
-                            stable_batch_count = 0  # Reset stable count on reduction
-                            _append_log(
-                                log_path,
-                                "WARNING",
-                                f"request={request_id} ocr_adaptive_concurrency_reduce batch={batch_num} "
-                                f"rate_limits={batch_rate_limit_events} "
-                                f"concurrency={effective_concurrency}->{new_concurrency} reason=rate_limits",
-                            )
-                    
-                    # Reduce concurrency if average latency exceeds threshold
-                    elif avg_latency_ms > adaptive_latency_threshold_ms and effective_concurrency > adaptive_min_concurrency:
-                        new_concurrency = max(adaptive_min_concurrency, effective_concurrency - 1)
-                        if new_concurrency < effective_concurrency:
-                            concurrency_changed = True
-                            stable_batch_count = 0  # Reset stable count on reduction
-                            _append_log(
-                                log_path,
-                                "WARNING",
-                                f"request={request_id} ocr_adaptive_concurrency_reduce batch={batch_num} "
-                                f"avg_latency_ms={int(avg_latency_ms)} threshold={int(adaptive_latency_threshold_ms)} "
-                                f"concurrency={effective_concurrency}->{new_concurrency} reason=high_latency",
-                            )
-                    
-                    # Increase concurrency if stable (no rate limits, low latency)
-                    elif (batch_rate_limit_events == 0 and 
-                          avg_latency_ms < adaptive_latency_threshold_ms and 
-                          effective_concurrency < adaptive_max_concurrency):
-                        stable_batch_count += 1
-                        if stable_batch_count >= adaptive_stable_batches:
-                            new_concurrency = min(adaptive_max_concurrency, effective_concurrency + 1)
-                            if new_concurrency > effective_concurrency:
-                                concurrency_changed = True
-                                stable_count_before_reset = stable_batch_count
-                                stable_batch_count = 0  # Reset after increase
-                                _append_log(
-                                    log_path,
-                                    "INFO",
-                                    f"request={request_id} ocr_adaptive_concurrency_increase batch={batch_num} "
-                                    f"stable_batches={stable_count_before_reset} "
-                                    f"concurrency={effective_concurrency}->{new_concurrency} reason=stable_performance",
-                                )
-                    else:
-                        # Stable but not ready to increase yet
-                        stable_batch_count += 1
-                    
-                    # Update concurrency if changed
-                    if concurrency_changed:
-                        previous_concurrency = effective_concurrency
-                        effective_concurrency = new_concurrency
-                        # Ensure concurrency doesn't exceed remaining pages
-                        effective_concurrency = min(effective_concurrency, len(remaining_indices))
-                
-                # Check if we should continue based on failure rate
-                if batch_failure_rate > batch_failure_threshold:
-                    _append_log(
-                        log_path,
-                        "WARNING",
-                        f"request={request_id} ocr_batch_high_failure_rate batch={batch_num} "
-                        f"failure_rate={batch_failure_rate:.2%} threshold={batch_failure_threshold:.2%} "
-                        f"stopping_processing",
-                    )
-                    should_continue = False
-                    break
-                
-                # Check overall timeout after batch
-                if overall_timeout is not None:
-                    elapsed = time.perf_counter() - overall_start_time
-                    remaining_time = overall_timeout - elapsed
-                    if remaining_time < (per_page_timeout * 2):  # Not enough time for another batch
-                        _append_log(
-                            log_path,
-                            "INFO",
-                            f"request={request_id} ocr_batch_timeout_check batch={batch_num} "
-                            f"elapsed={elapsed:.1f}s remaining={remaining_time:.1f}s "
-                            f"insufficient_time_for_next_batch stopping",
-                        )
-                        break
-            
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_batch_orchestration_complete batches_processed={batch_num} "
-                f"remaining_pages={len(remaining_indices)}",
-            )
-        elif len(images) == 1:
-            # Only one page, already processed in warm-up
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_single_page_complete page=1",
-            )
-        
-        # Sort results by page number to maintain order
-        results.sort(key=lambda x: x[0])
-        
-        # Process results and aggregate statistics
-        for page_num, page_output, page_retry_stats, page_full_text, error_msg in results:
-            # Aggregate retry statistics
-            aggregate_retry_stats["total_retry_attempts"] += page_retry_stats["total_attempts"]
-            aggregate_retry_stats["successful_retries"] += page_retry_stats["successful_retries"]
-            aggregate_retry_stats["exhausted_retries"] += page_retry_stats["exhausted_retries"]
-            aggregate_retry_stats["rate_limit_events"] += page_retry_stats["rate_limit_events"]
-            aggregate_retry_stats["non_retryable_errors"] += page_retry_stats["non_retryable_errors"]
-            aggregate_retry_stats["budget_exceeded"] += page_retry_stats["budget_exceeded"]
-            # Merge category stats
-            for category, count in page_retry_stats["retry_attempts_by_category"].items():
-                if category not in aggregate_retry_stats["retry_attempts_by_category"]:
-                    aggregate_retry_stats["retry_attempts_by_category"][category] = 0
-                aggregate_retry_stats["retry_attempts_by_category"][category] += count
-            
-            # Add page output
-            pages_output.append(page_output)
-            
-            # Add full text if available
-            if page_full_text:
-                full_text_parts.append(page_full_text)
-            
-            # Track failed pages
-            if error_msg:
-                failed_pages.append({
-                    "page_number": page_num,
-                    "error": page_output.get("error", "unknown_error"),
-                    "error_message": error_msg,
-                })
-
-        # Log summary
-        total_duration = time.perf_counter() - overall_start_time
-        success_count = len(pages_output) - len(failed_pages)
-        total_pages = len(images)
-        
-        # Calculate retry success rate
-        retry_success_rate = 0.0
-        if aggregate_retry_stats["total_retry_attempts"] > 0:
-            retry_success_rate = (
-                aggregate_retry_stats["successful_retries"] / 
-                aggregate_retry_stats["total_retry_attempts"]
-            ) * 100.0
-        
-        _append_log(
-            log_path,
-            "INFO",
-            f"request={request_id} ocr_complete total_pages={total_pages} "
-            f"success={success_count} failed={len(failed_pages)} "
-            f"duration_ms={int(total_duration * 1000)}",
-        )
-        
-        # Log retry statistics summary
-        if aggregate_retry_stats["total_retry_attempts"] > 0:
-            category_summary = ", ".join([
-                f"{cat}={count}" 
-                for cat, count in aggregate_retry_stats["retry_attempts_by_category"].items()
-            ])
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} ocr_retry_stats "
-                f"total_attempts={aggregate_retry_stats['total_retry_attempts']} "
-                f"successful_retries={aggregate_retry_stats['successful_retries']} "
-                f"retry_success_rate_pct={retry_success_rate:.1f} "
-                f"exhausted={aggregate_retry_stats['exhausted_retries']} "
-                f"rate_limits={aggregate_retry_stats['rate_limit_events']} "
-                f"non_retryable={aggregate_retry_stats['non_retryable_errors']} "
-                f"budget_exceeded={aggregate_retry_stats['budget_exceeded']} "
-                f"categories=[{category_summary}]",
-            )
-        
-        # If all pages failed, raise an error
-        if len(failed_pages) == total_pages:
-            raise RuntimeError(
-                f"OCR failed on all {total_pages} pages. "
-                f"Errors: {[p['error'] for p in failed_pages]}"
-            )
-        
-        # If some pages failed, log warning but return partial results
-        if failed_pages:
-            failed_page_nums = [p["page_number"] for p in failed_pages]
-            _append_log(
-                log_path,
-                "WARNING",
-                f"request={request_id} ocr_partial_success "
-                f"failed_pages={failed_page_nums}",
-            )
-
-        return {
-            "pages": pages_output,
-            "full_text": "\n".join(full_text_parts).strip(),
-            "metadata": {
-                "total_pages": total_pages,
-                "successful_pages": success_count,
-                "failed_pages": len(failed_pages),
-                "failed_page_numbers": [p["page_number"] for p in failed_pages],
-                "processing_duration_seconds": total_duration,
-                "retry_statistics": {
-                    "total_retry_attempts": aggregate_retry_stats["total_retry_attempts"],
-                    "successful_retries": aggregate_retry_stats["successful_retries"],
-                    "retry_success_rate_percent": round(retry_success_rate, 2),
-                    "exhausted_retries": aggregate_retry_stats["exhausted_retries"],
-                    "rate_limit_events": aggregate_retry_stats["rate_limit_events"],
-                    "non_retryable_errors": aggregate_retry_stats["non_retryable_errors"],
-                    "budget_exceeded": aggregate_retry_stats["budget_exceeded"],
-                    "retry_attempts_by_category": aggregate_retry_stats["retry_attempts_by_category"],
-                },
-            }
-        }
-    finally:
-        doc.close()  # Always close the document to release file handle
-
+# OCR WITH GOOGLE VISION -> backend.ocr.ocr_vision (run_ocr_on_pdf and helpers)
 
 # -----------------------------
 # RUBRIC DOCX HELPERS
@@ -2269,6 +793,8 @@ def load_refined_rubric_text() -> Tuple[str, Optional[str]]:
     text = _load_docx_text(refined_path)
     return text, refined_path
 
+
+# GROK API: call_grok_api, GrokAPIError, clean_json_from_llm, repair_json -> backend.ocr.grok_client
 
 # -----------------------------
 # GROK CALL 1: SECTION DETECTION
@@ -2447,102 +973,31 @@ def call_grok_for_section_detection(
         "content": json.dumps(user_payload, ensure_ascii=False),
     }
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {grok_api_key}",
-    }
-
     payload = {
-        "model": "grok-4-1-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
         "temperature": 0.1,
         "max_tokens": 4000,  # Sufficient for structure detection
     }
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        if attempt > 0:
-            # Exponential backoff: 1s, 2s, 4s
-            import time
-            time.sleep(2 ** (attempt - 1))
-            print(f"Retry attempt {attempt + 1}/{max_retries} for section detection...")
-
-        try:
-            resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
-
-            if resp.status_code >= 300:
-                if attempt < max_retries - 1:
-                    print(f"API error {resp.status_code}, retrying...")
-                    continue
-                raise RuntimeError(f"Section detection API error {resp.status_code}: {resp.text}")
-
-            data = resp.json()
-
-            # Extract token usage from response
-            usage = data.get("usage", {})
-            token_usage = {
-                "input_tokens": usage.get("prompt_tokens", 0),
-                "output_tokens": usage.get("completion_tokens", 0),
+    try:
+        parsed, token_usage = call_grok_api(
+            grok_api_key,
+            payload,
+            max_retries=3,
+            timeout=120,
+            retry_backoff=True,
+            use_repair=False,
+        )
+    except GrokAPIError as e:
+        return [
+            {
+                "title": "Section Detection Error",
+                "level": 1,
+                "page_numbers": [1],
+                "content_text": f"Grok section detection failed: {e}\nRaw: {(e.raw_content or '')[:400]}",
             }
-
-            # Print token usage for this Grok section-detection prompt
-            try:
-                total_tokens = int(token_usage.get("input_tokens", 0)) + int(
-                    token_usage.get("output_tokens", 0)
-                )
-            except Exception:
-                total_tokens = None
-            print(
-                f"[Grok Section Detection] tokens — input={token_usage['input_tokens']}, output={token_usage['output_tokens']}, total={total_tokens}"
-            )
-
-            # Check for truncation
-            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
-            if finish_reason == "length" and attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
-                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
-                continue
-
-            content = data["choices"][0]["message"]["content"]
-            cleaned = clean_json_from_llm(content)
-            parsed = json.loads(cleaned)
-
-            # Success
-            if attempt > 0:
-                print(f"Successfully parsed section detection on attempt {attempt + 1}")
-
-            break  # Exit retry loop on success
-
-        except (requests.Timeout, requests.ConnectionError) as e:
-            if attempt < max_retries - 1:
-                print(f"Network error, retrying...")
-                continue
-            raise RuntimeError(f"Section detection network error: {e}") from e
-
-        except json.JSONDecodeError as e:
-            if attempt < max_retries - 1:
-                print(f"JSON parse error, retrying...")
-                continue
-            # Fallback on final attempt
-            return [
-                {
-                    "title": "Section Detection Error",
-                    "level": 1,
-                    "page_numbers": [1],
-                    "content_text": f"Grok section detection failed: {e}\nRaw: {content[:400]}",
-                }
-            ], token_usage
-
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Unexpected error: {exc}, retrying...")
-                continue
-            raise RuntimeError(f"Unexpected section detection error: {exc}") from exc
+        ], e.token_usage
 
     # If we get here, parsing succeeded
 
@@ -2584,12 +1039,16 @@ def call_grok_for_section_detection(
         if not text:
             return ""
         t = text.strip()
-        # Patterns where the bullet token is clearly separated from the heading text
+        # Patterns where the bullet token is clearly separated from the heading text.
+        # NOTE: Some OCR outputs lose the digit/letter before ')' so we can end up with
+        # headings like ') Leadership Vacuum ...'. We treat a lone leading ')' + space
+        # as a bullet as well.
         patterns = [
             r"^[\(\[]\s*[0-9A-Za-z]{1,3}[\)\].-]\s+",  # (1) Heading, (a) Heading, [1] Heading
-            r"^[0-9]{1,3}[\).]\s+",                   # 1. Heading, 2) Heading
-            r"^[0-9]{1,3}\s+",                       # 1 Heading
-            r"^[A-Za-z]\s+",                         # a Heading
+            r"^[0-9]{1,3}[\).]\s+",                    # 1. Heading, 2) Heading
+            r"^[0-9]{1,3}\s+",                        # 1 Heading
+            r"^[A-Za-z]\s+",                          # a Heading
+            r"^[\)\]]\s+",                            # ) Heading, ] Heading (OCR leftovers)
         ]
         for pat in patterns:
             new_t = re.sub(pat, "", t)
@@ -2766,7 +1225,7 @@ def build_grok_payload_for_grading(
     """
     schema_hint = {
         "subject": subject,
-        "max_marks": 20,
+        "max_marks": DEFAULT_MAX_MARKS,
         "total_marks_awarded": 0,
         "question_statement": "",
         "criteria": [
@@ -2825,7 +1284,7 @@ def build_grok_payload_for_grading(
         "   - Major gaps, incorrect information, or minimal coverage\n"
         "5. STRICT CONSISTENCY REQUIREMENT: The sum of all criteria[i].awarded MUST EXACTLY EQUAL total_marks_awarded\n"
         "   - Calculate: total_marks_awarded = sum of all criteria[i].awarded\n"
-        "   - If the sum exceeds 14, proportionally reduce each criterion's awarded marks until the sum is 14\n"
+        "   - If the sum exceeds {MAX_MARKS_CAP}, proportionally reduce each criterion's awarded marks until the sum is {MAX_MARKS_CAP}\n"
         "   - Example: If criteria sum to 16, multiply each by (14/16) and round appropriately\n"
         "   - NEVER return a total_marks_awarded that differs from the sum of criteria marks\n\n"
         "FAIR MARKING DECISION PROCESS:\n"
@@ -2837,7 +1296,7 @@ def build_grok_payload_for_grading(
         "   - Well-analyzed with depth and critical thinking\n"
         "   - Minimal weaknesses (weaknesses should be minor, not significant)\n"
         "Step 4: Be fair - if strengths significantly outweigh weaknesses, award higher marks\n"
-        "Step 5: Be strict - if weaknesses are significant, do NOT award 12-14 marks\n"
+        "Step 5: Be strict - if weaknesses are significant, do NOT award 12-{MAX_MARKS_CAP} marks\n"
         "Step 7: Default to conservative marking - it's better to give 8 marks than 14 marks unless truly exceptional\n\n"
         "STRICT MARKING GUIDELINES:\n"
         "- Award marks conservatively – partial credit should be rare\n"
@@ -2853,14 +1312,14 @@ def build_grok_payload_for_grading(
         "  * Ensure marks and remark are consistent - if remark identifies weaknesses, marks should reflect them\n\n"
         "Required fields:\n"
         "  - subject\n"
-        "  - max_marks: always 20\n"
-        "  - total_marks_awarded: MUST equal sum of all criteria[i].awarded, capped at 14 maximum\n"
+        "  - max_marks: always {DEFAULT_MAX_MARKS}\n"
+        "  - total_marks_awarded: MUST equal sum of all criteria[i].awarded, capped at {MAX_MARKS_CAP} maximum\n"
         "  - question_statement: the exam question as written by the student (verbatim, not paraphrased)\n"
         "    * MUST copy the exact question text from the page images/OCR, including punctuation and question marks\n"
         "    * DO NOT prefix with phrases like 'The question asks' or 'The question requires'\n"
         "    * If multiple question lines exist, include the full combined question statement\n"
         "  - criteria[]: each criterion with id, name, max, awarded, remark\n"
-        "    * IMPORTANT: After assigning awarded marks to each criterion, verify that sum(criteria[i].awarded) == total_marks_awarded <= 14\n"
+        "    * IMPORTANT: After assigning awarded marks to each criterion, verify that sum(criteria[i].awarded) == total_marks_awarded <= {MAX_MARKS_CAP}\n"
         "    * remark: A single one-liner critical feedback sentence for this criterion\n"
         "    * The remark should be concise (one sentence) and provide key feedback about why marks were awarded/deducted\n"
         "    * Examples: 'Lacks depth in analyzing historical context' or 'Demonstrates strong knowledge with accurate facts and references' or 'Missing key theoretical framework'\n"
@@ -2879,7 +1338,7 @@ def build_grok_payload_for_grading(
     }
 
     return {
-        "model": "grok-4-1-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [
             {
                 "role": "system",
@@ -2912,110 +1371,15 @@ def call_grok_for_grading(
     payload = build_grok_payload_for_grading(
         subject, subject_rubric_text, ocr_data, sections, page_images
     )
-    headers = {
-        "Authorization": f"Bearer {grok_api_key}",
-        "Content-Type": "application/json",
-    }
-
-    for attempt in range(max_retries):
-        if attempt > 0:
-            print(f"Retry attempt {attempt + 1}/{max_retries} for Grok grading...")
-
-        resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=150,
-        )
-        if resp.status_code >= 300:
-            if attempt < max_retries - 1:
-                print(f"API error {resp.status_code}, retrying...")
-                continue
-            raise RuntimeError(f"Grok grading error {resp.status_code}: {resp.text}")
-
-        try:
-            data = resp.json()
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Response JSON parse error, retrying...")
-                continue
-            raise RuntimeError(f"Grok grading JSON parse error: {exc}") from exc
-
-        # Extract token usage from response
-        usage = data.get("usage", {})
-        token_usage = {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-        }
-
-        try:
-            content = data["choices"][0]["message"]["content"]
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Missing content in response, retrying...")
-                continue
-            raise RuntimeError(f"Unexpected Grok grading response: {data}") from exc
-
-        # Check if response was truncated due to finish_reason
-        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
-        if finish_reason == "length":
-            print(f"WARNING: Grok response was truncated due to max token limit!")
-            print(f"Response length: {len(content)} characters")
-            if attempt < max_retries - 1:
-                # Increase max_tokens and retry
-                payload["max_tokens"] = payload.get("max_tokens", 8000) + 2000
-                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
-                continue
-
-        try:
-            cleaned = clean_json_from_llm(content)
-            parsed = json.loads(cleaned)
-            # Success! Return the result
-            if attempt > 0:
-                print(f"Successfully parsed JSON on attempt {attempt + 1}")
-            return parsed, token_usage
-        except json.JSONDecodeError as exc:
-            # Try to repair JSON before giving up
-            cleaned = clean_json_from_llm(content)  # Re-clean in case it wasn't set
-            try:
-                repaired = repair_json(cleaned, error_pos=exc.pos)
-                parsed = json.loads(repaired)
-                print(f"Successfully parsed JSON after repair on attempt {attempt + 1}")
-                return parsed, token_usage
-            except (json.JSONDecodeError, Exception) as repair_exc:
-                # Save malformed JSON to file for debugging (with unique timestamp)
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                error_file = f"grok_error_response_{timestamp}_{attempt + 1}.txt"
-                with open(error_file, "w", encoding="utf-8") as f:
-                    f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
-                    f.write(content)
-                    f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
-                    f.write(cleaned)
-                    f.write(f"\n\n=== REPAIRED (length: {len(repaired)} chars) ===\n")
-                    f.write(repaired)
-                    f.write(f"\n\n=== ORIGINAL ERROR ===\n{exc}\n")
-                    f.write(f"\n=== REPAIR ERROR ===\n{repair_exc}\n")
-
-                print(f"\nDEBUG: Full content length: {len(content)} characters")
-                print(f"DEBUG: Finish reason: {finish_reason}")
-                print(f"DEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
-                print(f"DEBUG: JSON repair also failed: {repair_exc}")
-                print(f"DEBUG: Saved full response to {error_file}")
-                print(f"DEBUG: First 300 chars: {content[:300]}")
-                print(f"DEBUG: Last 300 chars: {content[-300:]}")
-
-                if attempt < max_retries - 1:
-                    print(f"Malformed JSON, retrying...")
-                    continue
-
-                raise RuntimeError(
-                    f"Grok grading returned malformed JSON after {max_retries} attempts. "
-                    f"Error: {exc.msg} at position {exc.pos}. "
-                    f"Repair attempt also failed: {repair_exc}. "
-                    f"Full response saved to {error_file}"
-                ) from exc
-
-    raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
+    return call_grok_api(
+        grok_api_key,
+        payload,
+        max_retries=max_retries,
+        timeout=GROK_REQUEST_TIMEOUT,
+        retry_backoff=False,
+        use_repair=True,
+        error_file_prefix="grok_error_response",
+    )
 
 
 def validate_and_adjust_grading_result(grading_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -3040,13 +1404,13 @@ def validate_and_adjust_grading_result(grading_result: Dict[str, Any]) -> Dict[s
         total = criteria_sum
     
     # Enforce hard cap of 14
-    if total > 14:
-        print(f"WARNING: Total marks ({total:.1f}) exceeds cap (14), reducing proportionally...")
-        scale_factor = 14.0 / total
+    if total > MAX_MARKS_CAP:
+        print(f"WARNING: Total marks ({total:.1f}) exceeds cap ({MAX_MARKS_CAP}), reducing proportionally...")
+        scale_factor = MAX_MARKS_CAP / total
         for crit in criteria:
             crit["awarded"] = round(crit.get("awarded", 0) * scale_factor, 1)
-        grading_result["total_marks_awarded"] = 14.0
-        total = 14.0
+        grading_result["total_marks_awarded"] = MAX_MARKS_CAP
+        total = MAX_MARKS_CAP
     
     return grading_result
 
@@ -3312,206 +1676,66 @@ def call_grok_for_refined_rubric_annotations(
         "content": instructions + "\n\nDATA:\n" + json.dumps(user_payload, ensure_ascii=False),
     }
 
-    headers = {
-        "Authorization": f"Bearer {grok_api_key}",
-        "Content-Type": "application/json",
-    }
-
     payload = {
-            "model": "grok-4-1-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
         "temperature": 0.1,
         "max_tokens": 6000,  # Increased for refined rubric annotations
     }
 
-    for attempt in range(max_retries):
-        if attempt > 0:
-            print(f"Retry attempt {attempt + 1}/{max_retries} for refined rubric annotations...")
+    _REFINED_FALLBACK_ANNOT = {
+        "type": "introduction_comment",
+        "rubric_point": "introduction_quality",
+        "page": 1,
+        "target_word_or_sentence": "",
+        "context_before": "",
+        "context_after": "",
+        "correction": "",
+        "comment": "",
+    }
 
-        resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=150,
+    try:
+        parsed, token_usage = call_grok_api(
+            grok_api_key,
+            payload,
+            max_retries=max_retries,
+            timeout=GROK_REQUEST_TIMEOUT,
+            retry_backoff=False,
+            use_repair=True,
+            error_file_prefix="grok_refined_error",
         )
-
-        if resp.status_code >= 300:
-            if attempt < max_retries - 1:
-                print(f"API error {resp.status_code}, retrying...")
-                continue
-            # Fallback on final failure
-            return {
-                "annotations": [
-                    {
-                        "type": "introduction_comment",
-                        "rubric_point": "introduction_quality",
-                        "page": 1,
-                        "target_word_or_sentence": "",
-                        "context_before": "",
-                        "context_after": "",
-                        "correction": "",
-                        "comment": f"Error: API returned {resp.status_code}",
-                    }
-                ],
-                "refined_rubric_summary": [],
-            }, {"input_tokens": 0, "output_tokens": 0}
-
-        try:
-            data = resp.json()
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Response JSON parse error, retrying...")
-                continue
-            # Fallback on final failure
-            return {
-                "annotations": [
-                    {
-                        "type": "introduction_comment",
-                        "rubric_point": "introduction_quality",
-                        "page": 1,
-                        "target_word_or_sentence": "",
-                        "context_before": "",
-                        "context_after": "",
-                        "correction": "",
-                        "comment": f"Error parsing API response: {exc}",
-                    }
-                ],
-                "refined_rubric_summary": [],
-            }, {"input_tokens": 0, "output_tokens": 0}
-
-        # Extract token usage from response
-        usage = data.get("usage", {})
-        token_usage = {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
+    except GrokAPIError as e:
+        fallback = {
+            "annotations": [{**_REFINED_FALLBACK_ANNOT, "comment": str(e)}],
+            "refined_rubric_summary": [],
         }
+        return fallback, (e.token_usage if e.token_usage else {"input_tokens": 0, "output_tokens": 0})
 
-        try:
-            content = data["choices"][0]["message"]["content"]
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Missing content in response, retrying...")
-                continue
-            # Fallback on final failure
-            return {
-                "annotations": [
-                    {
-                        "type": "introduction_comment",
-                        "rubric_point": "introduction_quality",
-                        "page": 1,
-                        "target_word_or_sentence": "",
-                        "context_before": "",
-                        "context_after": "",
-                        "correction": "",
-                        "comment": f"Error: Unexpected API response structure",
-                    }
-                ],
-                "refined_rubric_summary": [],
-            }, token_usage
+    # Success! Normalize and validate
+    parsed.setdefault("annotations", [])
+    parsed.setdefault("refined_rubric_summary", [])
 
-        # Check if truncated
-        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
-        if finish_reason == "length":
-            print(f"WARNING: Refined rubric response truncated!")
-            if attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 6000) + 2000
-                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
-                continue
+    # ENFORCE: Ensure introduction_comment always exists as first annotation
+    annotations = parsed.get("annotations", [])
+    has_intro = any(a.get("type") == "introduction_comment" for a in annotations)
 
-        try:
-            cleaned = clean_json_from_llm(content)
-            parsed = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            # Try to repair JSON before giving up
-            cleaned = clean_json_from_llm(content)  # Re-clean in case it wasn't set
-            try:
-                repaired = repair_json(cleaned, error_pos=exc.pos)
-                parsed = json.loads(repaired)
-                print(f"Successfully parsed refined rubric JSON after repair on attempt {attempt + 1}")
-            except (json.JSONDecodeError, Exception) as repair_exc:
-                # Save error for debugging (with unique timestamp)
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                error_file = f"grok_refined_error_{timestamp}_{attempt + 1}.txt"
-                with open(error_file, "w", encoding="utf-8") as f:
-                    f.write(f"=== FULL RESPONSE (length: {len(content)} chars) ===\n")
-                    f.write(content)
-                    f.write(f"\n\n=== CLEANED (length: {len(cleaned)} chars) ===\n")
-                    f.write(cleaned)
-                    f.write(f"\n\n=== REPAIRED (length: {len(repaired)} chars) ===\n")
-                    f.write(repaired)
-                    f.write(f"\n\n=== ORIGINAL ERROR ===\n{exc}\n")
-                    f.write(f"\n=== REPAIR ERROR ===\n{repair_exc}\n")
+    if not has_intro:
+        # Inject introduction_comment as first annotation
+        intro_text = ocr_data.get("full_text", "")[:200].split('\n')[0] if ocr_data.get("full_text") else "Introduction"
+        intro_annotation = {
+            "type": "introduction_comment",
+            "rubric_point": "introduction_quality",
+            "page": 1,
+            "target_word_or_sentence": intro_text,
+            "context_before": "",
+            "context_after": "",
+            "correction": "",
+            "comment": "Introduction evaluation (auto-generated due to missing annotation)"
+        }
+        parsed["annotations"].insert(0, intro_annotation)
+        print("⚠️  Warning: Introduction comment was missing. Auto-injected.")
 
-                print(f"\nDEBUG: JSON parse error at position {exc.pos}: {exc.msg}")
-                print(f"DEBUG: JSON repair also failed: {repair_exc}")
-                print(f"DEBUG: Saved full response to {error_file}")
-
-                if attempt < max_retries - 1:
-                    print(f"Malformed JSON, retrying...")
-                    continue
-
-            # Fallback on final failure
-            return {
-                "annotations": [
-                    {
-                        "type": "introduction_comment",
-                        "rubric_point": "introduction_quality",
-                        "page": 1,
-                        "target_word_or_sentence": "",
-                        "context_before": "",
-                        "context_after": "",
-                        "correction": "",
-                        "comment": f"Error parsing refined rubric response: {exc}",
-                    }
-                ],
-                "refined_rubric_summary": [],
-            }, token_usage
-
-        # Success! Normalize and validate
-        parsed.setdefault("annotations", [])
-        parsed.setdefault("refined_rubric_summary", [])
-
-        # ENFORCE: Ensure introduction_comment always exists as first annotation
-        annotations = parsed.get("annotations", [])
-        has_intro = any(a.get("type") == "introduction_comment" for a in annotations)
-
-        if not has_intro:
-            # Inject introduction_comment as first annotation
-            intro_text = ocr_data.get("full_text", "")[:200].split('\n')[0] if ocr_data.get("full_text") else "Introduction"
-            intro_annotation = {
-                "type": "introduction_comment",
-                "rubric_point": "introduction_quality",
-                "page": 1,
-                "target_word_or_sentence": intro_text,
-                "context_before": "",
-                "context_after": "",
-                "correction": "",
-                "comment": "Introduction evaluation (auto-generated due to missing annotation)"
-            }
-            parsed["annotations"].insert(0, intro_annotation)
-            print("⚠️  Warning: Introduction comment was missing. Auto-injected.")
-
-        if attempt > 0:
-            print(f"Successfully parsed refined rubric annotations on attempt {attempt + 1}")
-
-        return parsed, token_usage
-
-    # Should never reach here
-    return {
-        "annotations": [
-            {
-                "type": "introduction_comment",
-                "rubric_point": "introduction_quality",
-                "page": 1,
-                "target_word_or_sentence": "",
-                "context_before": "",
-                "context_after": "",
-                "correction": "",
-                "comment": f"Failed after {max_retries} attempts",
-            }
-        ],
-        "refined_rubric_summary": [],
-    }, {"input_tokens": 0, "output_tokens": 0}
+    return parsed, token_usage
 
 
 # -----------------------------
@@ -3640,94 +1864,28 @@ def call_grok_for_page_wise_suggestions(
         "content": instructions + "\n\nDATA:\n" + json.dumps(user_payload, ensure_ascii=False),
     }
 
-    headers = {
-        "Authorization": f"Bearer {grok_api_key}",
-        "Content-Type": "application/json",
-    }
-
     payload = {
-        "model": "grok-4-1-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
         "temperature": 0.2,
         "max_tokens": 4000,  # Sufficient for page suggestions
     }
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        if attempt > 0:
-            # Exponential backoff: 1s, 2s, 4s
-            import time
-            time.sleep(2 ** (attempt - 1))
-            print(f"Retry attempt {attempt + 1}/{max_retries} for page suggestions...")
-
-        try:
-            resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=150,
-            )
-
-            if resp.status_code >= 300:
-                if attempt < max_retries - 1:
-                    print(f"API error {resp.status_code}, retrying...")
-                    continue
-                # Fallback on final attempt
-                return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
-
-            data = resp.json()
-
-            # Extract token usage
-            usage = data.get("usage", {})
-            token_usage = {
-                "input_tokens": usage.get("prompt_tokens", 0),
-                "output_tokens": usage.get("completion_tokens", 0),
-            }
-
-            # Check for truncation
-            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
-            if finish_reason == "length" and attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
-                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
-                continue
-
-            content = data["choices"][0]["message"]["content"]
-            cleaned = clean_json_from_llm(content)
-            parsed = json.loads(cleaned)
-
-            # Success
-            if attempt > 0:
-                print(f"Successfully parsed page suggestions on attempt {attempt + 1}")
-
-            return parsed, token_usage
-
-        except (requests.Timeout, requests.ConnectionError) as e:
-            if attempt < max_retries - 1:
-                print(f"Network error, retrying...")
-                continue
-            # Fallback on final attempt
-            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
-
-        except json.JSONDecodeError as e:
-            if attempt < max_retries - 1:
-                print(f"JSON parse error, retrying...")
-                continue
-            # Fallback on final attempt
-            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
-
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Unexpected error: {exc}, retrying...")
-                continue
-            # Fallback on final attempt
-            return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
-
-    # Should never reach here, but fallback just in case
-    return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
+    try:
+        return call_grok_api(
+            grok_api_key,
+            payload,
+            max_retries=3,
+            timeout=GROK_REQUEST_TIMEOUT,
+            retry_backoff=True,
+            use_repair=False,
+        )
+    except GrokAPIError:
+        return {"page_suggestions": []}, {"input_tokens": 0, "output_tokens": 0}
 
 
 # -----------------------------
-# GROK CALL 5: MARK DEDUCTION ANALYSIS (TESTING ONLY)
+# GROK CALL 5: MARK DEDUCTION ANALYSIS
 # -----------------------------
 
 
@@ -3741,7 +1899,8 @@ def call_grok_for_mark_deduction_analysis(
 ) -> Tuple[Dict[str, Any], Dict[str, int]]:
     """
     Analyze the marks breakdown and explain why marks were lost overall.
-    This is for testing purposes only - result is saved to JSON in Tests folder.
+    Result is merged into grading_result for report rendering; optionally saved to
+    Tests folder as JSON when SAVE_TEST_FILES is enabled.
     
     IMPORTANT: Analyze each criterion internally to inform the overall analysis,
     but DO NOT output individual criterion breakdowns. Instead, provide an
@@ -3751,7 +1910,7 @@ def call_grok_for_mark_deduction_analysis(
     {
         "total_marks_analysis": {
             "total_awarded": 8.5,
-            "total_possible": 20,
+            "total_possible": DEFAULT_MAX_MARKS,
             "total_lost": 11.5,
             "percentage_awarded": 42.5,
             "overall_summary": "Brief explanation of overall performance"
@@ -3841,7 +2000,7 @@ def call_grok_for_mark_deduction_analysis(
         "grading_result": {
             "subject": grading_result.get("subject", ""),
             "total_marks_awarded": grading_result.get("total_marks_awarded", 0),
-            "max_marks": grading_result.get("max_marks", 20),
+            "max_marks": grading_result.get("max_marks", DEFAULT_MAX_MARKS),
             "criteria": criteria_data,
         },
         "subject_rubric_text": subject_rubric_text[:5000],  # Limit to avoid token overflow
@@ -3850,7 +2009,7 @@ def call_grok_for_mark_deduction_analysis(
         "output_schema": {
             "total_marks_analysis": {
                 "total_awarded": 0,
-                "total_possible": 20,
+                "total_possible": DEFAULT_MAX_MARKS,
                 "total_lost": 0,
                 "percentage_awarded": 0,
                 "overall_summary": "Brief explanation"
@@ -3880,92 +2039,21 @@ def call_grok_for_mark_deduction_analysis(
         "content": instructions + "\n\nDATA:\n" + json.dumps(user_payload, ensure_ascii=False),
     }
 
-    headers = {
-        "Authorization": f"Bearer {grok_api_key}",
-        "Content-Type": "application/json",
-    }
-
     payload = {
-        "model": "grok-4-1-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
         "temperature": 0.2,
         "max_tokens": 6000,
     }
 
-    for attempt in range(max_retries):
-        if attempt > 0:
-            import time
-            time.sleep(2 ** (attempt - 1))
-            print(f"Retry attempt {attempt + 1}/{max_retries} for mark deduction analysis...")
-
-        try:
-            resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=150,
-            )
-
-            if resp.status_code >= 300:
-                if attempt < max_retries - 1:
-                    print(f"API error {resp.status_code}, retrying...")
-                    continue
-                raise RuntimeError(f"Mark deduction analysis API error {resp.status_code}: {resp.text}")
-
-            data = resp.json()
-
-            # Extract token usage
-            usage = data.get("usage", {})
-            token_usage = {
-                "input_tokens": usage.get("prompt_tokens", 0),
-                "output_tokens": usage.get("completion_tokens", 0),
-            }
-
-            # Check for truncation
-            finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
-            if finish_reason == "length" and attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 6000) + 2000
-                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
-                continue
-
-            content = data["choices"][0]["message"]["content"]
-            cleaned = clean_json_from_llm(content)
-            parsed = json.loads(cleaned)
-
-            # Success
-            if attempt > 0:
-                print(f"Successfully parsed mark deduction analysis on attempt {attempt + 1}")
-
-            return parsed, token_usage
-
-        except (requests.Timeout, requests.ConnectionError) as e:
-            if attempt < max_retries - 1:
-                print(f"Network error, retrying...")
-                continue
-            raise RuntimeError(f"Mark deduction analysis network error: {e}") from e
-
-        except json.JSONDecodeError as e:
-            if attempt < max_retries - 1:
-                print(f"JSON parse error, retrying...")
-                continue
-            # Try to repair JSON
-            try:
-                repaired = repair_json(cleaned, error_pos=e.pos)
-                parsed = json.loads(repaired)
-                print(f"Successfully parsed after repair on attempt {attempt + 1}")
-                return parsed, token_usage
-            except Exception as repair_exc:
-                raise RuntimeError(
-                    f"Mark deduction analysis JSON parse error: {e}. Repair also failed: {repair_exc}"
-                ) from e
-
-        except Exception as exc:
-            if attempt < max_retries - 1:
-                print(f"Unexpected error: {exc}, retrying...")
-                continue
-            raise RuntimeError(f"Unexpected mark deduction analysis error: {exc}") from exc
-
-    raise RuntimeError(f"Failed to get valid response after {max_retries} attempts")
+    return call_grok_api(
+        grok_api_key,
+        payload,
+        max_retries=max_retries,
+        timeout=GROK_REQUEST_TIMEOUT,
+        retry_backoff=True,
+        use_repair=True,
+    )
 
 
 def _should_save_test_files() -> bool:
@@ -3976,6 +2064,24 @@ def _should_save_test_files() -> bool:
     """
     save_test_files = os.getenv("SAVE_TEST_FILES", "false").lower()
     return save_test_files in ("true", "1", "yes")
+
+
+def _get_tests_dir() -> Optional[str]:
+    """
+    Return Tests directory path if SAVE_TEST_FILES is enabled, else None.
+    Creates the directory if it does not exist.
+    """
+    if not _should_save_test_files():
+        return None
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "Tests")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _safe_subject_for_filename(subject: str) -> str:
+    """Sanitize subject string for use in filenames."""
+    return re.sub(r'[^\w\s-]', '', (subject or "").strip()).replace(' ', '_')
 
 
 def save_mark_deduction_analysis_to_tests(
@@ -3995,19 +2101,12 @@ def save_mark_deduction_analysis_to_tests(
     Returns:
         Path to the saved file, or None if saving is disabled
     """
-    if not _should_save_test_files():
+    tests_dir = _get_tests_dir()
+    if tests_dir is None:
         return None
     
-    # Get the base directory (where grade_pdf_answer.py is located)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    tests_dir = os.path.join(base_dir, "Tests")
-    
-    # Create Tests directory if it doesn't exist
-    os.makedirs(tests_dir, exist_ok=True)
-    
-    # Create filename with timestamp and request_id
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    safe_subject = _safe_subject_for_filename(subject)
     filename = f"mark_deduction_analysis_{safe_subject}_{request_id}_{timestamp}.json"
     filepath = os.path.join(tests_dir, filename)
     
@@ -4036,19 +2135,12 @@ def save_annotations_to_tests(
     Returns:
         Path to the saved file, or None if saving is disabled
     """
-    if not _should_save_test_files():
+    tests_dir = _get_tests_dir()
+    if tests_dir is None:
         return None
     
-    # Get the base directory (where grade_pdf_answer.py is located)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    tests_dir = os.path.join(base_dir, "Tests")
-    
-    # Create Tests directory if it doesn't exist
-    os.makedirs(tests_dir, exist_ok=True)
-    
-    # Create filename with timestamp and request_id
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    safe_subject = _safe_subject_for_filename(subject)
     filename = f"annotations_{safe_subject}_{request_id}_{timestamp}.json"
     filepath = os.path.join(tests_dir, filename)
     
@@ -4087,19 +2179,12 @@ def save_unfiltered_ocr_text(
     Returns:
         Path to the saved JSON file, or None if saving is disabled
     """
-    if not _should_save_test_files():
+    tests_dir = _get_tests_dir()
+    if tests_dir is None:
         return None
     
-    # Get the base directory (where grade_pdf_answer.py is located)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    tests_dir = os.path.join(base_dir, "Tests")
-    
-    # Create Tests directory if it doesn't exist
-    os.makedirs(tests_dir, exist_ok=True)
-    
-    # Create filename with timestamp and request_id
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_subject = re.sub(r'[^\w\s-]', '', subject).strip().replace(' ', '_')
+    safe_subject = _safe_subject_for_filename(subject)
     
     # Save as JSON (full OCR data structure)
     json_filename = f"ocr_unfiltered_{safe_subject}_{request_id}_{timestamp}.json"
@@ -4263,6 +2348,16 @@ def _wrap_text(
     return lines
 
 
+def _strip_question_prefix(text: str) -> str:
+    """Remove leading question numbering like 'Question #1', 'Q1)' for display."""
+    if not text:
+        return ""
+    t = text.strip()
+    t = re.sub(r"^(question\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"^(q\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
+    return t.strip()
+
+
 def _calculate_rating(awarded: float, max_marks: float) -> str:
     """Calculate rating based on awarded/max ratio."""
     if max_marks == 0:
@@ -4380,6 +2475,490 @@ def render_subject_report_pages(
     return last_pages
 
 
+# --- _draw_* helpers for _render_subject_report_with_scale (5.3) ---
+
+
+def _draw_subject_header(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    W: int,
+    H: int,
+    margin: int,
+    grading_result: Dict[str, Any],
+    subject_font: ImageFont.FreeTypeFont,
+    total_heading_font: ImageFont.FreeTypeFont,
+    ensure_space: Any,
+    draw_bold_text: Any,
+) -> Tuple[int, bool]:
+    """Draw subject name and total marks line. Returns (new_y, overflowed)."""
+    subject = grading_result.get("subject", "")
+    line_spacing = 1.3
+    if subject:
+        if not ensure_space(y, subject_font, 2):
+            return y, True
+        display_subject = str(subject).strip().replace("-", " ").title()
+        draw_bold_text(f"Subject: {display_subject}", subject_font, (margin, y), "black")
+        line_h_subj = subject_font.getbbox("Ag")[3] - subject_font.getbbox("Ag")[1]
+        y += int(line_h_subj * line_spacing * 1.2)
+    total = grading_result.get("total_marks_awarded", 0)
+    maximum = grading_result.get("max_marks", DEFAULT_MAX_MARKS)
+    if not ensure_space(y, total_heading_font, 1):
+        return y, True
+    total_label = "Total Marks Obtained:"
+    total_value = f"{total} / {maximum}"
+    draw_bold_text(total_label, total_heading_font, (margin, y), "#B22222")
+    label_w = int(draw.textlength(total_label + " ", font=total_heading_font))
+    draw_bold_text(total_value, total_heading_font, (margin + label_w, y), "#B22222")
+    line_h = total_heading_font.getbbox("Ag")[3] - total_heading_font.getbbox("Ag")[1]
+    y += int(line_h * line_spacing * 1.4)
+    return y, False
+
+
+def _draw_question_section(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    W: int,
+    H: int,
+    margin: int,
+    max_text_width: int,
+    question: str,
+    section_heading_font: ImageFont.FreeTypeFont,
+    question_text_font: ImageFont.FreeTypeFont,
+    ensure_space: Any,
+    draw_bold_text: Any,
+) -> Tuple[int, bool]:
+    """Draw 'Question Statement:' heading and wrapped question text. Returns (new_y, overflowed)."""
+    if not ensure_space(y, section_heading_font, 2):
+        return y, True
+    draw_bold_text("Question Statement:", section_heading_font, (margin, y), "black")
+    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    y += int(line_h_section * 1.3)
+    if not ensure_space(y, question_text_font, 2):
+        return y, True
+    wrapped_question = _wrap_text(draw, question, question_text_font, max_text_width) or [""]
+    line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
+    line_spacing = 1.3
+    for line in wrapped_question:
+        if not ensure_space(y, question_text_font, 1):
+            return y, True
+        draw.text((margin, y), line, font=question_text_font, fill="black")
+        y += int(line_hq * line_spacing)
+    y += int(line_hq * 0.6)
+    return y, False
+
+
+def _draw_key_gaps_section(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    W: int,
+    H: int,
+    margin: int,
+    max_text_width: int,
+    grading_result: Dict[str, Any],
+    section_heading_font: ImageFont.FreeTypeFont,
+    body_font: ImageFont.FreeTypeFont,
+    bullet_font: ImageFont.FreeTypeFont,
+    ensure_space_or_new_page: Any,
+    draw_bold_text: Any,
+) -> Tuple[int, bool]:
+    """Draw 'Key Gaps in the Answer' and bullet list. Returns (new_y, overflowed)."""
+    line_spacing = 1.3
+    key_gaps = grading_result.get("overall_what_was_missing", []) or grading_result.get("key_gaps_in_answer", [])
+    if isinstance(key_gaps, str):
+        key_gaps = [key_gaps]
+    if not key_gaps:
+        key_gaps = ["No key gaps provided."]
+    if not ensure_space_or_new_page(y, section_heading_font, 2):
+        return y, True
+    draw_bold_text("Key Gaps in the Answer", section_heading_font, (margin, y), "black")
+    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    y += int(line_h_section * line_spacing)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
+    bullet = "•"
+    bullet_gap = int(0.02 * W)
+    text_x = margin + bullet_gap
+    text_width = max_text_width - bullet_gap
+    line_hb = bullet_font.getbbox("Ag")[3] - bullet_font.getbbox("Ag")[1]
+    overflowed = False
+    for idx, raw in enumerate(key_gaps[:6]):
+        text = str(raw).strip()
+        if not text:
+            continue
+        wrapped = _wrap_text(draw, text, bullet_font, text_width) or [""]
+        if not ensure_space_or_new_page(y, bullet_font, len(wrapped)):
+            overflowed = True
+            break
+        draw.text((margin, y), bullet, font=bullet_font, fill="black")
+        for line in wrapped:
+            draw.text((text_x, y), line, font=bullet_font, fill="black")
+            y += int(line_hb * line_spacing)
+        y += int(line_hb * 0.2)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.6)
+    return y, overflowed
+
+
+def _draw_how_to_improve_section(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    W: int,
+    H: int,
+    margin: int,
+    max_text_width: int,
+    grading_result: Dict[str, Any],
+    section_heading_font: ImageFont.FreeTypeFont,
+    body_font: ImageFont.FreeTypeFont,
+    bullet_font: ImageFont.FreeTypeFont,
+    ensure_space_or_new_page: Any,
+    draw_bold_text: Any,
+) -> Tuple[int, bool]:
+    """Draw 'How to Improve' and bullet list. Returns (new_y, overflowed)."""
+    line_spacing = 1.3
+    how_to_improve = grading_result.get("overall_how_to_improve", []) or grading_result.get("how_to_improve", [])
+    if isinstance(how_to_improve, str):
+        how_to_improve = [how_to_improve]
+    if not how_to_improve:
+        how_to_improve = ["No improvement suggestions provided."]
+    if not ensure_space_or_new_page(y, section_heading_font, 2):
+        return y, True
+    draw_bold_text("How to Improve", section_heading_font, (margin, y), "black")
+    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    y += int(line_h_section * line_spacing)
+    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
+    bullet = "•"
+    bullet_gap = int(0.02 * W)
+    text_x = margin + bullet_gap
+    text_width = max_text_width - bullet_gap
+    line_hb = bullet_font.getbbox("Ag")[3] - bullet_font.getbbox("Ag")[1]
+    overflowed = False
+    for idx, raw in enumerate(how_to_improve[:6]):
+        text = str(raw).strip()
+        if not text:
+            continue
+        wrapped = _wrap_text(draw, text, bullet_font, text_width) or [""]
+        if not ensure_space_or_new_page(y, bullet_font, len(wrapped)):
+            overflowed = True
+            break
+        draw.text((margin, y), bullet, font=bullet_font, fill="black")
+        for line in wrapped:
+            draw.text((text_x, y), line, font=bullet_font, fill="black")
+            y += int(line_hb * line_spacing)
+        y += int(line_hb * 0.2)
+    return y, overflowed
+
+
+def _draw_criteria_table(
+    img: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    W: int,
+    H: int,
+    margin: int,
+    font_scale: float,
+    grading_result: Dict[str, Any],
+    section_heading_font: ImageFont.FreeTypeFont,
+    body_font: ImageFont.FreeTypeFont,
+    ensure_space: Any,
+    new_page: Any,
+    pages: List[Image.Image],
+) -> Tuple[Image.Image, ImageDraw.ImageDraw, int, bool]:
+    """Draw Marks Breakdown: heading, optional table or 'No criteria breakdown available.'
+    May call new_page; returns (img, draw, new_y, overflowed).
+    """
+
+    def _bold(
+        d: ImageDraw.ImageDraw,
+        txt: str,
+        font: ImageFont.FreeTypeFont,
+        pos: Tuple[int, int],
+        fill: str = "black",
+    ) -> None:
+        for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            d.text((pos[0] + dx, pos[1] + dy), txt, font=font, fill=fill)
+
+    def _as_int_if_whole(v: float) -> str:
+        try:
+            fv = float(v)
+        except Exception:
+            return str(v)
+        return str(int(fv)) if fv.is_integer() else f"{fv:.1f}"
+
+    def _first_sentence_one_liner(text: str) -> str:
+        t = (text or "").strip()
+        t = re.sub(r"^(Strengths|Weaknesses):\s*", "", t, flags=re.IGNORECASE).strip()
+        parts = re.split(r"[.!?]+", t)
+        first = (parts[0].strip() if parts and parts[0].strip() else t).strip()
+        if first and not first.endswith((".", "!", "?")):
+            first += "."
+        return first
+
+    def _draw_centered_multiline(
+        x0: int,
+        y0: int,
+        x1: int,
+        y1: int,
+        lines: List[str],
+        font: ImageFont.FreeTypeFont,
+        *,
+        fill: str = "black",
+        highlight_line_idxs: Optional[set] = None,
+        highlight_fill: Tuple[int, int, int] = (255, 255, 0),
+        pad_px: int = 2,
+        vpad_px: int = 4,
+        line_adv_px: Optional[int] = None,
+        highlight_pad_y_px: int = 1,
+        bold: bool = False,
+    ) -> None:
+        highlight_line_idxs = highlight_line_idxs or set()
+        line_h = font.getbbox("Ag")[3] - font.getbbox("Ag")[1]
+        line_adv = line_adv_px if line_adv_px is not None else max(1, int(line_h * 1.50))
+        inner_y0 = y0 + max(0, vpad_px)
+        inner_y1 = y1 - max(0, vpad_px)
+        inner_h = max(0, inner_y1 - inner_y0)
+        total_h = len(lines) * line_adv
+        start_y = inner_y0 + max(0, (inner_h - total_h) // 2)
+        for i, line in enumerate(lines):
+            tw = int(draw.textlength(line, font=font))
+            tx = x0 + max(0, (x1 - x0 - tw) // 2)
+            ty = start_y + i * line_adv
+            if i in highlight_line_idxs:
+                slot_y0 = ty
+                slot_y1 = ty + line_adv
+                rect_y0 = max(inner_y0, slot_y0 + 1)
+                rect_y1 = min(inner_y1, slot_y0 + line_h + max(0, highlight_pad_y_px))
+                rect_y1 = min(rect_y1, slot_y1 - 3)
+                draw.rectangle(
+                    [(tx - pad_px, rect_y0), (tx + tw + pad_px, rect_y1)],
+                    fill=highlight_fill,
+                )
+            if bold:
+                for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+                    draw.text((tx + dx, ty + dy), line, font=font, fill=fill)
+            else:
+                draw.text((tx, ty), line, font=font, fill=fill)
+
+    def _measure_wrapped_lines(font: ImageFont.FreeTypeFont, text: str, max_w: int) -> List[str]:
+        return _wrap_text(draw, text, font, max_w)
+
+    criteria_list = grading_result.get("criteria", []) or []
+    if not criteria_list:
+        if not ensure_space(y, section_heading_font, 2):
+            return (img, draw, y, True)
+        _bold(draw, "Marks Breakdown", section_heading_font, (margin, y), "black")
+        heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+        y += int(heading_line_h * 1.4)
+
+        if not ensure_space(y, body_font, 2):
+            return (img, draw, y, True)
+        draw.text((margin, y), "No criteria breakdown available.", font=body_font, fill="gray")
+        y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 2.0)
+        return (img, draw, y, False)
+
+    # --- Layout constants to match screenshot ---
+    table_left = margin + int(0.02 * W)
+    table_right = W - margin - int(0.02 * W)
+    table_width = table_right - table_left
+
+    col_category_w = int(table_width * 0.28)
+    col_alloc_w = int(table_width * 0.18)
+    col_obt_w = int(table_width * 0.18)
+    col_remarks_w = table_width - col_category_w - col_alloc_w - col_obt_w
+
+    x_cat0 = table_left
+    x_cat1 = x_cat0 + col_category_w
+    x_alloc1 = x_cat1 + col_alloc_w
+    x_obt1 = x_alloc1 + col_obt_w
+    x_rem1 = table_right
+
+    grey_row = (200, 200, 200)
+    white = (255, 255, 255)
+    outer_w = max(2, int(2 * font_scale))
+    inner_w = 1
+
+    rows: List[Dict[str, str]] = []
+    total_rows = max(6, len(criteria_list))
+    for i in range(total_rows):
+        crit = criteria_list[i] if i < len(criteria_list) else {}
+        name = str(crit.get("name", "") or "").strip()
+        max_marks = crit.get("max", "") if i < len(criteria_list) else ""
+        awarded = crit.get("awarded", "") if i < len(criteria_list) else ""
+        remark = crit.get("remark", "") if i < len(criteria_list) else ""
+
+        if not remark and i < len(criteria_list) and float(awarded or 0) < float(max_marks or 0):
+            remark = "Missing required content for this criterion."
+
+        category_text = f"{i+1}. {name}".strip() if name else f"{i+1}."
+        rows.append(
+            {
+                "category": category_text,
+                "allocated": _as_int_if_whole(max_marks) if max_marks != "" else "",
+                "obtained": _as_int_if_whole(awarded) if awarded != "" else "",
+                "remarks": remark,
+            }
+        )
+
+    heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
+    gap_after_heading = max(int(0.70 * heading_line_h), int(28 * font_scale))
+
+    preferred_body_px = max(int(56 * font_scale), 32)
+    preferred_header_px = max(int(46 * font_scale), 28)
+
+    def _table_dims_for(body_px: int, header_px: int) -> Tuple[int, int, int, int]:
+        body_f = _get_font(body_px)
+        head_f = _get_font(header_px)
+        line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
+        pad = max(4, int(0.30 * line_h))
+        row_h = max(int(line_h * 2.15), 40)
+        header_h = max(int((head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]) * 2.15), 66)
+        needed = (heading_line_h + gap_after_heading) + header_h + (len(rows) * row_h) + outer_w
+        return row_h, header_h, pad, needed
+
+    _pref_row_h, _pref_header_h, _pref_pad, _pref_needed = _table_dims_for(preferred_body_px, preferred_header_px)
+    if y + _pref_needed > H - margin:
+        pages.append(img)
+        img, draw, y = new_page()
+
+    if not ensure_space(y, section_heading_font, 2):
+        return (img, draw, y, True)
+    _bold(draw, "Marks Breakdown", section_heading_font, (margin, y), "black")
+    y += int(heading_line_h + gap_after_heading)
+
+    available_h = (H - margin) - y
+    base_body_px = preferred_body_px
+    base_header_px = preferred_header_px
+    min_px = max(int(24 * font_scale), 24)
+
+    chosen_body_px = base_body_px
+    chosen_header_px = base_header_px
+    chosen_pad = max(6, int(8 * font_scale))
+    chosen_row_heights: List[int] = []
+    chosen_header_h = 0
+    chosen_body_line_h = 0
+    chosen_line_adv = 0
+    chosen_row_lines: List[Dict[str, List[str]]] = []
+
+    def _layout_for(
+        body_px: int, header_px: int
+    ) -> Tuple[bool, int, int, int, int, List[int], List[Dict[str, List[str]]]]:
+        body_f = _get_font(body_px)
+        head_f = _get_font(header_px)
+        line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
+        line_adv = max(1, int(line_h * 1.10))
+        pad = max(6, int(0.35 * line_h))
+
+        header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
+        header_line_adv = max(1, int(header_line_h * 1.50))
+        header_vpad = max(12, int(header_line_h * 0.65))
+        header_lines_count = 3
+        header_h = max(108, (header_lines_count * header_line_adv) + 2 * header_vpad)
+
+        row_heights = []
+        row_lines = []
+        for r in rows:
+            cat_lines = _measure_wrapped_lines(body_f, r["category"], col_category_w - 2 * pad)
+            rem_lines = _measure_wrapped_lines(body_f, r["remarks"], col_remarks_w - 2 * pad) if r["remarks"] else [""]
+            needed_lines = max(len(cat_lines), len(rem_lines), 1)
+            row_h = max(40, (needed_lines * line_adv) + 2 * pad)
+            row_heights.append(row_h)
+            row_lines.append({"cat": cat_lines, "rem": rem_lines})
+
+        needed_total = header_h + sum(row_heights) + outer_w
+        return (needed_total <= available_h, line_h, line_adv, pad, header_h, row_heights, row_lines)
+
+    for px in range(base_body_px, min_px - 1, -1):
+        header_px = max(min_px, int(px * 0.85))
+        ok, line_h, line_adv, pad, header_h, row_heights, row_lines = _layout_for(px, header_px)
+        if ok:
+            chosen_body_px = px
+            chosen_header_px = header_px
+            chosen_pad = pad
+            chosen_header_h = header_h
+            chosen_row_heights = row_heights
+            chosen_row_lines = row_lines
+            chosen_body_line_h = line_h
+            chosen_line_adv = line_adv
+            break
+
+    body_f = _get_font(chosen_body_px)
+    head_f = _get_font(chosen_header_px)
+    body_line_h = chosen_body_line_h or (body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1])
+
+    table_top = y
+    header_y0 = table_top
+    header_y1 = header_y0 + chosen_header_h
+    table_bottom = header_y1 + sum(chosen_row_heights)
+
+    draw.rectangle([(table_left, header_y0), (table_right, header_y1)], fill=white)
+
+    header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
+    header_line_adv = max(1, int(header_line_h * 1.50))
+    header_vpad = max(12, int(header_line_h * 0.65))
+    _draw_centered_multiline(
+        x_cat0, header_y0, x_cat1, header_y1, ["Category"],
+        head_f, pad_px=max(2, int(2 * font_scale)), vpad_px=header_vpad,
+        line_adv_px=header_line_adv, bold=True,
+    )
+    _draw_centered_multiline(
+        x_cat1, header_y0, x_alloc1, header_y1, ["Allocated Marks"],
+        head_f, pad_px=max(2, int(2 * font_scale)), vpad_px=header_vpad,
+        line_adv_px=header_line_adv, bold=True,
+    )
+    _draw_centered_multiline(
+        x_alloc1, header_y0, x_obt1, header_y1, ["Obtained Marks"],
+        head_f, vpad_px=header_vpad, line_adv_px=header_line_adv,
+        pad_px=max(2, int(2 * font_scale)), bold=True,
+    )
+    _draw_centered_multiline(
+        x_obt1, header_y0, x_rem1, header_y1, ["Remarks"],
+        head_f, vpad_px=header_vpad, line_adv_px=header_line_adv,
+        pad_px=max(2, int(2 * font_scale)), bold=True,
+    )
+
+    y_cursor = header_y1
+    for i, r in enumerate(rows):
+        ry0 = y_cursor
+        ry1 = ry0 + chosen_row_heights[i]
+        fill = grey_row if (i % 2 == 0) else white
+        draw.rectangle([(table_left, ry0), (table_right, ry1)], fill=fill)
+
+        cat_lines = chosen_row_lines[i]["cat"]
+        tx = x_cat0 + chosen_pad
+        ty = ry0 + chosen_pad
+        for line in cat_lines:
+            draw.text((tx, ty), line, font=body_f, fill="black")
+            ty += chosen_line_adv
+
+        def _draw_centered_cell_text(x0: int, x1: int, text: str) -> None:
+            tw = int(draw.textlength(text, font=body_f))
+            txc = x0 + max(0, (x1 - x0 - tw) // 2)
+            tyc = ry0 + max(0, ((ry1 - ry0) - body_line_h) // 2)
+            draw.text((txc, tyc), text, font=body_f, fill="black")
+
+        _draw_centered_cell_text(x_cat1, x_alloc1, r["allocated"])
+        _draw_centered_cell_text(x_alloc1, x_obt1, r["obtained"])
+
+        rem_lines = chosen_row_lines[i]["rem"]
+        tx = x_obt1 + chosen_pad
+        ty = ry0 + chosen_pad
+        for line in rem_lines:
+            draw.text((tx, ty), line, font=body_f, fill="black")
+            ty += chosen_line_adv
+
+        y_cursor = ry1
+
+    for x in (x_cat1, x_alloc1, x_obt1):
+        draw.line([(x, table_top), (x, table_bottom)], fill="black", width=inner_w)
+    draw.line([(table_left, header_y1), (table_right, header_y1)], fill="black", width=inner_w)
+    yy = header_y1
+    for i in range(1, len(rows)):
+        yy += chosen_row_heights[i - 1]
+        draw.line([(table_left, yy), (table_right, yy)], fill="black", width=inner_w)
+
+    draw.rectangle([(table_left, table_top), (table_right, table_bottom)], outline="black", width=outer_w)
+
+    y = table_bottom + max(int(0.30 * body_line_h), int(18 * font_scale))
+    return (img, draw, y, False)
+
+
 def _render_subject_report_with_scale(
     grading_result: Dict[str, Any],
     page_size: Tuple[int, int],
@@ -4417,7 +2996,6 @@ def _render_subject_report_with_scale(
     subject_font = _get_font(int(62 * font_scale))
     section_heading_font = _get_font(int(60 * font_scale))
     question_text_font = _get_font(int(54 * font_scale))
-    criteria_heading_font = _get_font(int(60 * font_scale))
     body_font = _get_font(int(46 * font_scale))
     total_heading_font = _get_font(int(68 * font_scale))
     bullet_font = _get_font(int(50 * font_scale))
@@ -4443,18 +3021,18 @@ def _render_subject_report_with_scale(
 
     img, draw, y = new_page()
 
-    def ensure_space(font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
-        nonlocal img, draw, y, overflowed
+    def ensure_space(current_y: int, font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
+        nonlocal overflowed
         line_h = font_obj.getbbox("Ag")[3] - font_obj.getbbox("Ag")[1]
-        if y + line_h * needed_lines * line_spacing > H - margin:
+        if current_y + line_h * needed_lines * line_spacing > H - margin:
             overflowed = True
             return False
         return True
 
-    def ensure_space_or_new_page(font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
+    def ensure_space_or_new_page(current_y: int, font_obj: ImageFont.FreeTypeFont, needed_lines: int) -> bool:
         nonlocal img, draw, y, overflowed, pages
         line_h = font_obj.getbbox("Ag")[3] - font_obj.getbbox("Ag")[1]
-        if y + line_h * needed_lines * line_spacing <= H - margin:
+        if current_y + line_h * needed_lines * line_spacing <= H - margin:
             return True
         overflowed = True
         return False
@@ -4471,510 +3049,25 @@ def _render_subject_report_with_scale(
 
     max_text_width = W - 2 * margin
 
-    def _strip_question_prefix(text: str) -> str:
-        """
-        Remove leading question numbering like 'Question #1', 'Question 1:', 'Q1)'.
-        Display-only: keeps just the substantive question text.
-        """
-        if not text:
-            return ""
-        t = text.strip()
-        t = re.sub(r"^(question\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
-        t = re.sub(r"^(q\s*#?\s*\d+[:.)-]?\s*)", "", t, flags=re.IGNORECASE)
-        return t.strip()
+    question = _strip_question_prefix(grading_result.get("question_statement") or "") or "No question statement provided."
 
-    # SUBJECT NAME (at top)
-    subject = grading_result.get("subject", "")
-    if subject:
-        if not ensure_space(subject_font, 2):
-            return [img], True
-        display_subject = str(subject).strip().replace("-", " ").title()
-        draw_bold_text(f"Subject: {display_subject}", subject_font, (margin, y), "black")
-        line_h_subj = subject_font.getbbox("Ag")[3] - subject_font.getbbox("Ag")[1]
-        y += int(line_h_subj * line_spacing * 1.2)
-
-    # TOTAL MARKS (single red line)
-    total = grading_result.get("total_marks_awarded", 0)
-    maximum = grading_result.get("max_marks", 20)
-
-    if not ensure_space(total_heading_font, 1):
+    y, over = _draw_subject_header(draw, y, W, H, margin, grading_result, subject_font, total_heading_font, ensure_space, draw_bold_text)
+    if over:
         return [img], True
-    total_label = "Total Marks Obtained:"
-    total_value = f"{total} / {maximum}"
-    draw_bold_text(total_label, total_heading_font, (margin, y), "#B22222")
-    label_w = int(draw.textlength(total_label + " ", font=total_heading_font))
-    draw_bold_text(total_value, total_heading_font, (margin + label_w, y), "#B22222")
-    line_h = total_heading_font.getbbox("Ag")[3] - total_heading_font.getbbox("Ag")[1]
-    y += int(line_h * line_spacing * 1.4)
 
-    # QUESTION STATEMENT
-    question = grading_result.get("question_statement", "")
-    if question:
-        question = _strip_question_prefix(question)
-    else:
-        question = "No question statement provided."
-    if not ensure_space(section_heading_font, 2):
+    y, over = _draw_question_section(draw, y, W, H, margin, max_text_width, question, section_heading_font, question_text_font, ensure_space, draw_bold_text)
+    if over:
         return [img], True
-    heading_text = "Question Statement:"
-    draw_bold_text(heading_text, section_heading_font, (margin, y), "black")
-    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * line_spacing)
 
-    # Render the question statement directly under the heading (no extra label).
-    if not ensure_space(question_text_font, 2):
+    img, draw, y, over = _draw_criteria_table(img, draw, y, W, H, margin, font_scale, grading_result, section_heading_font, body_font, ensure_space, new_page, pages)
+    if over:
         return [img], True
-    wrapped_question = _wrap_text(
-        draw,
-        question,
-        question_text_font,
-        max_text_width,
-    ) or [""]
-    line_hq = question_text_font.getbbox("Ag")[3] - question_text_font.getbbox("Ag")[1]
-    for line in wrapped_question:
-        if not ensure_space(question_text_font, 1):
-            return [img], True
-        draw.text((margin, y), line, font=question_text_font, fill="black")
-        y += int(line_hq * line_spacing)
-    y += int(line_hq * 0.6)
 
-    # MARKS BREAKDOWN
+    y, over = _draw_key_gaps_section(draw, y, W, H, margin, max_text_width, grading_result, section_heading_font, body_font, bullet_font, ensure_space_or_new_page, draw_bold_text)
+    overflowed = overflowed or over
 
-    def _as_int_if_whole(v: float) -> str:
-        try:
-            fv = float(v)
-        except Exception:
-            return str(v)
-        return str(int(fv)) if fv.is_integer() else f"{fv:.1f}"
-
-    def _first_sentence_one_liner(text: str) -> str:
-        t = (text or "").strip()
-        t = re.sub(r'^(Strengths|Weaknesses):\s*', '', t, flags=re.IGNORECASE).strip()
-        # keep just first sentence if model returns multiple
-        parts = re.split(r'[.!?]+', t)
-        first = (parts[0].strip() if parts and parts[0].strip() else t).strip()
-        if first and not first.endswith((".", "!", "?")):
-            first += "."
-        return first
-
-    def _draw_centered_multiline(
-        x0: int,
-        y0: int,
-        x1: int,
-        y1: int,
-        lines: List[str],
-        font: ImageFont.FreeTypeFont,
-        *,
-        fill: str = "black",
-        highlight_line_idxs: Optional[set] = None,
-        highlight_fill: Tuple[int, int, int] = (255, 255, 0),
-        pad_px: int = 2,
-        vpad_px: int = 4,
-        line_adv_px: Optional[int] = None,
-        highlight_pad_y_px: int = 1,
-        bold: bool = False,
-    ) -> None:
-        """Draw multiline text centered in a rectangle; optionally highlight specific lines."""
-        highlight_line_idxs = highlight_line_idxs or set()
-        line_h = font.getbbox("Ag")[3] - font.getbbox("Ag")[1]
-        # Use a slightly larger line advance so multi-line headers never collide.
-        line_adv = line_adv_px if line_adv_px is not None else max(1, int(line_h * 1.50))
-        inner_y0 = y0 + max(0, vpad_px)
-        inner_y1 = y1 - max(0, vpad_px)
-        inner_h = max(0, inner_y1 - inner_y0)
-        total_h = len(lines) * line_adv
-        start_y = inner_y0 + max(0, (inner_h - total_h) // 2)
-        for i, line in enumerate(lines):
-            tw = int(draw.textlength(line, font=font))
-            tx = x0 + max(0, (x1 - x0 - tw) // 2)
-            ty = start_y + i * line_adv
-            if i in highlight_line_idxs:
-                # Keep highlight strictly within this line slot (avoid touching adjacent lines)
-                slot_y0 = ty
-                slot_y1 = ty + line_adv
-                # Keep highlight inside the current line slot with a tiny air gap
-                rect_y0 = max(inner_y0, slot_y0 + 1)
-                rect_y1 = min(inner_y1, slot_y0 + line_h + max(0, highlight_pad_y_px))
-                # Ensure we never touch the next line slot
-                rect_y1 = min(rect_y1, slot_y1 - 3)
-                draw.rectangle(
-                    [(tx - pad_px, rect_y0), (tx + tw + pad_px, rect_y1)],
-                    fill=highlight_fill,
-                )
-            if bold:
-                for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
-                    draw.text((tx + dx, ty + dy), line, font=font, fill=fill)
-            else:
-                draw.text((tx, ty), line, font=font, fill=fill)
-
-    def _measure_wrapped_lines(font: ImageFont.FreeTypeFont, text: str, max_w: int) -> List[str]:
-        return _wrap_text(draw, text, font, max_w)
-
-    criteria_list = grading_result.get("criteria", []) or []
-    if not criteria_list:
-        # Heading (matches screenshot casing/placement)
-        if not ensure_space(section_heading_font, 2):
-            return [img], True
-        draw_bold_text("Marks Breakdown", section_heading_font, (margin, y), "black")
-        heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-        y += int(heading_line_h * 1.4)  # more space so it never collides
-
-        if not ensure_space(body_font, 2):
-            return [img], True
-        draw.text((margin, y), "No criteria breakdown available.", font=body_font, fill="gray")
-        y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 2.0)
-    else:
-        # --- Layout constants to match screenshot ---
-        table_left = margin + int(0.02 * W)
-        table_right = W - margin - int(0.02 * W)
-        table_width = table_right - table_left
-
-        # Column widths: Category wide, marks narrow, remarks widest
-        col_category_w = int(table_width * 0.28)
-        col_alloc_w = int(table_width * 0.18)
-        col_obt_w = int(table_width * 0.18)
-        col_remarks_w = table_width - col_category_w - col_alloc_w - col_obt_w
-
-        x_cat0 = table_left
-        x_cat1 = x_cat0 + col_category_w
-        x_alloc1 = x_cat1 + col_alloc_w
-        x_obt1 = x_alloc1 + col_obt_w
-        x_rem1 = table_right
-
-        # Colors / borders
-        grey_row = (200, 200, 200)
-        white = (255, 255, 255)
-        outer_w = max(2, int(2 * font_scale))
-        inner_w = 1
-
-        # Build row payload (pad to 6 rows to match report template)
-        rows: List[Dict[str, str]] = []
-        total_rows = max(6, len(criteria_list))
-        for i in range(total_rows):
-            crit = criteria_list[i] if i < len(criteria_list) else {}
-            name = str(crit.get("name", "") or "").strip()
-            max_marks = crit.get("max", "") if i < len(criteria_list) else ""
-            awarded = crit.get("awarded", "") if i < len(criteria_list) else ""
-            remark = crit.get("remark", "") if i < len(criteria_list) else ""
-
-            # If no remark provided but marks are less than max, provide default
-            if not remark and i < len(criteria_list) and float(awarded or 0) < float(max_marks or 0):
-                remark = "Missing required content for this criterion."
-
-            category_text = f"{i+1}. {name}".strip() if name else f"{i+1}."
-            rows.append(
-                {
-                    "category": category_text,
-                    "allocated": _as_int_if_whole(max_marks) if max_marks != "" else "",
-                    "obtained": _as_int_if_whole(awarded) if awarded != "" else "",
-                    "remarks": remark,
-                }
-            )
-
-        # If there isn't enough remaining space, move Marks Breakdown to a new page.
-        # This prevents the table from becoming tiny just to squeeze under earlier content.
-        heading_line_h = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-        gap_after_heading = max(int(0.70 * heading_line_h), int(28 * font_scale))
-
-        # Preferred (readable) table sizing before auto-shrink kicks in
-        preferred_body_px = max(int(56 * font_scale), 32)
-        preferred_header_px = max(int(46 * font_scale), 28)
-
-        def _table_dims_for(body_px: int, header_px: int) -> Tuple[int, int, int, int]:
-            body_f = _get_font(body_px)
-            head_f = _get_font(header_px)
-            line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
-            pad = max(4, int(0.30 * line_h))
-            # row height should not collapse when font_scale is small
-            row_h = max(int(line_h * 2.15), 40)
-            header_h = max(int((head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]) * 2.15), 66)
-            needed = (heading_line_h + gap_after_heading) + header_h + (len(rows) * row_h) + outer_w
-            return row_h, header_h, pad, needed
-
-        _pref_row_h, _pref_header_h, _pref_pad, _pref_needed = _table_dims_for(preferred_body_px, preferred_header_px)
-        if y + _pref_needed > H - margin:
-            pages.append(img)
-            img, draw, y = new_page()
-
-        # Heading (matches screenshot casing/placement)
-        if not ensure_space(section_heading_font, 2):
-            return [img], True
-        draw_bold_text("Marks Breakdown", section_heading_font, (margin, y), "black")
-        y += int(heading_line_h + gap_after_heading)
-
-        # --- Auto-fit loop (robust): dynamic row heights per wrapped content ---
-        # Fixes the "jumbled up" issue by ensuring row height >= required wrapped text height.
-        available_h = (H - margin) - y
-        base_body_px = preferred_body_px
-        base_header_px = preferred_header_px
-        min_px = max(int(24 * font_scale), 24)  # keep readable
-
-        chosen_body_px = base_body_px
-        chosen_header_px = base_header_px
-        chosen_pad = max(6, int(8 * font_scale))
-        chosen_row_heights: List[int] = []
-        chosen_header_h = 0
-        chosen_body_line_h = 0
-        chosen_line_adv = 0
-        chosen_row_lines: List[Dict[str, List[str]]] = []
-
-        def _layout_for(body_px: int, header_px: int) -> Tuple[bool, int, int, int, int, List[int], List[Dict[str, List[str]]]]:
-            body_f = _get_font(body_px)
-            head_f = _get_font(header_px)
-            line_h = body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1]
-            line_adv = max(1, int(line_h * 1.10))  # MUST match drawing advance to avoid spill
-            pad = max(6, int(0.35 * line_h))
-
-            header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
-            # MUST match the line advance used by _draw_centered_multiline for headers,
-            # otherwise text can collide vertically within the header row.
-            header_line_adv = max(1, int(header_line_h * 1.50))
-            header_vpad = max(12, int(header_line_h * 0.65))
-            # header has 3 lines at most in our design; compute exact height
-            header_lines_count = 3
-            header_h = max(108, (header_lines_count * header_line_adv) + 2 * header_vpad)
-
-            row_heights: List[int] = []
-            row_lines: List[Dict[str, List[str]]] = []
-            for r in rows:
-                cat_lines = _measure_wrapped_lines(body_f, r["category"], col_category_w - 2 * pad)
-                rem_lines = _measure_wrapped_lines(body_f, r["remarks"], col_remarks_w - 2 * pad) if r["remarks"] else [""]
-                needed_lines = max(len(cat_lines), len(rem_lines), 1)
-                row_h = max(40, (needed_lines * line_adv) + 2 * pad)
-                row_heights.append(row_h)
-                row_lines.append({"cat": cat_lines, "rem": rem_lines})
-
-            needed_total = header_h + sum(row_heights) + outer_w
-            return (needed_total <= available_h, line_h, line_adv, pad, header_h, row_heights, row_lines)
-
-        for px in range(base_body_px, min_px - 1, -1):
-            header_px = max(min_px, int(px * 0.85))
-            ok, line_h, line_adv, pad, header_h, row_heights, row_lines = _layout_for(px, header_px)
-            if ok:
-                chosen_body_px = px
-                chosen_header_px = header_px
-                chosen_pad = pad
-                chosen_header_h = header_h
-                chosen_row_heights = row_heights
-                chosen_row_lines = row_lines
-                chosen_body_line_h = line_h
-                chosen_line_adv = line_adv
-                break
-
-        body_f = _get_font(chosen_body_px)
-        head_f = _get_font(chosen_header_px)
-        body_line_h = chosen_body_line_h or (body_f.getbbox("Ag")[3] - body_f.getbbox("Ag")[1])
-
-        table_top = y
-        header_y0 = table_top
-        header_y1 = header_y0 + chosen_header_h
-        table_bottom = header_y1 + sum(chosen_row_heights)
-
-        # --- Draw header background ---
-        draw.rectangle([(table_left, header_y0), (table_right, header_y1)], fill=white)
-
-        # Header text + highlights (yellow behind specific phrases)
-        header_line_h = head_f.getbbox("Ag")[3] - head_f.getbbox("Ag")[1]
-        header_line_adv = max(1, int(header_line_h * 1.50))
-        header_vpad = max(12, int(header_line_h * 0.65))
-        _draw_centered_multiline(
-            x_cat0,
-            header_y0,
-            x_cat1,
-            header_y1,
-            ["Category"],
-            head_f,
-            pad_px=max(2, int(2 * font_scale)),
-            vpad_px=header_vpad,
-            line_adv_px=header_line_adv,
-            bold=True,
-        )
-        _draw_centered_multiline(
-            x_cat1,
-            header_y0,
-            x_alloc1,
-            header_y1,
-            ["Allocated Marks"],
-            head_f,
-            pad_px=max(2, int(2 * font_scale)),
-            vpad_px=header_vpad,
-            line_adv_px=header_line_adv,
-            bold=True,
-        )
-        _draw_centered_multiline(
-            x_alloc1,
-            header_y0,
-            x_obt1,
-            header_y1,
-            ["Obtained Marks"],
-            head_f,
-            vpad_px=header_vpad,
-            line_adv_px=header_line_adv,
-            pad_px=max(2, int(2 * font_scale)),
-            bold=True,
-        )
-        _draw_centered_multiline(
-            x_obt1,
-            header_y0,
-            x_rem1,
-            header_y1,
-            ["Remarks"],
-            head_f,
-            vpad_px=header_vpad,
-            line_adv_px=header_line_adv,
-            pad_px=max(2, int(2 * font_scale)),
-            bold=True,
-        )
-
-        # --- Draw body rows (alternating grey like screenshot) ---
-        y_cursor = header_y1
-        for i, r in enumerate(rows):
-            ry0 = y_cursor
-            ry1 = ry0 + chosen_row_heights[i]
-            fill = grey_row if (i % 2 == 0) else white
-            draw.rectangle([(table_left, ry0), (table_right, ry1)], fill=fill)
-
-            # Category cell (left/top aligned)
-            cat_lines = chosen_row_lines[i]["cat"]
-            tx = x_cat0 + chosen_pad
-            ty = ry0 + chosen_pad
-            for line in cat_lines:
-                draw.text((tx, ty), line, font=body_f, fill="black")
-                ty += chosen_line_adv
-
-            # Allocated / Obtained (centered)
-            def _draw_centered_cell_text(x0: int, x1: int, text: str) -> None:
-                tw = int(draw.textlength(text, font=body_f))
-                txc = x0 + max(0, (x1 - x0 - tw) // 2)
-                tyc = ry0 + max(0, ((ry1 - ry0) - body_line_h) // 2)
-                draw.text((txc, tyc), text, font=body_f, fill="black")
-
-            _draw_centered_cell_text(x_cat1, x_alloc1, r["allocated"])
-            _draw_centered_cell_text(x_alloc1, x_obt1, r["obtained"])
-
-            # Remarks (left/top aligned)
-            rem_lines = chosen_row_lines[i]["rem"]
-            tx = x_obt1 + chosen_pad
-            ty = ry0 + chosen_pad
-            for line in rem_lines:
-                draw.text((tx, ty), line, font=body_f, fill="black")
-                ty += chosen_line_adv
-
-            y_cursor = ry1
-
-        # --- Grid lines (inner) ---
-        # Vertical inner borders
-        for x in (x_cat1, x_alloc1, x_obt1):
-            draw.line([(x, table_top), (x, table_bottom)], fill="black", width=inner_w)
-        # Horizontal inner borders: header bottom + row boundaries
-        draw.line([(table_left, header_y1), (table_right, header_y1)], fill="black", width=inner_w)
-        yy = header_y1
-        for i in range(1, len(rows)):
-            yy += chosen_row_heights[i - 1]
-            draw.line([(table_left, yy), (table_right, yy)], fill="black", width=inner_w)
-
-        # Outer border (thicker)
-        draw.rectangle([(table_left, table_top), (table_right, table_bottom)], outline="black", width=outer_w)
-
-        # Give visible breathing room before next section
-        y = table_bottom + max(int(0.30 * body_line_h), int(18 * font_scale))
-
-    # Key gaps + improvements (matching screenshot headings)
-    key_gaps = grading_result.get("overall_what_was_missing", []) or grading_result.get("key_gaps_in_answer", [])
-    how_to_improve = grading_result.get("overall_how_to_improve", []) or grading_result.get("how_to_improve", [])
-
-    def _draw_wrapped_bullets(items: List[str], max_items: int) -> None:
-        nonlocal y
-        line_hb = bullet_font.getbbox("Ag")[3] - bullet_font.getbbox("Ag")[1]
-        bullet = "•"
-        bullet_gap = int(0.02 * W)
-        text_x = margin + bullet_gap
-        text_width = max_text_width - bullet_gap
-        for idx, raw in enumerate(items[:max_items]):
-            text = str(raw).strip()
-            if not text:
-                continue
-            wrapped = _wrap_text(draw, text, bullet_font, text_width) or [""]
-            if not ensure_space_or_new_page(bullet_font, len(wrapped)):
-                return
-            draw.text((margin, y), bullet, font=bullet_font, fill="black")
-            for i, line in enumerate(wrapped):
-                draw.text((text_x, y), line, font=bullet_font, fill="black")
-                y += int(line_hb * line_spacing)
-            y += int(line_hb * 0.2)
-
-    if not ensure_space_or_new_page(section_heading_font, 2):
-        return [img], True
-    draw_bold_text("Key Gaps in the Answer", section_heading_font, (margin, y), "black")
-    line_h_section = section_heading_font.getbbox("Ag")[3] - section_heading_font.getbbox("Ag")[1]
-    y += int(line_h_section * line_spacing)
-    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
-    if isinstance(key_gaps, str):
-        key_gaps = [key_gaps]
-    if not key_gaps:
-        key_gaps = ["No key gaps provided."]
-    _draw_wrapped_bullets(key_gaps, max_items=6)
-    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.6)
-
-    if not ensure_space_or_new_page(section_heading_font, 2):
-        return [img], True
-    draw_bold_text("How to Improve", section_heading_font, (margin, y), "black")
-    y += int(line_h_section * line_spacing)
-    y += int((body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 0.2)
-    if isinstance(how_to_improve, str):
-        how_to_improve = [how_to_improve]
-    if not how_to_improve:
-        how_to_improve = ["No improvement suggestions provided."]
-    _draw_wrapped_bullets(how_to_improve, max_items=6)
-
-    # Length & Completeness rendering disabled per report format.
-    if False and refined_summary:
-        # Extract only length_completeness
-        length_item = None
-        for item in refined_summary:
-            if item.get("id") == "length_completeness":
-                length_item = item
-                break
-        
-        if length_item:
-            # Add spacing before Length & Completeness section
-            y += int(body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]) * 1.2  # Reduced from 2 to save space
-            
-            # Check if we need a new page (reserve space for Length & Completeness)
-            # Estimate space needed: heading + rating + wrapped comment (allow for ~5-6 lines)
-            estimated_lines = 6  # Heading + rating + ~4-5 lines of comment
-            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-            needed_space = estimated_lines * line_hb * line_spacing
-            
-            if y + needed_space > H - margin:
-                overflowed = True
-                return [img], True
-            
-            # Render Length & Completeness section
-            name = length_item.get("name", "Length & Completeness")
-            rating = (length_item.get("rating") or "").capitalize()
-            comment = length_item.get("comment") or ""
-            
-            # Heading with rating (centered)
-            if not ensure_space(criteria_heading_font, 2):
-                return [img], True
-            header = f"{name} — {rating}"
-            line_h_criteria = criteria_heading_font.getbbox("Ag")[3] - criteria_heading_font.getbbox("Ag")[1]
-            # Center the heading
-            heading_width = draw.textlength(header, font=criteria_heading_font)
-            heading_x = (W - heading_width) // 2
-            draw_bold_text(header, criteria_heading_font, (heading_x, y), "black")
-            y += int(line_h_criteria * line_spacing * 1.0)  # Reduced from 1.2 to save space
-            
-            # Comment text (use full width minus margins for better readability)
-            comment_width = W - 2 * margin  # Full width for comment
-            line_hb = body_font.getbbox("Ag")[3] - body_font.getbbox("Ag")[1]
-            for line in _wrap_text(draw, comment, body_font, comment_width):
-                if not ensure_space(body_font, 1):
-                    return [img], True
-                draw.text((margin, y), line, font=body_font, fill="black")
-                y += int(line_hb * line_spacing)
-            
-            y += int(line_hb * 0.5)
+    y, over = _draw_how_to_improve_section(draw, y, W, H, margin, max_text_width, grading_result, section_heading_font, body_font, bullet_font, ensure_space_or_new_page, draw_bold_text)
+    overflowed = overflowed or over
 
     pages.append(img)
     return pages, overflowed
@@ -5212,7 +3305,7 @@ def grade_pdf_answer(
     step_timings: Dict[str, float] = {}
     
     # Total steps in pipeline
-    TOTAL_STEPS = 11
+    TOTAL_STEPS = 12
 
     # Validate all inputs before processing
     print("Validating inputs...")
@@ -5261,63 +3354,15 @@ def grade_pdf_answer(
             details={"pages_completed": 0, "total_pages": len(page_images)},
         )
         step_start = time.perf_counter()
-        
-        # Configure timeouts (can be made configurable via environment variables)
-        per_page_timeout = float(os.getenv("OCR_PER_PAGE_TIMEOUT", "120.0"))  # 2 minutes per page
-        overall_timeout = float(os.getenv("OCR_OVERALL_TIMEOUT", "600.0"))  # 10 minutes total
-        
-        # Configure retry parameters (for retry logic implementation)
-        max_retries = int(os.getenv("OCR_MAX_RETRIES", "3"))  # Maximum retry attempts per page
-        retry_base_delay = float(os.getenv("OCR_RETRY_BASE_DELAY", "1.0"))  # Base delay in seconds
-        retry_max_delay = float(os.getenv("OCR_RETRY_MAX_DELAY", "60.0"))  # Maximum delay in seconds
-        retry_jitter_range = float(os.getenv("OCR_RETRY_JITTER_RANGE", "0.2"))  # Jitter range (0.0-1.0)
-        rate_limit_base_delay = float(os.getenv("OCR_RATE_LIMIT_BASE_DELAY", "5.0"))  # Base delay for rate limits
-        rate_limit_max_delay = float(os.getenv("OCR_RATE_LIMIT_MAX_DELAY", "300.0"))  # Max delay for rate limits (5 minutes)
-        
-        # Configure parallel processing
-        concurrent_pages = int(os.getenv("OCR_CONCURRENT_PAGES", "2"))  # Number of pages to process in parallel
-        
-        # Configure batch orchestration
-        batch_size = int(os.getenv("OCR_BATCH_SIZE", "5"))  # Number of pages per batch
-        batch_failure_threshold = float(os.getenv("OCR_BATCH_FAILURE_THRESHOLD", "0.5"))  # Stop if batch failure rate exceeds this
-        
-        # Configure adaptive concurrency
-        adaptive_concurrency_enabled = os.getenv("OCR_ADAPTIVE_CONCURRENCY_ENABLED", "true").lower() in ("true", "1", "yes", "on")
-        adaptive_min_concurrency = int(os.getenv("OCR_ADAPTIVE_MIN_CONCURRENCY", "1"))
-        adaptive_max_concurrency = int(os.getenv("OCR_ADAPTIVE_MAX_CONCURRENCY", "4"))
-        adaptive_latency_threshold_ms = float(os.getenv("OCR_ADAPTIVE_LATENCY_THRESHOLD_MS", "90000.0"))
-        adaptive_stable_batches = int(os.getenv("OCR_ADAPTIVE_STABLE_BATCHES", "2"))
-        
-        # Configure image optimization
-        image_optimization_enabled = os.getenv("OCR_IMAGE_OPTIMIZATION_ENABLED", "true").lower() in ("true", "1", "yes", "on")
-        image_max_dimension = int(os.getenv("OCR_IMAGE_MAX_DIMENSION", "2048"))
-        image_min_dimension_for_optimization = int(os.getenv("OCR_IMAGE_MIN_DIMENSION_FOR_OPTIMIZATION", "1500"))
-        
+        ocr_config = _get_ocr_config()
         ocr_data = run_ocr_on_pdf(
             vision_client=vision_client,
             pdf_path=pdf_path,
-            per_page_timeout=per_page_timeout,
-            overall_timeout=overall_timeout,
             log_path=log_path,
             request_id=request_id,
-            max_retries=max_retries,
-            retry_base_delay=retry_base_delay,
-            retry_max_delay=retry_max_delay,
-            retry_jitter_range=retry_jitter_range,
-            rate_limit_base_delay=rate_limit_base_delay,
-            rate_limit_max_delay=rate_limit_max_delay,
-            concurrent_pages=concurrent_pages,
-            batch_size=batch_size,
-            batch_failure_threshold=batch_failure_threshold,
-            adaptive_concurrency_enabled=adaptive_concurrency_enabled,
-            adaptive_min_concurrency=adaptive_min_concurrency,
-            adaptive_max_concurrency=adaptive_max_concurrency,
-            adaptive_latency_threshold_ms=adaptive_latency_threshold_ms,
-            adaptive_stable_batches=adaptive_stable_batches,
-            image_optimization_enabled=image_optimization_enabled,
-            image_max_dimension=image_max_dimension,
-            image_min_dimension_for_optimization=image_min_dimension_for_optimization,
             progress_tracker=progress_tracker,
+            append_log=_append_log,
+            **ocr_config,
         )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 2: Google Vision OCR"] = step_duration
@@ -5437,20 +3482,12 @@ def grade_pdf_answer(
 
         grading_result.setdefault("subject", subject)
         if not grading_result.get("max_marks"):
-            grading_result["max_marks"] = 20
+            grading_result["max_marks"] = DEFAULT_MAX_MARKS
 
         # Validate and adjust marks to ensure fairness (only adjusts if there's clear mismatch)
         grading_result = validate_and_adjust_grading_result(grading_result)
 
-        # Add token usage to grading result before saving
-        grading_result["token_usage"] = {
-            "input_tokens": total_input_tokens,
-            "output_tokens": total_output_tokens,
-            "total_tokens": total_input_tokens + total_output_tokens
-        }
-        print(f"OCR completed. Token usage: Input: {total_input_tokens}, Output: {total_output_tokens}")
-        
-                # Save unfiltered OCR text BEFORE any processing/filtering
+        # Save unfiltered OCR text BEFORE any processing/filtering
         try:
             ocr_filepath = save_unfiltered_ocr_text(
                 ocr_data=ocr_data,
@@ -5471,6 +3508,75 @@ def grade_pdf_answer(
                 f"request={request_id} unfiltered_ocr_save_failed error={e}",
             )
 
+        print("Step 6: Analyzing mark deductions...")
+        if progress_tracker:
+            progress_tracker.update_progress(
+                request_id=request_id,
+                step="Mark deduction analysis",
+                step_number=6,
+                total_steps=TOTAL_STEPS,
+                progress_percent=62.0,
+                message="Analyzing why marks were lost...",
+            )
+        step_start = time.perf_counter()
+        try:
+            mark_deduction_analysis, mark_analysis_token_usage = call_grok_for_mark_deduction_analysis(
+                grok_api_key=grok_key,
+                grading_result=grading_result,
+                subject_rubric_text=subject_rubric_text,
+                ocr_data=ocr_data,
+                sections=sections,
+            )
+            
+            # Merge mark deduction analysis into grading_result for report rendering.
+            grading_result["overall_why_marks_lost"] = mark_deduction_analysis.get("overall_why_marks_lost", [])
+            grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
+            grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
+            grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
+            
+            # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
+            analysis_filepath = save_mark_deduction_analysis_to_tests(
+                analysis_result=mark_deduction_analysis,
+                request_id=request_id,
+                subject=subject,
+            )
+            
+            step_duration = time.perf_counter() - step_start
+            step_timings["Step 6: Mark deduction analysis"] = step_duration
+            _append_log(
+                log_path,
+                "INFO",
+                f"request={request_id} step=6 name=mark_deduction_analysis duration_ms={int(step_duration * 1000)} file={analysis_filepath}",
+            )
+            print(f"  ✓ Completed in {_format_time(step_duration)}")
+            if analysis_filepath:
+                print(f"  ✓ Analysis saved to: {analysis_filepath}")
+            
+            # Accumulate token usage
+            total_input_tokens += mark_analysis_token_usage.get("input_tokens", 0)
+            total_output_tokens += mark_analysis_token_usage.get("output_tokens", 0)
+            
+        except Exception as e:
+            # Don't fail the pipeline; use empty lists so report still renders.
+            grading_result["overall_why_marks_lost"] = []
+            grading_result["overall_what_was_missing"] = []
+            grading_result["overall_how_to_improve"] = []
+            grading_result["priority_improvements"] = []
+            print(f"  ⚠ Warning: Mark deduction analysis failed: {e}")
+            _append_log(
+                log_path,
+                "WARNING",
+                f"request={request_id} mark_deduction_analysis_failed error={e}",
+            )
+
+        # Token usage and grading JSON save (after mark deduction so JSON includes it)
+        grading_result["token_usage"] = {
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "total_tokens": total_input_tokens + total_output_tokens,
+        }
+        print(f"Token usage: Input: {total_input_tokens}, Output: {total_output_tokens}")
+
         print("Saving grading JSON...")
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(grading_result, f, ensure_ascii=False, indent=2)
@@ -5481,7 +3587,6 @@ def grade_pdf_answer(
             if log_path:
                 logs_dir = os.path.dirname(log_path)
             else:
-                # Calculate logs directory from this file location
                 current_file_dir = os.path.dirname(os.path.abspath(__file__))
                 project_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
                 logs_dir = os.path.join(project_root, "logs")
@@ -5497,7 +3602,6 @@ def grade_pdf_answer(
                 f"request={request_id} grading_json_saved_to_logs file={logs_grading_json_path}",
             )
         except Exception as e:
-            # Don't fail the pipeline if saving to logs fails
             print(f"  ⚠ Warning: Failed to save grading JSON to logs folder: {e}")
             _append_log(
                 log_path,
@@ -5505,124 +3609,12 @@ def grade_pdf_answer(
                 f"request={request_id} grading_json_logs_save_failed error={e}",
             )
 
-        print("Step 5.5: Analyzing mark deductions (testing only)...")
-        if progress_tracker:
-            progress_tracker.update_progress(
-                request_id=request_id,
-                step="Mark deduction analysis",
-                step_number=5,
-                total_steps=TOTAL_STEPS,
-                progress_percent=62.0,
-                message="Analyzing why marks were lost...",
-            )
-        step_start = time.perf_counter()
-        try:
-            mark_deduction_analysis, mark_analysis_token_usage = call_grok_for_mark_deduction_analysis(
-                grok_api_key=grok_key,
-                grading_result=grading_result,
-                subject_rubric_text=subject_rubric_text,
-                ocr_data=ocr_data,
-                sections=sections,
-            )
-            
-            # Merge mark deduction analysis into grading_result for report rendering.
-            grading_result["overall_why_marks_lost"] = mark_deduction_analysis.get("overall_why_marks_lost", [])
-            grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
-            grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
-            grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
-            
-            # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
-            analysis_filepath = save_mark_deduction_analysis_to_tests(
-                analysis_result=mark_deduction_analysis,
-                request_id=request_id,
-                subject=subject,
-            )
-            
-            step_duration = time.perf_counter() - step_start
-            step_timings["Step 5.5: Mark deduction analysis"] = step_duration
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} step=5.5 name=mark_deduction_analysis duration_ms={int(step_duration * 1000)} file={analysis_filepath}",
-            )
-            print(f"  ✓ Completed in {_format_time(step_duration)}")
-            print(f"  ✓ Analysis saved to: {analysis_filepath}")
-            
-            # Accumulate token usage (optional, for tracking)
-            total_input_tokens += mark_analysis_token_usage.get("input_tokens", 0)
-            total_output_tokens += mark_analysis_token_usage.get("output_tokens", 0)
-            
-        except Exception as e:
-            # Don't fail the pipeline if this testing step fails
-            print(f"  ⚠ Warning: Mark deduction analysis failed: {e}")
-            _append_log(
-                log_path,
-                "WARNING",
-                f"request={request_id} mark_deduction_analysis_failed error={e}",
-            )
-
-        print("Step 5.5: Analyzing mark deductions (testing only)...")
-        if progress_tracker:
-            progress_tracker.update_progress(
-                request_id=request_id,
-                step="Mark deduction analysis",
-                step_number=5,
-                total_steps=TOTAL_STEPS,
-                progress_percent=62.0,
-                message="Analyzing why marks were lost...",
-            )
-        step_start = time.perf_counter()
-        try:
-            mark_deduction_analysis, mark_analysis_token_usage = call_grok_for_mark_deduction_analysis(
-                grok_api_key=grok_key,
-                grading_result=grading_result,
-                subject_rubric_text=subject_rubric_text,
-                ocr_data=ocr_data,
-                sections=sections,
-            )
-            
-            # Merge mark deduction analysis into grading_result for report rendering.
-            grading_result["overall_why_marks_lost"] = mark_deduction_analysis.get("overall_why_marks_lost", [])
-            grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
-            grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
-            grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
-            
-            # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
-            analysis_filepath = save_mark_deduction_analysis_to_tests(
-                analysis_result=mark_deduction_analysis,
-                request_id=request_id,
-                subject=subject,
-            )
-            
-            step_duration = time.perf_counter() - step_start
-            step_timings["Step 5.5: Mark deduction analysis"] = step_duration
-            _append_log(
-                log_path,
-                "INFO",
-                f"request={request_id} step=5.5 name=mark_deduction_analysis duration_ms={int(step_duration * 1000)} file={analysis_filepath}",
-            )
-            print(f"  ✓ Completed in {_format_time(step_duration)}")
-            print(f"  ✓ Analysis saved to: {analysis_filepath}")
-            
-            # Accumulate token usage (optional, for tracking)
-            total_input_tokens += mark_analysis_token_usage.get("input_tokens", 0)
-            total_output_tokens += mark_analysis_token_usage.get("output_tokens", 0)
-            
-        except Exception as e:
-            # Don't fail the pipeline if this testing step fails
-            print(f"  ⚠ Warning: Mark deduction analysis failed: {e}")
-            _append_log(
-                log_path,
-                "WARNING",
-                f"request={request_id} mark_deduction_analysis_failed error={e}",
-            )
-
-        print("Step 6: Rendering subject-wise report pages...")
+        print("Step 7: Rendering subject-wise report pages...")
         if progress_tracker:
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Rendering report",
-                step_number=6,
+                step_number=7,
                 total_steps=TOTAL_STEPS,
                 progress_percent=70.0,
                 message="Rendering subject report pages...",
@@ -5638,20 +3630,20 @@ def grade_pdf_answer(
             refined_summary=None,  # Will be updated after refined_summary is generated
         )
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 6: Render subject report pages"] = step_duration
+        step_timings["Step 7: Render subject report pages"] = step_duration
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=6 name=render_subject_report_pages duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=7 name=render_subject_report_pages duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
-        print("Step 7: Loading refined rubric DOCX...")
+        print("Step 8: Loading refined rubric DOCX...")
         if progress_tracker:
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Loading refined rubric",
-                step_number=7,
+                step_number=8,
                 total_steps=TOTAL_STEPS,
                 progress_percent=75.0,
                 message="Loading refined rubric...",
@@ -5659,7 +3651,7 @@ def grade_pdf_answer(
         step_start = time.perf_counter()
         refined_rubric_text, refined_rubric_path = load_refined_rubric_text()
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 7: Load refined rubric"] = step_duration
+        step_timings["Step 8: Load refined rubric"] = step_duration
         if refined_rubric_path:
             print(f"Using refined rubric file: {refined_rubric_path}")
         else:
@@ -5672,16 +3664,16 @@ def grade_pdf_answer(
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=7 name=load_refined_rubric duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=8 name=load_refined_rubric duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
-        print("Step 8: Calling Grok for refined rubric annotations...")
+        print("Step 9: Calling Grok for refined rubric annotations...")
         if progress_tracker:
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Refined annotations",
-                step_number=8,
+                step_number=9,
                 total_steps=TOTAL_STEPS,
                 progress_percent=80.0,
                 message="Generating refined annotations...",
@@ -5695,11 +3687,11 @@ def grade_pdf_answer(
             page_images=page_images,
         )
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 8: Grok refined annotations"] = step_duration
+        step_timings["Step 9: Grok refined annotations"] = step_duration
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=8 name=grok_refined_annotations duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=9 name=grok_refined_annotations duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
@@ -5836,12 +3828,12 @@ def grade_pdf_answer(
                     f"request={request_id} annotations_save_failed error={e}",
                 )
 
-        print("Step 9: Calling Grok for page-wise improvement suggestions...")
+        print("Step 10: Calling Grok for page-wise improvement suggestions...")
         if progress_tracker:
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Page suggestions",
-                step_number=9,
+                step_number=10,
                 total_steps=TOTAL_STEPS,
                 progress_percent=85.0,
                 message="Generating page-wise suggestions...",
@@ -5855,11 +3847,11 @@ def grade_pdf_answer(
             sections=sections,
         )
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 9: Grok page suggestions"] = step_duration
+        step_timings["Step 10: Grok page suggestions"] = step_duration
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=9 name=grok_page_suggestions duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=10 name=grok_page_suggestions duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
@@ -5869,12 +3861,12 @@ def grade_pdf_answer(
 
         page_suggestions = page_suggestions_result.get("page_suggestions", []) or []
 
-        print("Step 10: Annotating answer pages with improvement suggestions...")
+        print("Step 11: Annotating answer pages with improvement suggestions...")
         if progress_tracker:
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Annotating pages",
-                step_number=10,
+                step_number=11,
                 total_steps=TOTAL_STEPS,
                 progress_percent=90.0,
                 message="Annotating answer pages...",
@@ -5890,11 +3882,11 @@ def grade_pdf_answer(
             request_id=request_id,
         )
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 10: Annotate answer pages"] = step_duration
+        step_timings["Step 11: Annotate answer pages"] = step_duration
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=10 name=annotate_answer_pages duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=11 name=annotate_answer_pages duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
 
@@ -5909,13 +3901,13 @@ def grade_pdf_answer(
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Writing PDF",
-                step_number=11,
+                step_number=12,
                 total_steps=TOTAL_STEPS,
                 progress_percent=95.0,
                 message="Writing final PDF...",
             )
         step_start = time.perf_counter()
-        print(f"Step 11: Writing final PDF incrementally to {output_pdf_path} ...")
+        print(f"Step 12: Writing final PDF incrementally to {output_pdf_path} ...")
         
         # Create PDF writer for incremental writing
         pdf_writer = PdfWriter()
@@ -5943,11 +3935,11 @@ def grade_pdf_answer(
             pdf_writer.write(output_file)
         
         step_duration = time.perf_counter() - step_start
-        step_timings["Step 11: Write final PDF"] = step_duration
+        step_timings["Step 12: Write final PDF"] = step_duration
         _append_log(
             log_path,
             "INFO",
-            f"request={request_id} step=11 name=merge_and_write_pdf duration_ms={int(step_duration * 1000)}",
+            f"request={request_id} step=12 name=merge_and_write_pdf duration_ms={int(step_duration * 1000)}",
         )
         print(f"  ✓ Completed in {_format_time(step_duration)}")
         
@@ -5956,7 +3948,7 @@ def grade_pdf_answer(
             progress_tracker.update_progress(
                 request_id=request_id,
                 step="Complete",
-                step_number=11,
+                step_number=12,
                 total_steps=TOTAL_STEPS,
                 progress_percent=100.0,
                 message="✅ Evaluation complete!",

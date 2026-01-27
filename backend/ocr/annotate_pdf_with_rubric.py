@@ -24,6 +24,25 @@ except ImportError:
     except ImportError:
         RESOURCE_AVAILABLE = False
 
+# -----------------------------
+# CONSTANTS
+# -----------------------------
+MAX_DIMENSION_BEFORE_NUMPY = 6500
+MAX_DIMENSION_BEFORE_RESIZE = 4000
+MAX_PIL_PIXELS = 80_000_000
+LOW_MEMORY_MB = 500.0
+LOW_MEMORY_WARN_MB = 200.0
+MIN_PAGE_HEIGHT = 2800
+SIDE_MARGIN_RATIO = 0.40
+MARGIN_RATIO = 0.03
+PAGE_DPI = 200
+COLOR_RED_BGR = (0, 0, 255)
+COLOR_GREEN_BGR = (0, 180, 0)
+COLOR_SUGGESTION_BGR = (255, 140, 0)
+MAX_SUGGESTIONS_PER_PAGE = 6
+HEADING_MATCH_THRESHOLD = 0.8
+FUZZY_MATCH_THRESHOLD = 0.5
+
 
 def _get_available_memory_mb() -> Optional[float]:
     """
@@ -110,8 +129,8 @@ def _estimate_memory_requirements(
 def _check_memory_before_processing(
     page_count: int,
     pdf_size_mb: Optional[float] = None,
-    warn_threshold_mb: float = 500.0,
-    fail_threshold_mb: float = 200.0,
+    warn_threshold_mb: float = LOW_MEMORY_MB,
+    fail_threshold_mb: float = LOW_MEMORY_WARN_MB,
 ) -> Tuple[bool, Optional[str]]:
     """
     Check if there's sufficient memory before starting processing.
@@ -294,8 +313,8 @@ def _find_heading_bbox_on_page(
         common = len(set(t_tokens) & set(c_tokens))
         score = common / len(t_tokens)
 
-        # Higher threshold (0.8+) to avoid matching random body text
-        if score > best_score and score >= 0.8:
+        # Higher threshold to avoid matching random body text
+        if score > best_score and score >= HEADING_MATCH_THRESHOLD:
             best_score = score
             best_bbox = line.get("bbox")
 
@@ -361,7 +380,7 @@ def _find_word_or_line_rect(
             common = len(t_tokens & l_tokens)
             score = common / max(len(tokens), 1)
 
-        if score < 0.5 or score <= best_score:
+        if score < FUZZY_MATCH_THRESHOLD or score <= best_score:
             continue
 
         bbox = line.get("bbox")
@@ -842,14 +861,14 @@ def annotate_pdf_answer_pages(
 
         # Drawing constants
         font_face = cv2.FONT_HERSHEY_SIMPLEX
-        RED = (0, 0, 255)
-        GREEN = (0, 180, 0)  # slightly darker green for readability (BGR)
+        RED = COLOR_RED_BGR
+        GREEN = COLOR_GREEN_BGR  # slightly darker green for readability (BGR)
 
         for page_idx, page in enumerate(doc):
             page_number = page_idx + 1
             
             # Load this page as PIL image (process one at a time to reduce memory)
-            pix = page.get_pixmap(dpi=200)
+            pix = page.get_pixmap(dpi=PAGE_DPI)
             img_bytes = pix.tobytes("png")
             pil_img = Image.open(io.BytesIO(img_bytes))
             
@@ -903,16 +922,16 @@ def annotate_pdf_answer_pages(
             orig_h, orig_w, _ = orig_cv.shape
             content_h = orig_h
             # Reduced min_page_height for answer pages to minimize extra space
-            min_page_height = 2800  # Reduced from 3500
+            min_page_height = MIN_PAGE_HEIGHT  # Reduced from 3500
             
             # Explicitly delete pix and img_bytes to free memory immediately
             del pix, img_bytes
 
             # Extended canvas: [left margin][answer][right margin]
-            left_width = int(0.40 * orig_w)
-            right_width = int(0.40 * orig_w)
+            left_width = int(SIDE_MARGIN_RATIO * orig_w)
+            right_width = int(SIDE_MARGIN_RATIO * orig_w)
             new_w = left_width + orig_w + right_width
-            margin = int(0.03 * orig_w)
+            margin = int(MARGIN_RATIO * orig_w)
             # Changed from vertical centering to top-aligned with small margin
             # This reduces top/bottom space while keeping suggestions/annotations working
             y_offset = margin  # Changed from (h - content_h) // 2
@@ -956,7 +975,7 @@ def annotate_pdf_answer_pages(
             page_ocr = ocr_pages_by_num.get(page_number)
             if not page_ocr:
                 # Check if image is too large BEFORE color conversion
-                max_dimension = 4000
+                max_dimension = MAX_DIMENSION_BEFORE_RESIZE
                 h_img, w_img = cv_img.shape[:2]
                 
                 # Downscale BEFORE color conversion to reduce memory pressure
@@ -972,7 +991,7 @@ def annotate_pdf_answer_pages(
                     
                     # Use more memory-efficient interpolation if memory is low
                     interpolation = cv2.INTER_LINEAR  # More memory-efficient than INTER_LANCZOS4
-                    if available_memory and available_memory < 500:
+                    if available_memory and available_memory < LOW_MEMORY_MB:
                         interpolation = cv2.INTER_AREA  # Most memory-efficient
                     
                     try:
@@ -1018,7 +1037,7 @@ def annotate_pdf_answer_pages(
             comment_max_width = comment_x2 - comment_x - 10
 
             # RENDER IMPROVEMENT SUGGESTIONS ON LEFT MARGIN
-            BLUE = (255, 140, 0)  # Deep sky blue color in BGR
+            BLUE = COLOR_SUGGESTION_BGR  # Deep sky blue color in BGR
             if page_suggestion_data:
                 suggestions = page_suggestion_data.get("suggestions", [])
 
@@ -1037,7 +1056,7 @@ def annotate_pdf_answer_pages(
                 suggestion_y += int(line_height * 1.5)
 
                 # Draw each suggestion as a numbered bullet with blue box
-                for idx, suggestion in enumerate(suggestions[:6], 1):  # Max 6 suggestions
+                for idx, suggestion in enumerate(suggestions[:MAX_SUGGESTIONS_PER_PAGE], 1):  # Max suggestions per page
                     bullet = f"{idx}. {suggestion}"
                     wrapped_lines = _wrap_text_cv2(
                         bullet, suggestion_max_width, font_face, font_scale * 1.0, text_thickness  # Increased font scale and thickness
@@ -1514,9 +1533,6 @@ def annotate_pdf_answer_pages(
                     shifted = shift_rect((x1, y1, x2, y2))
                     cv2.rectangle(cv_img, (shifted[0], shifted[1]), (shifted[2], shifted[3]), RED, box_thickness)
 
-                    # PREVIOUS CODE (COMMENTED OUT):
-                    # header = f"[Introduction] ({rubric_point})".strip()
-                    
                     # NEW: Remove brackets, cleaner format
                     header = f"Introduction - {rubric_point}".strip()
                     body = comment
@@ -1732,20 +1748,6 @@ def annotate_pdf_answer_pages(
                         add_side_comment(header, body)
                     found_rects.append(rect)
 
-            # PREVIOUS CODE (COMMENTED OUT):
-            # # Add heading comments for every section on this page
-            # for sec in sections:
-            #     pages = sec.get("page_numbers") or []
-            #     if page_number not in pages:
-            #         continue
-            
-            # PREVIOUS CODE (COMMENTED OUT):
-            # # Add heading comments for every section on this page
-            # for sec in sections:
-            #     pages = sec.get("page_numbers") or []
-            #     if page_number not in pages:
-            #         continue
-            
             # NEW: Add heading comments only on the first page of each section
             for sec in sections:
                 pages = sec.get("page_numbers") or []
@@ -1911,130 +1913,10 @@ def annotate_pdf_answer_pages(
                                     tick_drawn = True
                                     break
 
-            # PREVIOUS CODE (COMMENTED OUT):
-            # # Add refined rubric summary on the last page (render from BOTTOM UP)
-            # # This has been moved to the subject report pages instead
-            # if page_number == len(doc) and refined_summary:
-            #     # Filter to only the 4 required points
-            #     required_ids = ["argumentation_quality", "presentation", "contemporary_relevance", "length_completeness"]
-            #     filtered_summary = [item for item in refined_summary if item.get("id") in required_ids]
-            #
-            #     # Ensure we have exactly 4 items in the correct order
-            #     ordered_summary = []
-            #     for req_id in required_ids:
-            #         found = next((item for item in filtered_summary if item.get("id") == req_id), None)
-            #         if found:
-            #             ordered_summary.append(found)
-            #
-            #     if ordered_summary:
-            #         # Start from BOTTOM of page and work upward
-            #         # Reserve space at bottom for summary annotations
-            #         bottom_margin = int(0.07 * h)
-            #         left_summary_y = h - bottom_margin
-            #         right_summary_y = h - bottom_margin
-            #
-            #         # Render items in REVERSE order (bottom to top)
-            #         # Items 0,1 on left; items 2,3 on right
-            #         # But we render them backwards so last item appears at bottom
-            #         for idx in range(len(ordered_summary) - 1, -1, -1):
-            #             item = ordered_summary[idx]
-            #             name = item.get("name", "")
-            #             rating = (item.get("rating") or "").capitalize()
-            #             comment = item.get("comment") or ""
-            #
-            #             # Truncate comment to max 80 characters to keep it concise
-            #             if len(comment) > 80:
-            #                 comment = comment[:77] + "..."
-            #
-            #             header = f"{name} - {rating}"
-            #
-            #             if idx < 2:  # First two on left side
-            #                 current_x1 = suggestion_x1
-            #                 current_x2 = suggestion_x2
-            #                 max_width = suggestion_max_width
-            #                 current_y_base = left_summary_y
-            #             else:  # Last two on right side
-            #                 current_x1 = comment_x
-            #                 current_x2 = comment_x2 - 5
-            #                 max_width = comment_max_width
-            #                 current_y_base = right_summary_y
-            #
-            #             # Wrap header and comment
-            #             header_lines = _wrap_text_cv2(
-            #                 header, max_width - 20, font_face, font_scale * 0.9, text_thickness
-            #             )
-            #             comment_lines = _wrap_text_cv2(
-            #                 comment, max_width - 20, font_face, font_scale * 0.8, text_thickness
-            #             )
-            #
-            #             # Calculate total height needed for this box
-            #             total_lines = len(header_lines) + len(comment_lines)
-            #             box_height = int(total_lines * line_height * 1.0 + line_height * 1.5)
-            #
-            #             # Calculate box position (from bottom up)
-            #             box_end_y = current_y_base
-            #             box_start_y = max(margin, box_end_y - box_height)  # Don't go above top margin
-            #
-            #             # Skip this item if there's no space
-            #             if box_start_y >= box_end_y - int(line_height * 2):
-            #                 continue
-            #
-            #             # Draw red box with safe coordinates
-            #             summary_box = (current_x1 - 5, box_start_y, current_x2 + 5, box_end_y)
-            #             cv2.rectangle(
-            #                 cv_img,
-            #                 (summary_box[0], summary_box[1]),
-            #                 (summary_box[2], summary_box[3]),
-            #                 RED,
-            #                 3,  # Box thickness
-            #             )
-            #             
-            #             # Add refined rubric summary box to collision detection list
-            #             comment_boxes.append(summary_box)
-            #
-            #             # Draw text from top of box, working down
-            #             text_y = box_start_y + int(line_height * 1.2)
-            #
-            #             # Draw header
-            #             for line in header_lines:
-            #                 if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
-            #                     cv2.putText(
-            #                         cv_img,
-            #                         line,
-            #                         (current_x1, text_y),
-            #                         font_face,
-            #                         font_scale * 0.9,
-            #                         RED,
-            #                         text_thickness,
-            #                         cv2.LINE_AA,
-            #                     )
-            #                     text_y += int(line_height * 1.0)
-            #
-            #             # Draw comment
-            #             for line in comment_lines:
-            #                 if text_y < box_end_y - int(line_height * 0.5):  # Ensure we don't overflow box
-            #                     cv2.putText(
-            #                         cv_img,
-            #                         line,
-            #                         (current_x1, text_y),
-            #                         font_face,
-            #                         font_scale * 0.8,
-            #                         RED,
-            #                         text_thickness,
-            #                         cv2.LINE_AA,
-            #                     )
-            #                     text_y += int(line_height * 0.9)
-            #
-            #             # Update Y position for next item (move UP from current position)
-            #             if idx < 2:
-            #                 left_summary_y = box_start_y - int(line_height * 1.0)
-            #             else:
-            #                 right_summary_y = box_start_y - int(line_height * 1.0)
-
             # Check if image is too large BEFORE color conversion to prevent MemoryError
             # Large images can cause MemoryError when converting colors or to PIL Image
             # 268MB allocation failure suggests image is ~9000x9000 pixels or larger
-            max_dimension = 4000  # Maximum dimension before downscaling
+            max_dimension = MAX_DIMENSION_BEFORE_RESIZE  # Maximum dimension before downscaling
             h_img, w_img = cv_img.shape[:2]
             
             # Downscale BEFORE color conversion to reduce memory pressure
@@ -2051,7 +1933,7 @@ def annotate_pdf_answer_pages(
                 
                 # Use more memory-efficient interpolation if memory is low
                 interpolation = cv2.INTER_LINEAR  # More memory-efficient than INTER_LANCZOS4
-                if available_memory and available_memory < 500:
+                if available_memory and available_memory < LOW_MEMORY_MB:
                     interpolation = cv2.INTER_AREA  # Most memory-efficient
                 
                 try:
@@ -2089,7 +1971,7 @@ def annotate_pdf_answer_pages(
             # PIL can fail with MemoryError if image is too large (typically > 100MP or ~10,000x10,000)
             h_rgb, w_rgb = cv_img_rgb.shape[:2]
             total_pixels = h_rgb * w_rgb
-            max_pil_pixels = 80000000  # ~80MP limit for PIL (conservative)
+            max_pil_pixels = MAX_PIL_PIXELS  # ~80MP limit for PIL (conservative)
             
             if total_pixels > max_pil_pixels:
                 # Calculate scale factor to fit within PIL limit
@@ -2101,7 +1983,7 @@ def annotate_pdf_answer_pages(
                 
                 # Use memory-efficient interpolation
                 available_memory = _get_available_memory_mb()
-                interpolation = cv2.INTER_AREA if (available_memory and available_memory < 500) else cv2.INTER_LINEAR
+                interpolation = cv2.INTER_AREA if (available_memory and available_memory < LOW_MEMORY_MB) else cv2.INTER_LINEAR
                 
                 try:
                     cv_img_rgb = cv2.resize(cv_img_rgb, (new_w, new_h), interpolation=interpolation)
@@ -2145,7 +2027,7 @@ def annotate_pdf_answer_pages(
                           f"process={process_memory:.1f} MB, "
                           f"available={available_memory:.1f} MB")
                     # Warn if memory is getting low
-                    if available_memory < 200.0:
+                    if available_memory < LOW_MEMORY_WARN_MB:
                         print(f"WARNING: Low available memory ({available_memory:.1f} MB) "
                               f"after processing {page_number} pages")
 
