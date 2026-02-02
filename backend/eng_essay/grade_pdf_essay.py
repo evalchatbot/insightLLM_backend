@@ -1543,10 +1543,23 @@ def _iter_font_candidates() -> List[str]:
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     for fp in _iter_font_candidates():
         try:
-            return ImageFont.truetype(fp, size)
+            font = ImageFont.truetype(fp, size)
+            # Only log once per unique font path to avoid spam
+            if not hasattr(_get_font, '_logged_fonts'):
+                _get_font._logged_fonts = set()
+            if fp not in _get_font._logged_fonts:
+                print(f"✓ Loaded font: {fp} (size={size})")
+                _get_font._logged_fonts.add(fp)
+            return font
         except Exception:
             continue
-    return ImageFont.load_default()
+    
+    # CRITICAL: Pillow's default font is tiny (11px bitmap). Scale it up for readability.
+    print(f"WARNING: No TrueType font found. Using Pillow default font at size {size}.")
+    print(f"WARNING: This may result in smaller text. Ensure DejaVuSans.ttf is available in container.")
+    # Return default but log the issue
+    default_font = ImageFont.load_default()
+    return default_font
 
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
@@ -1575,10 +1588,13 @@ def render_essay_report_pages_range(
     """
     Same table layout as before, but marks column shows RANGE strings.
     Text scales down (10% steps) until everything fits on one page.
+    Minimum scale is 0.7 (70%) to maintain readability.
     """
     W, H = page_size
+    print(f"Essay report rendering: page_size=({W}x{H})")
     margin = int(W * 0.06)
     base_sizes = {"title": 86, "header": 54, "cell": 42, "small": 40}
+    print(f"Essay report base font sizes: {base_sizes}")
 
     def _scaled_font(size: int, scale: float) -> ImageFont.FreeTypeFont:
         return _get_font(max(8, int(size * scale)))
@@ -1764,14 +1780,32 @@ def render_essay_report_pages_range(
         return True, img
 
     scale = 1.0
-    min_scale = 0.3
+    min_scale = 0.7  # HARD MINIMUM: 70% scale to keep fonts readable (title=60px, header=38px, cell=29px)
+    attempt = 0
+    
     while scale >= min_scale:
+        attempt += 1
         fits, image = _render(scale)
         if fits and image:
+            actual_sizes = {k: int(v * scale) for k, v in base_sizes.items()}
+            print(f"✓ Essay report rendered successfully at {scale*100:.0f}% scale (attempt {attempt})")
+            print(f"  Final font sizes: title={actual_sizes['title']}px, header={actual_sizes['header']}px, cell={actual_sizes['cell']}px")
             return [image]
+        print(f"  Attempt {attempt}: scale={scale*100:.0f}% - content doesn't fit, reducing...")
         scale *= 0.9
-
-    raise RuntimeError("Report content too long to fit on one page even after scaling.")
+    
+    # At minimum scale, render anyway and warn
+    print(f"WARNING: Essay report content requires scaling below {min_scale*100:.0f}%.")
+    print(f"WARNING: Rendering at minimum {min_scale*100:.0f}% scale to maintain readability.")
+    actual_sizes = {k: int(v * min_scale) for k, v in base_sizes.items()}
+    print(f"  Final font sizes at {min_scale*100:.0f}% scale: title={actual_sizes['title']}px, header={actual_sizes['header']}px, cell={actual_sizes['cell']}px")
+    
+    fits, image = _render(min_scale)
+    if image:
+        print(f"  Essay report rendered at minimum scale (may overflow page slightly)")
+        return [image]
+    
+    raise RuntimeError(f"Report rendering failed even at minimum scale ({min_scale*100:.0f}%).")
 
 
 
@@ -2155,12 +2189,19 @@ def run_essay_grading(
     
     print("Rendering report + annotations...")
     t0 = time.perf_counter()
-    page_size = get_report_page_size(pdf_for_grading)
+    calculated_size = get_report_page_size(pdf_for_grading)
+    print(f"Calculated report page size: {calculated_size[0]}x{calculated_size[1]}")
+    
     # CRITICAL FIX: Ensure minimum report page size to prevent tiny fonts in deployed version
     # Even if PDF is rendered at low DPI, report must maintain readable font sizes
     MIN_REPORT_WIDTH = 2977  # Standard A4 width at 200 DPI
     MIN_REPORT_HEIGHT = 4211  # Standard A4 height at 200 DPI
-    page_size = (max(page_size[0], MIN_REPORT_WIDTH), max(page_size[1], MIN_REPORT_HEIGHT))
+    page_size = (max(calculated_size[0], MIN_REPORT_WIDTH), max(calculated_size[1], MIN_REPORT_HEIGHT))
+    
+    if page_size != calculated_size:
+        print(f"✓ Enforced minimum page size: {page_size[0]}x{page_size[1]} (was {calculated_size[0]}x{calculated_size[1]})")
+        print(f"  This ensures consistent font sizes between local and deployed environments.")
+    
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
 
     annotated_pages = annotate_pdf_essay_pages(
@@ -2350,12 +2391,19 @@ def main():
         )
         pdf_for_grading = temp_spelling_pdf
 
-    page_size = get_report_page_size(pdf_for_grading)
+    calculated_size = get_report_page_size(pdf_for_grading)
+    print(f"Calculated report page size: {calculated_size[0]}x{calculated_size[1]}")
+    
     # CRITICAL FIX: Ensure minimum report page size to prevent tiny fonts in deployed version
     # Even if PDF is rendered at low DPI, report must maintain readable font sizes
     MIN_REPORT_WIDTH = 2977  # Standard A4 width at 200 DPI
     MIN_REPORT_HEIGHT = 4211  # Standard A4 height at 200 DPI
-    page_size = (max(page_size[0], MIN_REPORT_WIDTH), max(page_size[1], MIN_REPORT_HEIGHT))
+    page_size = (max(calculated_size[0], MIN_REPORT_WIDTH), max(calculated_size[1], MIN_REPORT_HEIGHT))
+    
+    if page_size != calculated_size:
+        print(f"✓ Enforced minimum page size: {page_size[0]}x{page_size[1]} (was {calculated_size[0]}x{calculated_size[1]})")
+        print(f"  This ensures consistent font sizes between local and deployed environments.")
+    
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
 
     annotated_pages = annotate_pdf_essay_pages(
