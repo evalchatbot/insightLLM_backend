@@ -1527,7 +1527,10 @@ def call_grok_for_essay_annotations(
 # -----------------------------
 
 def _iter_font_candidates() -> List[str]:
+    pil_fonts_dir = os.path.join(os.path.dirname(ImageFont.__file__), "fonts")
     return [
+        os.path.join(pil_fonts_dir, "DejaVuSans.ttf"),
+        os.path.join(pil_fonts_dir, "DejaVuSans-Bold.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
@@ -1651,7 +1654,7 @@ def render_essay_report_pages_range(
 
             tmp_img = Image.new("RGB", (10, 10), "white")
             tmp_draw = ImageDraw.Draw(tmp_img)
-            comment_lines = _wrap_text(tmp_draw, comments, header_font, col_comments - int(20 * scale))
+            comment_lines = _wrap_text(tmp_draw, comments, cell_font, col_comments - int(20 * scale))
 
             def _force_two_lines_for_first_cell(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
                 """
@@ -1692,9 +1695,9 @@ def render_essay_report_pages_range(
 
             crit_max_w = col_criterion - int(20 * scale)
             if idx_row == 0:
-                crit_lines = _force_two_lines_for_first_cell(crit, header_font, crit_max_w)
+                crit_lines = _force_two_lines_for_first_cell(crit, cell_font, crit_max_w)
             else:
-                crit_lines = _wrap_text(tmp_draw, crit, header_font, crit_max_w)
+                crit_lines = _wrap_text(tmp_draw, crit, cell_font, crit_max_w)
             lines_needed = max(len(comment_lines), len(crit_lines), 1)
             row_h = max(row_h_base, int(lines_needed * 64 * scale) + row_pad_y)
 
@@ -1706,22 +1709,22 @@ def render_essay_report_pages_range(
             x = table_x
             yy = y + int(12 * scale)
             for ln in crit_lines:
-                draw.text((x + int(10 * scale), yy), ln, font=header_font, fill=(0, 0, 0))
+                draw.text((x + int(10 * scale), yy), ln, font=cell_font, fill=(0, 0, 0))
                 yy += int(60 * scale)
             x += col_criterion
             draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
 
-            draw.text((x + int(10 * scale), y + int(12 * scale)), alloc, font=header_font, fill=(0, 0, 0))
+            draw.text((x + int(10 * scale), y + int(12 * scale)), alloc, font=cell_font, fill=(0, 0, 0))
             x += col_alloc
             draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
 
-            draw.text((x + int(10 * scale), y + int(12 * scale)), award_range, font=header_font, fill=(0, 0, 0))
+            draw.text((x + int(10 * scale), y + int(12 * scale)), award_range, font=cell_font, fill=(0, 0, 0))
             x += col_award
             draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
 
             yy = y + int(12 * scale)
             for ln in comment_lines:
-                draw.text((x + int(10 * scale), yy), ln, font=header_font, fill=(0, 0, 0))
+                draw.text((x + int(10 * scale), yy), ln, font=cell_font, fill=(0, 0, 0))
                 yy += int(60 * scale)
 
             y += row_h
