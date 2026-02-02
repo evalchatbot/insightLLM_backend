@@ -2153,6 +2153,11 @@ def run_essay_grading(
     print("Rendering report + annotations...")
     t0 = time.perf_counter()
     page_size = get_report_page_size(pdf_for_grading)
+    # CRITICAL FIX: Ensure minimum report page size to prevent tiny fonts in deployed version
+    # Even if PDF is rendered at low DPI, report must maintain readable font sizes
+    MIN_REPORT_WIDTH = 2977  # Standard A4 width at 200 DPI
+    MIN_REPORT_HEIGHT = 4211  # Standard A4 height at 200 DPI
+    page_size = (max(page_size[0], MIN_REPORT_WIDTH), max(page_size[1], MIN_REPORT_HEIGHT))
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
 
     annotated_pages = annotate_pdf_essay_pages(
@@ -2343,6 +2348,11 @@ def main():
         pdf_for_grading = temp_spelling_pdf
 
     page_size = get_report_page_size(pdf_for_grading)
+    # CRITICAL FIX: Ensure minimum report page size to prevent tiny fonts in deployed version
+    # Even if PDF is rendered at low DPI, report must maintain readable font sizes
+    MIN_REPORT_WIDTH = 2977  # Standard A4 width at 200 DPI
+    MIN_REPORT_HEIGHT = 4211  # Standard A4 height at 200 DPI
+    page_size = (max(page_size[0], MIN_REPORT_WIDTH), max(page_size[1], MIN_REPORT_HEIGHT))
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
 
     annotated_pages = annotate_pdf_essay_pages(
