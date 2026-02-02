@@ -1586,226 +1586,225 @@ def render_essay_report_pages_range(
     page_size: Tuple[int, int] = (2977, 4211),
 ) -> List[Image.Image]:
     """
-    Same table layout as before, but marks column shows RANGE strings.
-    Text scales down (10% steps) until everything fits on one page.
-    Minimum scale is 0.7 (70%) to maintain readability.
+    Render essay report using PyMuPDF with built-in fonts (like annotations).
+    This ensures consistent font sizes in all environments without external font files.
+    Returns a list of PIL Images for compatibility with merge function.
     """
-    W, H = page_size
-    print(f"Essay report rendering: page_size=({W}x{H})")
-    margin = int(W * 0.06)
-    base_sizes = {"title": 86, "header": 54, "cell": 42, "small": 40}
-    print(f"Essay report base font sizes: {base_sizes}")
-
-    def _scaled_font(size: int, scale: float) -> ImageFont.FreeTypeFont:
-        return _get_font(max(8, int(size * scale)))
-
-    def _render(scale: float) -> Tuple[bool, Optional[Image.Image]]:
-        title_font = _scaled_font(base_sizes["title"], scale)
-        header_font = _scaled_font(base_sizes["header"], scale)
-        cell_font = _scaled_font(base_sizes["cell"], scale)
-        small_font = _scaled_font(base_sizes["small"], scale)
-
-        col_criterion = int(W * 0.25)
-        col_alloc = int(W * 0.09)
-        col_award = int(W * 0.10)
-        col_comments = W - margin * 2 - (col_criterion + col_alloc + col_award)
-
-        img = Image.new("RGB", (W, H), "white")
-        draw = ImageDraw.Draw(img)
-        y = margin
-
-        def ensure_space(px_needed: int) -> bool:
-            return y + px_needed <= H - margin
-
-        topic = grading.get("topic") or ""
-        total_range = grading.get("total_awarded_range") or "0-0"
-
-        if not ensure_space(int(220 * scale)):
-            return False, None
-        draw.text((margin, y), "Essay Evaluation Report", font=title_font, fill=(0, 0, 0))
-        y += int(110 * scale)
-
-        # Wrap topic to keep it on-page
-        topic_lines = _wrap_text(draw, f"Topic: {topic}", header_font, W - 2 * margin)
-        for ln in topic_lines:
-            if not ensure_space(int(70 * scale)):
-                return False, None
-            draw.text((margin, y), ln, font=header_font, fill=(0, 0, 0))
-            y += int(70 * scale)
-
-        draw.text((margin, y), f"Total Marks (Range): {total_range}/100", font=header_font, fill=(0, 0, 0))
-        y += int(70 * scale)
-
-        y += int(15 * scale)
-        table_x = margin
-        table_w = W - 2 * margin
-        # Slightly taller table rows for readability
-        row_pad_y = max(2, int(8 * scale))
-        row_h_base = max(40, int(72 * scale) + row_pad_y)
-        header_fill = (100, 100, 100)
-        alt_fill = (200, 200, 200)
-
-        headers = ["Criterion", "Total Marks", "Marks Range", "Key Comments"]
-        if not ensure_space(row_h_base + int(20 * scale)):
-            return False, None
-        draw.rectangle([table_x, y, table_x + table_w, y + row_h_base], fill=header_fill, outline=(0, 0, 0), width=3)
-
+    # PyMuPDF works in points (72 DPI), input page_size is in pixels at 200 DPI
+    dpi_ratio = 72.0 / 200.0
+    W_pt = page_size[0] * dpi_ratio
+    H_pt = page_size[1] * dpi_ratio
+    
+    print(f"Essay report rendering with PyMuPDF: page_size=({int(W_pt)}x{int(H_pt)})pt")
+    
+    # Create PDF document
+    doc = fitz.open()
+    page = doc.new_page(width=W_pt, height=H_pt)
+    
+    # Font sizes in points
+    title_size = 31
+    header_size = 19
+    cell_size = 15
+    
+    print(f"Essay report font sizes: title={title_size}pt, header={header_size}pt, cell={cell_size}pt")
+    
+    # Margins and layout
+    margin = W_pt * 0.06
+    y = margin
+    
+    # Column widths (proportional to page width)
+    col_criterion = W_pt * 0.25
+    col_alloc = W_pt * 0.09
+    col_award = W_pt * 0.10
+    col_comments = W_pt - margin * 2 - (col_criterion + col_alloc + col_award)
+    
+    # Get grading data
+    topic = grading.get("topic", "")
+    total_range = grading.get("total_awarded_range", "0-0")
+    criteria_list = grading.get("criteria", [])
+    
+    # Title
+    page.insert_text(
+        (margin, y),
+        "Essay Evaluation Report",
+        fontname="hebo",  # Helvetica Bold
+        fontsize=title_size,
+        color=(0, 0, 0)
+    )
+    y += title_size * 1.5
+    
+    # Topic (may wrap)
+    topic_text = f"Topic: {topic}"
+    # Simple text wrapping for PyMuPDF
+    topic_words = topic_text.split()
+    topic_line = ""
+    for word in topic_words:
+        test_line = topic_line + word + " "
+        text_width = fitz.get_text_length(test_line, fontname="hebo", fontsize=header_size)
+        if text_width > W_pt - 2 * margin:
+            if topic_line:
+                page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
+                y += header_size * 1.4
+            topic_line = word + " "
+        else:
+            topic_line = test_line
+    if topic_line:
+        page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
+        y += header_size * 1.4
+    
+    # Total marks
+    page.insert_text(
+        (margin, y),
+        f"Total Marks (Range): {total_range}/100",
+        fontname="hebo",
+        fontsize=header_size,
+        color=(0, 0, 0)
+    )
+    y += header_size * 1.8
+    
+    # Table header
+    table_x = margin
+    table_w = W_pt - 2 * margin
+    row_h = 40
+    
+    headers = ["Criterion", "Total Marks", "Marks Range", "Key Comments"]
+    header_rect = fitz.Rect(table_x, y, table_x + table_w, y + row_h)
+    page.draw_rect(header_rect, color=(0, 0, 0), fill=(0.4, 0.4, 0.4), width=2)
+    
+    x = table_x
+    splits = [col_criterion, col_alloc, col_award, col_comments]
+    for i, htxt in enumerate(headers):
+        page.insert_text((x + 5, y + 25), htxt, fontname="hebo", fontsize=header_size, color=(0, 0, 0))
+        x += splits[i]
+        if i < len(headers) - 1:
+            page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=2)
+    y += row_h
+    
+    # Table rows
+    for idx, c in enumerate(criteria_list):
+        crit = c.get("criterion", "")
+        alloc = str(c.get("marks_allocated", ""))
+        award_range = str(c.get("marks_awarded_range", "0-0"))
+        comments = str(c.get("key_comments", ""))
+        
+        # Estimate row height based on text wrapping
+        # Simple approximation: count characters and estimate lines
+        comment_chars_per_line = int((col_comments - 10) / (cell_size * 0.5))
+        comment_lines = max(1, (len(comments) + comment_chars_per_line - 1) // comment_chars_per_line)
+        
+        crit_chars_per_line = int((col_criterion - 10) / (cell_size * 0.5))
+        crit_lines = max(1, (len(crit) + crit_chars_per_line - 1) // crit_chars_per_line)
+        
+        row_h = max(40, max(comment_lines, crit_lines) * cell_size * 1.6)
+        
+        # Alternating row color
+        fill_color = (0.8, 0.8, 0.8) if idx % 2 == 0 else (1, 1, 1)
+        row_rect = fitz.Rect(table_x, y, table_x + table_w, y + row_h)
+        page.draw_rect(row_rect, color=(0, 0, 0), fill=fill_color, width=1)
+        
+        # Draw cell content
         x = table_x
-        splits = [col_criterion, col_alloc, col_award, col_comments]
-        for i, htxt in enumerate(headers):
-            wcol = splits[i]
-            draw.text((x + int(10 * scale), y + int(12 * scale)), htxt, font=header_font, fill=(0, 0, 0))
-            x += wcol
-            if i < len(headers) - 1:
-                draw.line([x, y, x, y + row_h_base], fill=(0, 0, 0), width=3)
-        y += row_h_base
-
-        crit_list = grading.get("criteria") or []
-        for idx_row, c in enumerate(crit_list):
-            crit = c.get("criterion", "")
-            alloc = str(c.get("marks_allocated", ""))
-            award_range = str(c.get("marks_awarded_range", "0-0"))
-            rating = str(c.get("rating", ""))
-            comments = str(c.get("key_comments", ""))
-
-            tmp_img = Image.new("RGB", (10, 10), "white")
-            tmp_draw = ImageDraw.Draw(tmp_img)
-            comment_lines = _wrap_text(tmp_draw, comments, cell_font, col_comments - int(20 * scale))
-
-            def _force_two_lines_for_first_cell(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
-                """
-                Force the FIRST criterion cell (row 1, col 1) into exactly 2 lines,
-                even when it fits on one line (e.g., "Essay Outline & Topic Interpretation/Clarity").
-                """
-                s = (text or "").strip()
-                if not s:
-                    return ["", ""]
-                words = s.split()
-                if len(words) < 2:
-                    # Can't split meaningfully
-                    return [s, ""]
-
-                # Find the best split point at a space that keeps both lines within max_width
-                best: Optional[Tuple[float, List[str]]] = None
-                for split_i in range(1, len(words)):
-                    a = " ".join(words[:split_i]).strip()
-                    b = " ".join(words[split_i:]).strip()
-                    if not a or not b:
-                        continue
-                    wa = tmp_draw.textlength(a, font=font)
-                    wb = tmp_draw.textlength(b, font=font)
-                    if wa <= max_width and wb <= max_width:
-                        # Prefer balanced width lines (minimize max width)
-                        score = max(wa, wb)
-                        if best is None or score < best[0]:
-                            best = (score, [a, b])
-
-                if best is not None:
-                    return best[1]
-
-                # If no clean split fits, fall back to normal wrapping (keeps behavior safe)
-                wrapped = _wrap_text(tmp_draw, s, font, max_width)
-                if len(wrapped) >= 2:
-                    return [wrapped[0], " ".join(wrapped[1:])]
-                return [wrapped[0] if wrapped else s, ""]
-
-            crit_max_w = col_criterion - int(20 * scale)
-            if idx_row == 0:
-                crit_lines = _force_two_lines_for_first_cell(crit, cell_font, crit_max_w)
+        
+        # Criterion (with wrapping)
+        crit_y = y + 20
+        crit_words = crit.split()
+        crit_line = ""
+        for word in crit_words:
+            test_line = crit_line + word + " "
+            text_width = fitz.get_text_length(test_line, fontname="helv", fontsize=cell_size)
+            if text_width > col_criterion - 10:
+                if crit_line:
+                    page.insert_text((x + 5, crit_y), crit_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+                    crit_y += cell_size * 1.4
+                crit_line = word + " "
             else:
-                crit_lines = _wrap_text(tmp_draw, crit, cell_font, crit_max_w)
-            lines_needed = max(len(comment_lines), len(crit_lines), 1)
-            row_h = max(row_h_base, int(lines_needed * 64 * scale) + row_pad_y)
-
-            if not ensure_space(row_h + int(10 * scale)):
-                return False, None
-            fill_color = alt_fill if idx_row % 2 == 0 else None
-            draw.rectangle([table_x, y, table_x + table_w, y + row_h], fill=fill_color, outline=(0, 0, 0), width=2)
-
-            x = table_x
-            yy = y + int(12 * scale)
-            for ln in crit_lines:
-                draw.text((x + int(10 * scale), yy), ln, font=cell_font, fill=(0, 0, 0))
-                yy += int(60 * scale)
-            x += col_criterion
-            draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
-
-            draw.text((x + int(10 * scale), y + int(12 * scale)), alloc, font=cell_font, fill=(0, 0, 0))
-            x += col_alloc
-            draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
-
-            draw.text((x + int(10 * scale), y + int(12 * scale)), award_range, font=cell_font, fill=(0, 0, 0))
-            x += col_award
-            draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
-
-            yy = y + int(12 * scale)
-            for ln in comment_lines:
-                draw.text((x + int(10 * scale), yy), ln, font=cell_font, fill=(0, 0, 0))
-                yy += int(60 * scale)
-
-            y += row_h
-
-        # Spacer between table and bullet sections
-        y += int(40 * scale)
-
-        def draw_bullets(title: str, bullets: List[str]) -> bool:
-            nonlocal y
-            if not ensure_space(int(120 * scale)):
-                return False
-            draw.text((margin, y), title, font=title_font, fill=(0, 0, 0))
-            y += int(90 * scale)
-            if not bullets:
-                bullets = ["(Not provided)"]
-            tmp_img = Image.new("RGB", (10, 10), "white")
-            tmp_draw = ImageDraw.Draw(tmp_img)
-            for b in bullets:
-                wrapped = _wrap_text(tmp_draw, str(b), header_font, W - 2 * margin - int(50 * scale))
-                for j, ln in enumerate(wrapped):
-                    if not ensure_space(int(75 * scale)):
-                        return False
-                    prefix = "- " if j == 0 else "  "
-                    draw.text((margin + int(35 * scale), y), prefix + ln, font=header_font, fill=(0, 0, 0))
-                    y += int(70 * scale)
-                if not ensure_space(int(25 * scale)):
-                    return False
-                y += int(25 * scale)
-            y += int(30 * scale)
-            return True
-
-        if not draw_bullets("Reasons for Low Score", grading.get("reasons_for_low_score") or []):
-            return False, None
-        if not draw_bullets("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus") or []):
-            return False, None
-
-        return True, img
-
-    scale = 1.0
-    min_scale = 0.7  # HARD MINIMUM: 70% scale to keep fonts readable (title=60px, header=38px, cell=29px)
-    attempt = 0
+                crit_line = test_line
+        if crit_line:
+            page.insert_text((x + 5, crit_y), crit_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        
+        x += col_criterion
+        page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
+        
+        # Total Marks
+        page.insert_text((x + 5, y + 20), alloc, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        x += col_alloc
+        page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
+        
+        # Marks Range
+        page.insert_text((x + 5, y + 20), award_range, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        x += col_award
+        page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
+        
+        # Key Comments (with wrapping)
+        comment_y = y + 20
+        comment_words = comments.split()
+        comment_line = ""
+        for word in comment_words:
+            test_line = comment_line + word + " "
+            text_width = fitz.get_text_length(test_line, fontname="helv", fontsize=cell_size)
+            if text_width > col_comments - 10:
+                if comment_line:
+                    page.insert_text((x + 5, comment_y), comment_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+                    comment_y += cell_size * 1.4
+                comment_line = word + " "
+            else:
+                comment_line = test_line
+        if comment_line:
+            page.insert_text((x + 5, comment_y), comment_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        
+        y += row_h
     
-    while scale >= min_scale:
-        attempt += 1
-        fits, image = _render(scale)
-        if fits and image:
-            actual_sizes = {k: int(v * scale) for k, v in base_sizes.items()}
-            print(f"✓ Essay report rendered successfully at {scale*100:.0f}% scale (attempt {attempt})")
-            print(f"  Final font sizes: title={actual_sizes['title']}px, header={actual_sizes['header']}px, cell={actual_sizes['cell']}px")
-            return [image]
-        print(f"  Attempt {attempt}: scale={scale*100:.0f}% - content doesn't fit, reducing...")
-        scale *= 0.9
+    # Add bullet sections
+    y += 30
     
-    # At minimum scale, render anyway and warn
-    print(f"WARNING: Essay report content requires scaling below {min_scale*100:.0f}%.")
-    print(f"WARNING: Rendering at minimum {min_scale*100:.0f}% scale to maintain readability.")
-    actual_sizes = {k: int(v * min_scale) for k, v in base_sizes.items()}
-    print(f"  Final font sizes at {min_scale*100:.0f}% scale: title={actual_sizes['title']}px, header={actual_sizes['header']}px, cell={actual_sizes['cell']}px")
+    def draw_bullet_section(title: str, bullets: List[str]) -> None:
+        nonlocal y
+        page.insert_text((margin, y), title, fontname="hebo", fontsize=title_size, color=(0, 0, 0))
+        y += title_size * 1.5
+        
+        if not bullets:
+            bullets = ["(Not provided)"]
+        
+        for bullet in bullets:
+            bullet_text = f"- {bullet}"
+            bullet_words = bullet_text.split()
+            bullet_line = ""
+            first_line = True
+            for word in bullet_words:
+                test_line = bullet_line + word + " "
+                text_width = fitz.get_text_length(test_line, fontname="helv", fontsize=header_size)
+                max_width = W_pt - 2 * margin - 30 if first_line else W_pt - 2 * margin - 50
+                if text_width > max_width:
+                    if bullet_line:
+                        prefix = "" if not first_line else ""
+                        page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
+                        y += header_size * 1.4
+                        first_line = False
+                    bullet_line = word + " "
+                else:
+                    bullet_line = test_line
+            if bullet_line:
+                prefix = "" if not first_line else ""
+                page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
+                y += header_size * 1.4
+            y += 10
+        y += 20
     
-    fits, image = _render(min_scale)
-    if image:
-        print(f"  Essay report rendered at minimum scale (may overflow page slightly)")
-        return [image]
+    draw_bullet_section("Reasons for Low Score", grading.get("reasons_for_low_score", []))
+    draw_bullet_section("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus", []))
     
-    raise RuntimeError(f"Report rendering failed even at minimum scale ({min_scale*100:.0f}%).")
+    # Convert PDF page to PIL Image
+    # Render at original pixel dimensions
+    mat = fitz.Matrix(200.0 / 72.0, 200.0 / 72.0)  # Scale back to 200 DPI
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    
+    doc.close()
+    
+    print(f"✓ Essay report rendered successfully with PyMuPDF built-in fonts")
+    print(f"  Final page dimensions: {img.width}x{img.height}px")
+    
+    return [img]
 
 
 
