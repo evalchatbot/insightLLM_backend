@@ -24,6 +24,7 @@ IMPORTANT (upstream requirement):
 import io
 import re
 import difflib
+import unicodedata
 from typing import Any, Dict, List, Tuple, Optional
 
 import fitz  # PyMuPDF
@@ -146,6 +147,134 @@ def _points_to_rect(pts: List[Tuple[float, float]]) -> Optional[Tuple[float, flo
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     return (min(xs), min(ys), max(xs), max(ys))
+
+def _points_to_rect(pts: List[Tuple[float, float]]) -> Optional[Tuple[float, float, float, float]]:
+    if not pts:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _find_error_in_context_ocr(
+    page_ocr: Dict[str, Any], 
+    error_text: str, 
+    anchor_quote: str,
+    page_extent: Optional[Tuple[float, float]], 
+    orig_w: int, 
+    orig_h: int
+) -> Optional[Tuple[int, int, int, int]]:
+    """Find error within its context (anchor_quote) for more accurate positioning."""
+    if not page_ocr or not error_text or not anchor_quote or not page_extent:
+        return None
+    
+    # First, find lines that contain part of the anchor quote
+    error_lower = error_text.lower()
+    anchor_lower = anchor_quote.lower()
+    
+    # Get all OCR text as a continuous string with line info
+    for ln in page_ocr.get("lines", []) or []:
+        line_text = _line_text(ln).lower()
+        
+        # Check if this line contains the anchor quote (or part of it)
+        if any(word in line_text for word in anchor_lower.split() if len(word) > 3):
+            # Now check if error is in this line
+            if error_lower in line_text:
+                # Found the right line, now find the specific word
+                line_words = ln.get("words", [])
+                if not line_words:
+                    # Use line bbox as fallback
+                    poly = _line_polygon_any(ln)
+                    if poly:
+                        pts = _poly_to_points_generic(poly)
+                        rect = _points_to_rect(pts)
+                        if rect:
+                            return _scale_rect_by_extent(rect, page_extent, orig_w, orig_h)
+                else:
+                    # Search words for the error
+                    for w in line_words:
+                        w_text = w.get("text", "").strip().lower()
+                        if error_lower in w_text or w_text in error_lower:
+                            w_poly = w.get("bbox") or w.get("boundingPolygon") or []
+                            if w_poly:
+                                pts = _poly_to_points_generic(w_poly)
+                                rect = _points_to_rect(pts)
+                                if rect:
+                                    return _scale_rect_by_extent(rect, page_extent, orig_w, orig_h)
+    
+    return None
+
+def _find_error_word_span_ocr(page_ocr: Dict[str, Any], error_text: str, page_extent: Optional[Tuple[float, float]], orig_w: int, orig_h: int) -> Optional[Tuple[int, int, int, int]]:
+    """Find the bounding box for error_text by matching in OCR words."""
+    if not page_ocr or not error_text or not page_extent:
+        return None
+    
+    target = _norm_token_for_spelling(error_text)
+    if not target:
+        return None
+    
+    words = []
+    for ln in page_ocr.get("lines", []) or []:
+        line_words = ln.get("words", [])
+        if line_words:
+            words.extend(line_words)
+        else:
+            # Fallback: treat line as single word
+            text = _line_text(ln)
+            poly = _line_polygon_any(ln)
+            if text and poly:
+                words.append({"text": text, "bbox": poly})
+    
+    # Build tokens with rects
+    tokens = []
+    for w in words:
+        w_text = w.get("text", "").strip()
+        w_poly = w.get("bbox") or w.get("boundingPolygon") or []
+        if not w_text or not w_poly:
+            continue
+        pts = _poly_to_points_generic(w_poly)
+        rect = _points_to_rect(pts)
+        if rect:
+            scaled = _scale_rect_by_extent(rect, page_extent, orig_w, orig_h)
+            tokens.append((_norm_token_for_spelling(w_text), scaled, w_text))
+    
+    # Try exact match first
+    for t, r, original_text in tokens:
+        if t == target:
+            return r
+    
+    # Try case-insensitive substring match (for partial words)
+    error_lower = error_text.lower()
+    for t, r, original_text in tokens:
+        if error_lower in original_text.lower() or original_text.lower() in error_lower:
+            # Close enough match
+            return r
+    
+    # Multi-word span (join consecutive) - more flexible
+    for i in range(len(tokens)):
+        for j in range(i, min(i + 8, len(tokens))):
+            # Build accumulated text
+            acc = ""
+            acc_with_spaces = ""
+            x0, y0, x1, y1 = tokens[i][1]
+            for k in range(i, j + 1):
+                acc += tokens[k][0]
+                acc_with_spaces += tokens[k][2] + " "
+                rk = tokens[k][1]
+                x0 = min(x0, rk[0])
+                y0 = min(y0, rk[1])
+                x1 = max(x1, rk[2])
+                y1 = max(y1, rk[3])
+            
+            # Check if matches
+            if acc == target:
+                return (x0, y0, x1, y1)
+            
+            # Check if error is contained in this span (fuzzy match)
+            if error_lower in acc_with_spaces.lower():
+                return (x0, y0, x1, y1)
+    
+    return None
 
 def _compute_page_extent(page_ocr: Dict[str, Any]) -> Optional[Tuple[float, float]]:
     w = page_ocr.get("page_width") or page_ocr.get("width") or page_ocr.get("pageWidth") or page_ocr.get("page_width_px")
@@ -495,9 +624,41 @@ def _shift_rect(rect: Tuple[int, int, int, int], x_shift: int, y_shift: int) -> 
 # ============================================================
 # DRAWING HELPERS
 # ============================================================
+_UNICODE_REPLACEMENTS = {
+    "“": '"',
+    "”": '"',
+    "‘": "'",
+    "’": "'",
+    "–": "-",
+    "—": "-",
+    "…": "...",
+    "→": "->",
+    "←": "<-",
+    "↔": "<->",
+    "•": "*",
+    "·": "-",
+}
+
+
+def _sanitize_text_for_render(text: str) -> str:
+    """
+    Make text safe for rendering when fonts lack certain Unicode glyphs.
+    - Replaces common curly quotes/dashes/arrows/bullets with ASCII.
+    - Normalizes and strips characters that can't be encoded to ASCII.
+    """
+    if not text:
+        return ""
+    s = text
+    for k, v in _UNICODE_REPLACEMENTS.items():
+        s = s.replace(k, v)
+    s = unicodedata.normalize("NFKD", s)
+    s = s.encode("ascii", "ignore").decode("ascii")
+    return s
+
+
 def _wrap_text_lines(text: str, font_scale: float, thickness: int, max_width_px: int) -> List[str]:
     font_face = cv2.FONT_HERSHEY_SIMPLEX
-    words = (text or "").split()
+    words = (_sanitize_text_for_render(text) or "").split()
     if not words:
         return []
     lines: List[str] = []
@@ -541,17 +702,32 @@ def _draw_wrapped_text(
         used += th + line_gap
     return used
 
-def _draw_connector(
+
+def _draw_red_tick(
     img: np.ndarray,
-    text_rect: Tuple[int, int, int, int],
-    callout_box: Tuple[int, int, int, int],
-    color=(0, 0, 255),
-):
-    tx1, ty1, tx2, ty2 = text_rect
-    bx1, by1, bx2, by2 = callout_box
-    start_pt = (int(bx1), int((by1 + by2) // 2))
-    end_pt = (int(tx2), int((ty1 + ty2) // 2))
-    cv2.arrowedLine(img, start_pt, end_pt, color, thickness=2, line_type=cv2.LINE_8, tipLength=0.03)
+    *,
+    x: int,
+    y: int,
+    size: int,
+    color: Tuple[int, int, int] = (0, 0, 255),
+    thickness: int = 5,
+) -> None:
+    """
+    Draw a simple red "tick/checkmark" on an OpenCV BGR image.
+
+    Coordinate meaning:
+    - (x, y) is the lower-left start of the tick.
+    - `size` controls overall tick width/height.
+    """
+    s = max(10, int(size))
+    t = max(1, int(thickness))
+
+    p1 = (int(x), int(y))
+    p2 = (int(x + 0.35 * s), int(y + 0.35 * s))
+    p3 = (int(x + 1.10 * s), int(y - 0.45 * s))
+
+    cv2.line(img, p1, p2, color, t, cv2.LINE_AA)
+    cv2.line(img, p2, p3, color, t, cv2.LINE_AA)
 
 
 # --- DYNAMIC LEFT BOX HELPERS ---
@@ -585,6 +761,165 @@ def _fit_text_box(
 
 
 # ============================================================
+# PYMUPDF SPELLING ANNOTATION HELPERS
+# ============================================================
+
+def _norm_token_for_spelling(t: str) -> str:
+    """Normalize a token for spelling error matching."""
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+def _bbox_to_rect_float(bbox: List) -> Optional[Tuple[float, float, float, float]]:
+    """Convert polygon bbox to (x0,y0,x1,y1) with float precision."""
+    if not bbox:
+        return None
+    xs = [p[0] for p in bbox]
+    ys = [p[1] for p in bbox]
+    return float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))
+
+def _unit_scale_to_points(unit: str) -> float:
+    """Convert Azure coordinate units to PyMuPDF points (1 inch = 72 points)."""
+    u = (unit or "").lower()
+    if u == "inch":
+        return 72.0
+    # pixel or other: assume already aligned
+    return 1.0
+
+def _word_rects_in_page_coords_fitz(page_info: Dict[str, Any]) -> List[Tuple[fitz.Rect, float, str]]:
+    """Return list of (rect_in_points, confidence, text) for all words in page."""
+    scale = _unit_scale_to_points(page_info.get("unit", "pixel"))
+    out = []
+    for w in page_info.get("words", []) or []:
+        poly = w.get("bbox") or []
+        r = _bbox_to_rect_float(poly)
+        if not r:
+            continue
+        x0, y0, x1, y1 = r
+        rect_pts = fitz.Rect(x0 * scale, y0 * scale, x1 * scale, y1 * scale)
+        out.append((rect_pts, float(w.get("confidence", 1.0) or 1.0), w.get("text", "")))
+    return out
+
+def _find_error_word_span_fitz(
+    wordrects: List[Tuple[fitz.Rect, float, str]],
+    error_text: str,
+    anchor_quote: Optional[str] = None
+) -> Optional[fitz.Rect]:
+    """Find the bounding box for error_text by matching normalized word sequences."""
+    target = _norm_token_for_spelling(error_text)
+    if not target:
+        return None
+
+    tokens = [(_norm_token_for_spelling(w), r, c) for (r, c, w) in wordrects]
+    
+    # Single word match
+    for t, r, _ in tokens:
+        if t == target:
+            return r
+
+    # Multi-word span (join consecutive)
+    for i in range(len(tokens)):
+        acc = ""
+        r_union = None
+        for j in range(i, min(i + 6, len(tokens))):
+            acc += tokens[j][0]
+            r_union = tokens[j][1] if r_union is None else (r_union | tokens[j][1])
+            if acc == target:
+                return r_union
+            if len(acc) > len(target):
+                break
+    
+    return None
+
+def _add_spelling_annotations_to_pdf(
+    pil_images: List[Image.Image],
+    ocr_data: Dict[str, Any],
+    spelling_errors: List[Dict[str, Any]],
+    output_path: str
+) -> None:
+    """
+    Take PIL images (already annotated with essay feedback) and add PyMuPDF-based
+    spelling annotations directly on the PDF. Saves result to output_path.
+    """
+    if not pil_images or not spelling_errors:
+        # Just save PIL images as PDF
+        if pil_images:
+            pil_images[0].save(output_path, save_all=True, append_images=pil_images[1:])
+        return
+    
+    # Create PDF from PIL images
+    pdf_doc = fitz.open()
+    for img in pil_images:
+        # Convert PIL to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        
+        # Create page from image
+        img_doc = fitz.open(stream=img_bytes, filetype="png")
+        pdf_doc.insert_pdf(img_doc)
+        img_doc.close()
+    
+    # Now add spelling annotations using PyMuPDF
+    pages_data = ocr_data.get("pages", [])
+    
+    for error in spelling_errors:
+        page_num = error.get("page", 1) - 1  # Convert to 0-indexed
+        if page_num < 0 or page_num >= len(pdf_doc):
+            continue
+        
+        page = pdf_doc[page_num]
+        page_info = pages_data[page_num] if page_num < len(pages_data) else {}
+        
+        error_text = error.get("error_text", "")
+        correction = error.get("correction", "")
+        anchor_quote = error.get("anchor_quote")
+        
+        if not error_text or not correction:
+            continue
+        
+        # Get word rectangles from OCR
+        wordrects = _word_rects_in_page_coords_fitz(page_info)
+        if not wordrects:
+            continue
+        
+        # Find the error location
+        rect = _find_error_word_span_fitz(wordrects, error_text, anchor_quote)
+        if not rect:
+            continue
+        
+        # Draw red rectangle around error
+        page.draw_rect(rect, color=(0.8, 0, 0), width=2.0)
+        
+        # Draw correction text above the error
+        correction_text = _sanitize_text_for_render(f"→ {correction}")
+        if not correction_text:
+            continue
+        text_width = fitz.get_text_length(correction_text, fontname="hebo", fontsize=10)
+        
+        # White background for correction text
+        bg_rect = fitz.Rect(
+            rect.x0 - 2,
+            rect.y0 - 16,
+            rect.x0 + text_width + 4,
+            rect.y0 - 2
+        )
+        page.draw_rect(bg_rect, color=(0.8, 0, 0), fill=(1, 1, 1), width=1.0)
+        
+        # Insert correction text
+        text_point = fitz.Point(rect.x0, rect.y0 - 4)
+        page.insert_text(
+            text_point,
+            correction_text,
+            fontsize=10,
+            color=(0.8, 0, 0),
+            fontname="hebo"
+        )
+    
+    # Save the annotated PDF
+    pdf_doc.save(output_path)
+    pdf_doc.close()
+
+
+# ============================================================
 # MAIN FUNCTION
 # ============================================================
 def annotate_pdf_essay_pages(
@@ -594,6 +929,7 @@ def annotate_pdf_essay_pages(
     grading: Dict[str, Any],
     annotations: List[Dict[str, Any]],
     page_suggestions: Optional[List[Dict[str, Any]]] = None,
+    spelling_errors: Optional[List[Dict[str, Any]]] = None,
     *,
     dpi: int = 220,
     debug_draw_ocr_boxes: bool = False,
@@ -611,8 +947,10 @@ def annotate_pdf_essay_pages(
         - prefer anchor_quote candidates (if present)
         - else legacy candidates
     - If no rect found -> page-level box only (no arrow/highlight)
+    - Spelling errors are annotated inline directly on the page with red boxes and corrections
     """
     page_suggestions = page_suggestions or []
+    spelling_errors = spelling_errors or []
     doc = fitz.open(pdf_path)
 
     # Render pages
@@ -660,9 +998,11 @@ def annotate_pdf_essay_pages(
         extent = _compute_page_extent(page_ocr) if page_ocr else None
         print(f"  Page extent: {extent}")
 
-        # Canvas with margins
-        left_width = int(0.50 * orig_w)
-        right_width = int(0.40 * orig_w)
+        # Canvas with margins (equal spacing on both sides of the essay body)
+        # Previously: left=65% and right=35% of essay width, which left a visibly larger gap on the left.
+        side_margin_ratio = 0.35
+        left_width = int(side_margin_ratio * orig_w)
+        right_width = int(side_margin_ratio * orig_w)
         new_w = left_width + orig_w + right_width
         y_offset = 0
         margin_px = int(0.03 * orig_w)
@@ -670,10 +1010,23 @@ def annotate_pdf_essay_pages(
         canvas = np.full((orig_h, new_w, 3), 255, dtype=np.uint8)
         canvas[y_offset:y_offset + orig_h, left_width:left_width + orig_w] = orig_cv
 
+        # ------------------------------------------------------------
+        # RED TICK MARK (on essay body) - one per page, near lower area
+        # ------------------------------------------------------------
+        tick_size = max(26, int(orig_w * 0.05))
+        tick_thickness = max(3, int(orig_w * 0.004))
+        # Place slightly above bottom (not too low) and inside the essay body region
+        tick_x = left_width + int(orig_w * 0.08)
+        tick_y = y_offset + int(orig_h * 0.82)
+        # Constrain inside visible page bounds
+        tick_x = max(left_width + 5, min(tick_x, left_width + orig_w - tick_size - 5))
+        tick_y = max(5 + tick_size, min(tick_y, orig_h - margin_px - 5))
+        _draw_red_tick(canvas, x=tick_x, y=tick_y, size=tick_size, thickness=tick_thickness)
+
         # LEFT MARGIN: Improvements
         cv2.putText(
             canvas,
-            f"Page {page_number} - Improvements",
+            _sanitize_text_for_render(f"Page {page_number} - Improvements"),
             (margin_px, y_offset + 60),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.0,
@@ -684,7 +1037,10 @@ def annotate_pdf_essay_pages(
 
         left_pad = 10
         col_gap = 14
-        max_cols = 2
+        # When the left margin is narrower (after making margins equal),
+        # using 2 columns makes boxes too skinny and causes excessive wrapping.
+        # Use 1 column for narrow margins; keep 2 columns for wide margins.
+        max_cols = 1 if left_width < int(0.50 * orig_w) else 2
         col_w = (left_width - 2 * margin_px - (max_cols - 1) * col_gap) // max_cols
         col_x = margin_px
         col_idx = 0
@@ -697,9 +1053,9 @@ def annotate_pdf_essay_pages(
             bullet_full = "- " + bullet_text
 
             thick = 2
-            line_g = 16
-            top_pad = 18
-            bottom_pad = 18
+            line_g = 18
+            top_pad = 20
+            bottom_pad = 20
 
             remaining_h = (orig_h - margin_px) - y_cur
             if remaining_h < 160:
@@ -713,12 +1069,12 @@ def annotate_pdf_essay_pages(
                 bullet_full,
                 max_width_px=col_w - 2 * left_pad,
                 max_height_px=min((orig_h - margin_px) - y_cur, 1200),
-                start_scale=1.30,
+                start_scale=1.55,
                 thickness=thick,
                 line_gap=line_g,
                 top_pad=top_pad,
                 bottom_pad=bottom_pad,
-                min_scale=0.80,
+                min_scale=1.00,
             )
 
             if y_cur + box_h > (orig_h - margin_px):
@@ -764,6 +1120,9 @@ def annotate_pdf_essay_pages(
                     rr = _shift_rect(rr, left_width, y_offset)
                     cv2.rectangle(canvas, (rr[0], rr[1]), (rr[2], rr[3]), (190, 190, 190), 1)
 
+        # NOTE: Spelling/grammar errors are added using PyMuPDF after PIL images are created
+        # See _add_spelling_annotations_to_pdf_pages() function called at the end
+
         # Build callouts for this page
         anns = [a for a in annotations if a.get("page") == page_number][:max_callouts_per_page]
         print(f"  Annotations for this page: {len(anns)}")
@@ -771,6 +1130,8 @@ def annotate_pdf_essay_pages(
         callout_items: List[Dict[str, Any]] = []
 
         for idx, a in enumerate(anns):
+            # Matching/anchors disabled: skip detailed processing
+            continue
             a_type = (a.get("type") or "").strip()
             rubric_point = (a.get("rubric_point") or "").strip()
             comment = (a.get("comment") or "").strip()
@@ -886,11 +1247,25 @@ def annotate_pdf_essay_pages(
                 print(f"     has_anchor={item['has_anchor']}")
                 print(f"     candidate_preview={item['primary_candidate_preview'][:120]}")
 
-        matched_count = sum(1 for x in resolved_callouts if x["rect"] is not None)
-        print(f"  Successfully matched: {matched_count}/{len(resolved_callouts)}")
-
-        # RIGHT MARGIN LAYOUT (no overlap)
+        # RIGHT MARGIN LAYOUT (no overlap). Matching/anchors removed; all callouts are page-level in input order.
         box_w = int(right_width - 2 * margin_px)
+        resolved_callouts: List[Dict[str, Any]] = []
+        for idx, a in enumerate(anns):
+            a_type = (a.get("type") or "").strip()
+            rubric_point = (a.get("rubric_point") or "").strip()
+            comment = (a.get("comment") or "").strip()
+            correction = (a.get("correction") or "").strip()
+            header = f"[{a_type}] {rubric_point}".strip()
+            body = (comment + (f"  Fix: {correction}" if correction else "")).strip()
+            if a_type != "grammar_language" and correction:
+                body = (comment ).strip()
+            resolved_callouts.append({
+                "rect": None,
+                "header": header,
+                "body": body,
+                "y_sort": idx,
+                "page_level": True,
+            })
         resolved_callouts.sort(key=lambda x: x["y_sort"])
 
         last_bottom_y = margin_px
@@ -901,9 +1276,9 @@ def annotate_pdf_essay_pages(
             header = item["header"]
             body = item["body"]
 
-            header_scale = 0.95
-            body_scale = 0.90
-            l_gap = 14
+            header_scale = 1.05
+            body_scale = 1.00
+            l_gap = 16
 
             h_h = _estimate_text_height(header, header_scale, 2, box_w - 24, line_gap=l_gap)
             b_h = _estimate_text_height(body, body_scale, 2, box_w - 24, line_gap=l_gap)
@@ -912,15 +1287,9 @@ def annotate_pdf_essay_pages(
             bx1 = left_width + orig_w + margin_px
             bx2 = bx1 + box_w
 
-            # For page-level items, stack below previous
-            if rect:
-                desired_y = rect[1] - 20
-            else:
-                desired_y = last_bottom_y + gap
-
-            start_y = max(margin_px, desired_y)
-            if start_y < last_bottom_y + gap:
-                start_y = last_bottom_y + gap
+            # Stack top-to-bottom without collisions; anchor near rect if present
+            desired_y = rect[1] - 20 if rect else last_bottom_y + gap
+            start_y = max(margin_px, last_bottom_y + gap, desired_y)
 
             by1 = int(start_y)
             by2 = int(by1 + box_h)
@@ -939,15 +1308,11 @@ def annotate_pdf_essay_pages(
             last_bottom_y = by2
 
             # highlight + connector only if rect exists
-            if rect:
-                cv2.rectangle(canvas, (rect[0], rect[1]), (rect[2], rect[3]), (0, 0, 255), 2)
-
             cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
             _draw_wrapped_text(canvas, bx1 + 12, by1 + 24, header, header_scale, 2, box_w - 24, (0, 0, 255), line_gap=l_gap)
             _draw_wrapped_text(canvas, bx1 + 12, by1 + 30 + h_h, body, body_scale, 2, box_w - 24, (0, 0, 0), line_gap=l_gap)
 
-            if rect:
-                _draw_connector(canvas, rect, (bx1, by1, bx2, by2), (0, 0, 255))
+            # Intentionally omit on-page highlights/connectors to avoid overlaying essay content.
 
         annotated_pages.append(Image.fromarray(canvas[:, :, ::-1]))
 

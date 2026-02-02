@@ -22,6 +22,7 @@
 
 import argparse
 import base64
+import gc
 import io
 import json
 import os
@@ -43,26 +44,69 @@ try:
     from .annotate_pdf_with_essay_rubric import annotate_pdf_essay_pages
 except (ImportError, ModuleNotFoundError):
     try:
-        from annotate_pdf_with_essay_rubric import annotate_pdf_essay_pages
+        from annotate_pdf_with_essay_rubric import annotate_pdf_essay_pages  # type: ignore
     except (ImportError, ModuleNotFoundError):
-        try:
-            from backend.eng_essay.annotate_pdf_with_essay_rubric import annotate_pdf_essay_pages  # type: ignore
-        except (ImportError, ModuleNotFoundError):
-            raise ImportError(
-                "Cannot import 'annotate_pdf_essay_pages'. "
-                "Ensure 'annotate_pdf_with_essay_rubric.py' exists in the eng_essay directory."
-            )
+        raise ImportError(
+            "Cannot import 'annotate_pdf_essay_pages'. "
+            "Ensure 'annotate_pdf_with_essay_rubric.py' exists in backend/eng_essay/ directory."
+        )
+
+# Import spell correction function from backend/ocr/ocr-spell-correction.py
+try:
+    import sys
+    import importlib.util
+    # Get the correct path relative to this file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    backend_dir = os.path.dirname(current_dir)
+    spell_correction_path = os.path.join(backend_dir, "ocr", "ocr-spell-correction.py")
+    spec = importlib.util.spec_from_file_location("ocr_spell_correction", spell_correction_path)
+    if spec and spec.loader:
+        ocr_spell_module = importlib.util.module_from_spec(spec)
+        sys.modules["ocr_spell_correction"] = ocr_spell_module
+        spec.loader.exec_module(ocr_spell_module)
+        detect_spelling_grammar_errors = ocr_spell_module.detect_spelling_grammar_errors
+        _filter_errors = ocr_spell_module._filter_errors
+        print(f"✓ OCR Spell Correction Module: ENABLED")
+        print(f"✓ Loaded from: {spell_correction_path}")
+    else:
+        def detect_spelling_grammar_errors(grok_key, ocr_data):
+            return []
+        def _filter_errors(errors):
+            return errors
+except Exception as e:
+    print(f"Warning: Could not import spell correction module: {e}")
+    def detect_spelling_grammar_errors(grok_key, ocr_data):
+        return []
+    def _filter_errors(errors):
+        return errors
 
 
 # -----------------------------
 # Helpers
 # -----------------------------
 
+def _format_duration(seconds: float) -> str:
+    """Format elapsed time as 'Xs' or 'Xm Y.Ys' for display."""
+    if seconds < 60:
+        return f"{seconds:.2f}s"
+    m = int(seconds // 60)
+    s = seconds - m * 60
+    return f"{m}m {s:.2f}s"
+
+
 def clean_json_from_llm(text: str) -> str:
+    """Clean JSON response from LLM by removing markdown code blocks."""
     text = (text or "").strip()
+    if not text:
+        return ""
+    
+    # Remove markdown code blocks
     if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z0-9]*\n-", "", text)
-        text = re.sub(r"\n-```$", "", text)
+        # Remove opening ```json or ```
+        text = re.sub(r"^```[a-zA-Z0-9]*\n?", "", text)
+        # Remove closing ```
+        text = re.sub(r"\n?```$", "", text)
+    
     return text.strip()
 
 
@@ -120,20 +164,18 @@ def parse_json_with_repair(
     *,
     debug_tag: str = "grok",
     max_fix_attempts: int = 2,
-    save_debug: bool = False,  # Disable debug file saves for speed
 ) -> Dict[str, Any]:
     """
     Try strict JSON parse.
     If fails, ask Grok to output valid JSON only (repair mode).
-    Also saves raw + repaired outputs for debugging (if save_debug=True).
+    Also saves raw + repaired outputs for debugging.
     """
     raw_clean = clean_json_from_llm(raw_text)
 
-    if save_debug:
-        os.makedirs("debug_llm", exist_ok=True)
-        raw_path = os.path.join("debug_llm", f"{debug_tag}_raw.txt")
-        with open(raw_path, "w", encoding="utf-8") as f:
-            f.write(raw_text or "")
+    os.makedirs("debug_llm", exist_ok=True)
+    raw_path = os.path.join("debug_llm", f"{debug_tag}_raw.txt")
+    with open(raw_path, "w", encoding="utf-8") as f:
+        f.write(raw_text or "")
 
     def _extract_json_candidate(text: str) -> str:
         s = (text or "").strip()
@@ -183,10 +225,9 @@ def parse_json_with_repair(
         repaired = data["choices"][0]["message"]["content"]
         repaired_clean = clean_json_from_llm(repaired)
 
-        if save_debug:
-            repaired_path = os.path.join("debug_llm", f"{debug_tag}_repaired_attempt{attempt}.txt")
-            with open(repaired_path, "w", encoding="utf-8") as f:
-                f.write(repaired)
+        repaired_path = os.path.join("debug_llm", f"{debug_tag}_repaired_attempt{attempt}.txt")
+        with open(repaired_path, "w", encoding="utf-8") as f:
+            f.write(repaired)
 
         try:
             candidate = _extract_json_candidate(repaired_clean)
@@ -195,10 +236,10 @@ def parse_json_with_repair(
             last_text = repaired_clean
             err = str(e)
 
-    error_msg = f"Failed to parse Grok JSON after repair attempts. Last error: {err}."
-    if save_debug:
-        error_msg += f" See debug_llm/{debug_tag}_*.txt for details"
-    raise ValueError(error_msg)
+    raise ValueError(
+        f"Failed to parse Grok JSON after repair attempts. Last error: {err}. "
+        f"See {raw_path} and debug_llm/{debug_tag}_repaired_attempt*.txt"
+    )
 
 
 # -----------------------------
@@ -208,37 +249,33 @@ def parse_json_with_repair(
 def pdf_to_page_images_for_grok(
     pdf_path: str,
     max_pages: Optional[int] = None,
-    max_dim: int = 640,  # Reduced from 800 for faster processing
+    max_dim: int = 800,
     base64_cap: Optional[int] = None,
-    output_dir: Optional[str] = None,  # None = skip disk save for speed
-    max_total_base64_chars: int = 200_000,  # Reduced from 240k for faster API calls
+    output_dir: str = "grok_images_essay",
+    max_total_base64_chars: int = 240_000,
 ) -> List[Dict[str, Any]]:
     """
     Render PDF pages to JPEG and encode them for Grok.
     Automatically downsizes/lowers quality until the combined base64 payload
     stays under `max_total_base64_chars` to avoid Grok API size/context errors.
-    Optimized for speed with lower DPI and smaller dimensions.
     """
 
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     doc = fitz.open(pdf_path)
     try:
         total_pages = doc.page_count if max_pages is None else min(doc.page_count, max_pages)
         pil_pages: List[Image.Image] = []
         for idx in range(total_pages):
-            # Reduced DPI from 200 to 150 for faster rendering
-            pix = doc[idx].get_pixmap(dpi=150)
+            pix = doc[idx].get_pixmap(dpi=200)
             pil_pages.append(Image.open(io.BytesIO(pix.tobytes("png"))))
     finally:
         doc.close()
 
-    # Start from smaller dimensions for faster processing
-    dim_candidates_base = [640, 560, 512, 448, 384, 360, 320]
+    # Start from the requested max_dim, then progressively reduce size/quality if needed.
+    dim_candidates_base = [800, 640, 560, 512, 448, 384, 360, 320]
     dim_candidates = [max_dim] + [d for d in dim_candidates_base if d < max_dim]
     dim_candidates = [d for i, d in enumerate(dim_candidates) if d not in dim_candidates[:i]]
-    # Start with lower quality for speed
-    quality_candidates = [55, 50, 45, 40, 35]
+    quality_candidates = [65, 55, 45, 40, 35]
 
     def _encode_pages(dim: int, quality: int, save_files: bool) -> Tuple[List[Dict[str, Any]], int]:
         encoded_pages: List[Dict[str, Any]] = []
@@ -267,7 +304,7 @@ def pdf_to_page_images_for_grok(
 
             total_chars += len(encoded)
             file_path = None
-            if save_files and output_dir:
+            if save_files:
                 file_path = os.path.join(output_dir, f"page_{idx+1:03d}.jpg")
                 with open(file_path, "wb") as f:
                     f.write(buffer.getvalue())
@@ -284,23 +321,21 @@ def pdf_to_page_images_for_grok(
             chosen = (pages_tmp, total_chars, dim, quality)
             if max_total_base64_chars and total_chars > max_total_base64_chars:
                 continue
-            final_pages, final_total = _encode_pages(dim, quality, save_files=bool(output_dir))
-            if output_dir:
-                print(
-                    f"Saved {len(final_pages)} page images to '{output_dir}/' "
-                    f"(dim={dim}, quality={quality}, total_base64_chars={final_total})"
-                )
+            final_pages, final_total = _encode_pages(dim, quality, save_files=True)
+            print(
+                f"Saved {len(final_pages)} page images to '{output_dir}/' "
+                f"(dim={dim}, quality={quality}, total_base64_chars={final_total})"
+            )
             return final_pages
 
     # Fallback to the smallest attempted settings if nothing met the budget.
     if chosen:
         pages_tmp, total_chars, dim, quality = chosen
-        final_pages, final_total = _encode_pages(dim, quality, save_files=bool(output_dir))
-        if output_dir:
-            print(
-                f"Saved {len(final_pages)} page images to '{output_dir}/' "
-                f"(dim={dim}, quality={quality}, total_base64_chars={final_total}) [fallback]"
-            )
+        final_pages, final_total = _encode_pages(dim, quality, save_files=True)
+        print(
+            f"Saved {len(final_pages)} page images to '{output_dir}/' "
+            f"(dim={dim}, quality={quality}, total_base64_chars={final_total}) [fallback]"
+        )
         return final_pages
 
     return []
@@ -309,26 +344,102 @@ def pdf_to_page_images_for_grok(
 def get_report_page_size(
     pdf_path: str,
     dpi: int = 220,
-    margin_ratio: float = 0.40,
+    margin_ratio: float = 0.35,
     min_height: int = 3500,
+    max_width: int = 9000,
+    max_height: int = 12000,
+    max_pixels: int = 50000000,  # ~50MP limit (e.g., 5000x10000)
     fallback: Tuple[int, int] = (2977, 4211),
 ) -> Tuple[int, int]:
     """
-    Match report page size to the annotated canvas:
-    annotated pages use left=50% and right=40% of the PDF width, at 220 DPI.
+    Match report page size to the annotated canvas.
+
+    This project uses equal side margins around the essay body, so annotated width is:
+      total_width = orig_w * (1 + 2 * margin_ratio)
+
+    This implementation is adapted from `grade_pdf_answer.py`:
+    - Uses progressive DPI reduction for very large PDFs (prevents MemoryError)
+    - Caps max width/height and total pixel count
+    - Keeps THIS project's report width aligned to `annotate_pdf_essay_pages` canvas
+      (width multiplier = 2.0 of the rendered PDF page width at the chosen DPI)
     """
     doc = fitz.open(pdf_path)
     try:
         if doc.page_count == 0:
             return fallback
-        pix = doc[0].get_pixmap(dpi=dpi)
-        orig_w, orig_h = pix.width, pix.height
 
-        # Match annotate_pdf_essay_pages canvas: total width = orig_w * 1.9, height = orig_h
-        report_w = int(orig_w * 1.9)
-        report_h = max(orig_h, min_height)
-        return (report_w, report_h)
-    except Exception:
+        # Check page size first to estimate memory requirements
+        page = doc[0]
+        page_rect = page.rect
+        page_width_pts = page_rect.width
+        page_height_pts = page_rect.height
+
+        # Calculate expected pixmap size at target DPI (1 point = 1/72 inch)
+        expected_width = int(page_width_pts * (dpi / 72))
+        expected_height = int(page_height_pts * (dpi / 72))
+        expected_pixels = expected_width * expected_height
+        expected_mb = (expected_pixels * 4) / (1024 * 1024)  # RGBA = 4 bytes per pixel
+
+        # Progressive DPI reduction if page is too large
+        target_dpi = dpi
+        max_safe_mb = 50  # ~50MB per pixmap is reasonable
+        if expected_mb > max_safe_mb:
+            safe_dpi = int(dpi * (max_safe_mb / expected_mb) ** 0.5)
+            target_dpi = max(100, safe_dpi)  # don't go too low
+            print(
+                f"WARNING: First page is very large ({expected_width}x{expected_height} at {dpi} DPI, "
+                f"~{expected_mb:.1f}MB). Using {target_dpi} DPI instead to prevent MemoryError."
+            )
+
+        # Try to get pixmap with progressive DPI reduction
+        dpi_options = [target_dpi, 150, 100, 75] if target_dpi < dpi else [dpi, 150, 100, 75]
+        pix = None
+        last_error = None
+        for attempt_dpi in dpi_options:
+            try:
+                pix = page.get_pixmap(dpi=attempt_dpi)
+                if attempt_dpi < dpi:
+                    print(f"Successfully created pixmap at {attempt_dpi} DPI (reduced from {dpi} DPI)")
+                break
+            except Exception as e:
+                last_error = e
+                if attempt_dpi == dpi_options[-1]:
+                    print(f"WARNING: Failed to create pixmap even at {attempt_dpi} DPI. Using fallback size. Error: {e}")
+                    return fallback
+                continue
+
+        if pix is None:
+            print(f"WARNING: Failed to create pixmap. Using fallback size. Error: {last_error}")
+            return fallback
+
+        orig_w, orig_h = pix.width, pix.height
+        del pix
+        gc.collect()
+
+        # Match annotate_pdf_essay_pages canvas width: orig_w + left + right
+        total_width = int(orig_w * (1.0 + 2.0 * margin_ratio))
+        total_height = max(orig_h, min_height)
+
+        # Cap width/height to prevent extremely large images
+        if total_width > max_width:
+            total_width = max_width
+        if total_height > max_height:
+            total_height = max_height
+
+        # Check total pixel count (RGB images ~3 bytes per pixel)
+        total_pixels = total_width * total_height
+        if total_pixels > max_pixels:
+            scale = (max_pixels / float(total_pixels)) ** 0.5
+            total_width = int(total_width * scale)
+            total_height = int(total_height * scale)
+            print(
+                f"WARNING: Calculated page size exceeds pixel limit. "
+                f"Scaled down to ({total_width}x{total_height}) to prevent MemoryError."
+            )
+
+        return (total_width, total_height)
+    except Exception as e:
+        print(f"WARNING: Error calculating report page size: {e}. Using fallback size.")
         return fallback
     finally:
         doc.close()
@@ -367,15 +478,14 @@ def run_ocr_on_pdf(
     doc_client: DocumentAnalysisClient,
     pdf_path: str,
     *,
-    workers: int = 5,  # Increased from 3 to 5 for faster parallel processing
-    render_dpi: int = 200,  # Reduced from 220 for faster rendering
+    workers: int = 3,
+    render_dpi: int = 220,
     debug_pages_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run Azure OCR page by page to avoid document size limits.
     Each page is rendered to JPEG, optionally resized/compressed on retry if Azure rejects size.
     Runs pages in parallel (workers>1). Saves per-page debug JSON with bboxes if debug_pages_dir is provided.
-    Optimized for speed with more workers and lower DPI.
     """
     def _analyze_image_bytes(img_bytes: bytes) -> Any:
         poller = doc_client.begin_analyze_document("prebuilt-read", document=img_bytes)
@@ -428,8 +538,23 @@ def run_ocr_on_pdf(
         page_h = float(getattr(first_page, "height", 0.0) or 0.0) if first_page else float(pil_img.height)
         page_lines: List[Dict[str, Any]] = []
         page_text_parts: List[str] = []
+        page_words_flat = []  # Extract ALL words for spelling annotation
 
         for p in result.pages:
+            # Extract ALL words directly from Azure API (before any filtering)
+            for w in (p.words or []):
+                txt = (w.content or "").strip()
+                if not txt:
+                    continue
+                poly = []
+                if w.polygon:
+                    poly = [(int(pt.x), int(pt.y)) for pt in w.polygon]
+                page_words_flat.append({
+                    "text": txt,
+                    "bbox": poly,
+                    "confidence": float(getattr(w, "confidence", 1.0) or 1.0),
+                })
+            
             page_words = list(p.words or [])
             for line in p.lines or []:
                 text = (line.content or "").strip()
@@ -459,7 +584,11 @@ def run_ocr_on_pdf(
                                 w_bbox = [(int(pt.x), int(pt.y)) for pt in word.polygon]
                             if _is_noise_text(word.content, w_bbox, page_w, page_h):
                                 continue
-                            matched_words.append({"text": word.content, "bbox": w_bbox})
+                            matched_words.append({
+                                "text": word.content,
+                                "bbox": w_bbox,
+                                "confidence": float(getattr(word, "confidence", 1.0) or 1.0)
+                            })
                             break
                     else:
                         continue
@@ -469,7 +598,11 @@ def run_ocr_on_pdf(
                         w_bbox = [(int(pt.x), int(pt.y)) for pt in word.polygon] if word.polygon else []
                         if _is_noise_text(word.content, w_bbox, page_w, page_h):
                             continue
-                        matched_words.append({"text": word.content, "bbox": w_bbox})
+                        matched_words.append({
+                            "text": word.content,
+                            "bbox": w_bbox,
+                            "confidence": float(getattr(word, "confidence", 1.0) or 1.0)
+                        })
 
                 if matched_words:
                     page_lines.append({"text": text, "bbox": line_bbox, "words": matched_words})
@@ -481,11 +614,14 @@ def run_ocr_on_pdf(
                     page_text_parts.append(t)
 
         page_text = " ".join(page_text_parts)
+        
         debug_payload = {
             "page_number": page_number,
             "page_width": page_w,
             "page_height": page_h,
+            "unit": "pixel",
             "lines": page_lines,
+            "words": page_words_flat,  # Use the flat array extracted from Azure API
             "ocr_full_text_page": page_text,
             "attempt": used if result else {},
         }
@@ -505,8 +641,10 @@ def run_ocr_on_pdf(
                 "page_number": data["page_number"],
                 "page_width": data.get("page_width"),
                 "page_height": data.get("page_height"),
+                "unit": data.get("unit", "pixel"),
                 "ocr_page_text": data.get("ocr_full_text_page", ""),
                 "lines": data["lines"],
+                "words": data.get("words", []),
             })
             full_text_parts.append(data.get("ocr_full_text_page", ""))
             if debug_pages_dir:
@@ -523,20 +661,86 @@ def run_ocr_on_pdf(
 # -----------------------------
 
 def load_essay_rubric_text(path: str) -> str:
+    """Load essay rubric text. If path is relative, look in eng_essay directory."""
+    if not os.path.isabs(path):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, path)
     return _load_docx_text(path)
 
 
 def load_annotations_rubric_text(path: str) -> str:
+    """Load annotations rubric text. If path is relative, look in eng_essay directory."""
+    if not os.path.isabs(path):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, path)
     return _load_docx_text(path)
 
 
 def load_report_format_text(path: str) -> str:
+    """Load report format text. If path is relative, look in eng_essay directory."""
+    if not os.path.isabs(path):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, path)
     return _load_docx_text(path)
 
 
 # -----------------------------
-# Grok Calls
+# Grok Calls (chunked payloads to avoid 503 / size limits)
 # -----------------------------
+
+# Max page images per structure request; grading uses at most MAX_PAGES_FOR_GRADING when doc is longer.
+STRUCTURE_CHUNK_PAGES = 5
+MAX_PAGES_FOR_GRADING = 20
+
+
+def _chunk_page_images(
+    page_images: List[Dict[str, Any]],
+    chunk_size: int,
+) -> List[Tuple[List[Dict[str, Any]], List[int]]]:
+    """
+    Split page_images into chunks by page number. Returns list of (chunk_pages, page_numbers).
+    Preserves order; every page appears in exactly one chunk.
+    """
+    if not page_images:
+        return []
+    by_page = sorted(page_images, key=lambda p: p.get("page", 0))
+    chunks: List[Tuple[List[Dict[str, Any]], List[int]]] = []
+    for i in range(0, len(by_page), chunk_size):
+        chunk = by_page[i : i + chunk_size]
+        pages = [p.get("page") for p in chunk if p.get("page") is not None]
+        chunks.append((chunk, pages))
+    return chunks
+
+
+def _subset_page_images_for_grading(
+    page_images: List[Dict[str, Any]],
+    max_pages: int,
+) -> List[Dict[str, Any]]:
+    """
+    When there are many pages, return a representative subset (first, last, middle)
+    so the grading payload stays small. Nothing is lost: full OCR and structure are still sent.
+    """
+    if len(page_images) <= max_pages:
+        return page_images
+    by_page = sorted(page_images, key=lambda p: p.get("page", 0))
+    n = len(by_page)
+    # first 3, last 3, and evenly spaced from middle
+    head = 3
+    tail = 3
+    mid_count = max_pages - head - tail
+    if mid_count <= 0:
+        return by_page[:max_pages]
+    indices = list(range(head))
+    # middle indices evenly spaced
+    step = (n - head - tail) / (mid_count + 1)
+    for i in range(mid_count):
+        idx = head + int((i + 1) * step)
+        if idx < n - tail:
+            indices.append(idx)
+    indices.extend(range(n - tail, n))
+    indices = sorted(set(indices))[:max_pages]
+    return [by_page[i] for i in indices]
+
 
 def _grok_chat(
     grok_api_key: str,
@@ -567,7 +771,9 @@ def _grok_chat(
                 err = RuntimeError(f"Grok API error {resp.status_code}: {resp.text}")
                 if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
                     last_err = err
-                    time.sleep(min(backoff_max, backoff_base ** attempt))
+                    delay = min(backoff_max, backoff_base ** attempt)
+                    print(f"  Grok API {resp.status_code} (attempt {attempt + 1}/{max_retries + 1}). Retrying in {delay:.0f}s...")
+                    time.sleep(delay)
                     continue
                 raise err
             return resp.json()
@@ -631,51 +837,118 @@ def call_grok_for_essay_structure_paragraphs_only(
             lines.append((line.get("text") or ""))
         sanitized_pages.append({"page_number": p.get("page_number"), "lines_preview": lines})
 
-    user_payload = {
-        "task": (
-            "Detect topic/title, identify outline pages first, and map each page's role "
-            "(outline/intro/body/conclusion/mixed) for the essay."
-        ),
-        "rules": [
-            "Do NOT invent headings or sections; only report if visible.",
-            "Outline is typically a numbered/roman list or bullet plan early (often page 1) spanning ~3-4 pages; may include headings and short paragraphs.",
-            "If outline is missing or weak, say so strongly.",
-            "role_guess is best-effort: outline, intro, body, conclusion, mixed.",
-            "Ignore OCR errors; do not mention OCR quality, legibility, scanning, handwriting, blurring, or smudging anywhere.",
-            "Topic must be verbatim as written in the essay; never expand or paraphrase.",
-            "After the outline, the main essay continues for ~10-12 pages as paragraphs; identify the page where the outline ends and essay begins.",
-            "List each outline section with its page number; use the visible heading/phrase as the title (do not invent).",
-            "If parts are unreadable, say 'content unclear' without blaming OCR/scan/handwriting.",
-        ],
-        "ocr_pages_preview": sanitized_pages,
-        "ocr_full_text": (ocr_data.get("full_text") or ""),
-        "page_images": page_images,
-        "output_schema": {
-            "topic": "string",
-            "outline": {
-                "present": True,
-                "pages": [1],
-                "quality": "Weak",
-                "issues": ["..."],
-                "strengths": ["..."],
-            },
-            "outline_span": {"start_page": 1, "end_page": 3},
-            "outline_sections": [{"title": "Section title", "page": 1, "notes": "short"}],
-            "essay_start_page": 4,
-            "paragraph_map": [{"page": 1, "role_guess": "outline", "notes": "short"}],
-            "overall_flow_comment": "short",
-        },
-    }
+    chunks = _chunk_page_images(page_images, STRUCTURE_CHUNK_PAGES)
+    if not chunks:
+        return {
+            "topic": "",
+            "outline": {"present": False, "pages": [], "quality": "Weak", "issues": [], "strengths": []},
+            "outline_span": {},
+            "outline_sections": [],
+            "essay_start_page": 1,
+            "paragraph_map": [],
+            "overall_flow_comment": "",
+        }
 
-    data = _grok_chat(
-        grok_api_key,
-        messages=[system, {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}],
-        temperature=0.08,  # Lower temp for faster, more consistent responses
-        max_tokens=2000,  # Limit tokens for speed
-    )
-    content = data["choices"][0]["message"]["content"]
-    parsed = json.loads(clean_json_from_llm(content))
-    return parsed
+    merged: Dict[str, Any] = {
+        "topic": "",
+        "outline": {"present": False, "pages": [], "quality": "Weak", "issues": [], "strengths": []},
+        "outline_span": {},
+        "outline_sections": [],
+        "essay_start_page": 1,
+        "paragraph_map": [],
+        "overall_flow_comment": "",
+    }
+    all_pages = sorted({p.get("page") for p in page_images if p.get("page") is not None})
+    last_page_set = {max(all_pages)} if all_pages else set()
+
+    for idx, (chunk_pages, chunk_page_nums) in enumerate(chunks):
+        chunk_has_page_one = 1 in chunk_page_nums or (chunk_page_nums and min(chunk_page_nums) == 1)
+        chunk_has_last_page = bool(chunk_page_nums and max(chunk_page_nums) in last_page_set)
+
+        user_payload = {
+            "task": (
+                "Detect topic/title, identify outline pages first, and map each page's role "
+                "(outline/intro/body/conclusion/mixed) for the essay. "
+                "You are given ONLY page images for pages " + str(chunk_page_nums) + ". "
+                "Return paragraph_map entries ONLY for these page numbers. "
+                + ("This chunk includes page 1: also return topic, outline, outline_span, outline_sections, essay_start_page." if chunk_has_page_one else "")
+                + (" This chunk includes the last page: also return overall_flow_comment." if chunk_has_last_page else "")
+            ),
+            "rules": [
+                "Do NOT invent headings or sections; only report if visible.",
+                "Outline is typically a numbered/roman list or bullet plan early (often page 1) spanning ~3-4 pages; may include headings and short paragraphs.",
+                "If outline is missing or weak, say so strongly.",
+                "role_guess is best-effort: outline, intro, body, conclusion, mixed.",
+                "Ignore OCR errors; do not mention OCR quality, legibility, scanning, handwriting, blurring, or smudging anywhere.",
+                "Topic must be verbatim as written in the essay; never expand or paraphrase.",
+                "After the outline, the main essay continues for ~10-12 pages as paragraphs; identify the page where the outline ends and essay begins.",
+                "List each outline section with its page number; use the visible heading/phrase as the title (do not invent).",
+                "If parts are unreadable, say 'content unclear' without blaming OCR/scan/handwriting.",
+            ],
+            "ocr_pages_preview": sanitized_pages,
+            "ocr_full_text": (ocr_data.get("full_text") or ""),
+            "page_images": chunk_pages,
+            "output_schema": {
+                "topic": "string",
+                "outline": {
+                    "present": True,
+                    "pages": [1],
+                    "quality": "Weak",
+                    "issues": ["..."],
+                    "strengths": ["..."],
+                },
+                "outline_span": {"start_page": 1, "end_page": 3},
+                "outline_sections": [{"title": "Section title", "page": 1, "notes": "short"}],
+                "essay_start_page": 4,
+                "paragraph_map": [{"page": 1, "role_guess": "outline", "notes": "short"}],
+                "overall_flow_comment": "short",
+            },
+        }
+
+        print(f"  Structure chunk {idx + 1}/{len(chunks)} (pages {chunk_page_nums})...")
+        data = _grok_chat(
+            grok_api_key,
+            messages=[system, {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}],
+            temperature=0.1,
+        )
+        content = data["choices"][0]["message"]["content"]
+        cleaned_content = clean_json_from_llm(content)
+        
+        # Debug logging and error handling
+        if not cleaned_content or not cleaned_content.strip():
+            print(f"  WARNING: Empty response from Grok API for chunk {idx + 1}")
+            print(f"  Raw response content: {content[:500] if content else 'None'}")
+            raise ValueError(f"Empty or invalid response from Grok API for structure detection (chunk {idx + 1})")
+        
+        try:
+            parsed = json.loads(cleaned_content)
+        except json.JSONDecodeError as e:
+            print(f"  ERROR: Failed to parse JSON from Grok response (chunk {idx + 1})")
+            print(f"  Cleaned content (first 1000 chars): {cleaned_content[:1000]}")
+            print(f"  JSON error: {e}")
+            raise ValueError(f"Invalid JSON response from Grok API: {e}") from e
+
+        pm = parsed.get("paragraph_map") or []
+        for e in pm:
+            if isinstance(e, dict) and e.get("page") is not None:
+                merged["paragraph_map"].append(e)
+        merged["paragraph_map"].sort(key=lambda x: (x.get("page") or 0))
+
+        if chunk_has_page_one:
+            if (parsed.get("topic") or "").strip():
+                merged["topic"] = (parsed.get("topic") or "").strip()
+            if parsed.get("outline") and isinstance(parsed["outline"], dict):
+                merged["outline"] = parsed["outline"]
+            if parsed.get("outline_span") and isinstance(parsed["outline_span"], dict):
+                merged["outline_span"] = parsed["outline_span"]
+            if isinstance(parsed.get("outline_sections"), list):
+                merged["outline_sections"] = parsed["outline_sections"]
+            if isinstance(parsed.get("essay_start_page"), int):
+                merged["essay_start_page"] = parsed["essay_start_page"]
+        if chunk_has_last_page and (parsed.get("overall_flow_comment") or "").strip():
+            merged["overall_flow_comment"] = (parsed.get("overall_flow_comment") or "").strip()
+
+    return merged
 
 
 def call_grok_for_essay_grading_strict_range(
@@ -779,61 +1052,114 @@ def call_grok_for_essay_grading_strict_range(
     }
 
     instructions = (
-        "Grade strictly using the provided CSS English Essay rubric (weights are in the rubric/schema).\n"
-        "Rules:\n"
-        "- Output only mark ranges per criterion (e.g., \"6-8\"); width ≤ 3 points.\n"
-        "- Keep totals conservative; strong essays rarely exceed ~38-40/100.\n"
-        "- Overall rating must be one of: Excellent, Good, Average, Weak.\n"
-        "- total_awarded_range = sum of all low bounds and high bounds across criteria.\n"
-        "- Topic must be verbatim from the essay; do not rephrase or shorten.\n"
-        "- Do not mention OCR/scan/legibility/handwriting; critique clarity/relevance/logic instead.\n"
-        "- Headings/section markers may exist; judge what is visible, do not invent.\n"
-        "- If unsure, choose the lower bound and never leave fields blank.\n"
-        "- Return JSON only matching the provided schema."
+    "Grade strictly using the provided CSS English Essay rubric (weights are in the rubric/schema).\n"
+    "Objective:\n"
+    "- Identify ONLY the specific issues that caused loss of marks under each rubric criterion.\n"
+    "- Do NOT praise, summarize, reinterpret, or rewrite any part of the essay.\n"
+    "Rules:\n"
+    "- Output only mark ranges per criterion (e.g., \"6–8\"); width ≤ 3 points.\n"
+    "- Hard cap: the total_awarded_range upper bound MUST NOT exceed 45; scale ranges down to stay under this cap.\n"
+    "- Keep totals conservative; strong essays rarely exceed ~38–40/100.\n"
+    "- Overall rating must be one of: Excellent, Good, Average, Weak.\n"
+    "- total_awarded_range = sum of all low bounds and high bounds across criteria.\n"
+    "- Topic must be verbatim from the essay; do not rephrase or shorten.\n"
+    "- Judge only what is written; do not assume intent or missing content.\n"
+    "- Do not mention OCR/scan/legibility/handwriting; critique clarity, relevance, logic, and language only.\n"
+    "- Headings/section markers may exist; evaluate only what is visible; do not invent content.\n"
+    "Issue Identification Rules (Strict):\n"
+    "- For EACH criterion, list ONLY concrete deficiencies observed in the essay.\n"
+    "- Each issue must clearly explain why marks were lost.\n"
+    "- Use simple, direct language so the student understands exactly what went wrong.\n"
+    "- Avoid vague or generic phrases (e.g., 'needs improvement', 'lacks depth', 'weak analysis').\n"
+    "- State precise problems (e.g., 'no clear thesis in introduction', 'arguments listed without explanation', "
+    "'claims unsupported by evidence', 'irrelevant paragraphs', 'repetition of same example', "
+    "'frequent grammar errors in introduction and conclusion').\n"
+    "- Reasons for low score must be directly drawn from the essay (structure, argument gaps, evidence, relevance, language).\n"
+    "Suggested Improvements (if required by schema):\n"
+    "- Provide ONLY targeted, actionable fixes directly linked to the identified issues.\n"
+    "- Keep suggestions specific and exam-oriented (e.g., 'state a one-sentence thesis in the introduction', "
+    "'add factual evidence to support claim X', 'remove repeated example in body paragraph 3').\n"
+    "- Do NOT give general writing advice or motivational comments.\n"
+    "Other Constraints:\n"
+    "- Never leave any field blank.\n"
+    "- If unsure, choose the lower bound.\n"
+    "- Return JSON only, strictly matching the provided schema."
     )
 
+    # Use subset of page images when many pages to keep payload under API limits; full OCR + structure still sent
+    grading_images = _subset_page_images_for_grading(page_images, MAX_PAGES_FOR_GRADING)
+    if len(grading_images) < len(page_images):
+        print(f"  Grading: using {len(grading_images)} representative pages (of {len(page_images)}) to reduce payload size.")
     payload = {
         "essay_rubric_text": (essay_rubric_text or ""),
         "report_format_text": (report_format_text or ""),
         "structure_detected": structure,
         "ocr_full_text": (ocr_data.get("full_text") or ""),
-        "page_images": page_images,
+        "page_images": grading_images,
         "output_schema": schema_hint,
     }
 
     def _is_valid_grading(data: Dict[str, Any]) -> bool:
         criteria = data.get("criteria")
         if not isinstance(criteria, list) or len(criteria) < 6:
+            print(f"  Validation failed: criteria count = {len(criteria) if isinstance(criteria, list) else 'not a list'}")
             return False
         if not isinstance(data.get("total_awarded_range"), str):
+            print(f"  Validation failed: total_awarded_range = {data.get('total_awarded_range')} (type: {type(data.get('total_awarded_range'))})")
             return False
         if data.get("topic") is None:
+            print(f"  Validation failed: topic is None")
             return False
-        if data.get("overall_rating") not in ("Excellent", "Good", "Average", "Weak"):
+        rating = data.get("overall_rating")
+        if rating not in ("Excellent", "Good", "Average", "Weak"):
+            print(f"  Validation failed: overall_rating = '{rating}' (not in valid list)")
             return False
+        
+        # Check that at least some criteria have non-zero marks
+        all_zero = True
+        for crit in criteria:
+            rng = crit.get("marks_awarded_range", "0-0")
+            try:
+                parts = rng.replace("–", "-").replace("—", "-").split("-")
+                if len(parts) == 2:
+                    lo, hi = int(parts[0]), int(parts[1])
+                    if lo > 0 or hi > 0:
+                        all_zero = False
+                        break
+            except:
+                pass
+        
+        if all_zero:
+            print(f"  Validation failed: all criteria have 0-0 marks (Grok returned template without grading)")
+            return False
+        
         return True
-    
-    def _ensure_complete_grading(parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensure all required fields are present with sensible defaults."""
-        if not parsed.get("reasons_for_low_score"):
-            parsed["reasons_for_low_score"] = [
-                "Review the essay rubric criteria carefully.",
-                "Check alignment with topic requirements.",
-                "Ensure sufficient depth and originality."
-            ]
-        if not parsed.get("suggested_improvements_for_higher_score_70_plus"):
-            parsed["suggested_improvements_for_higher_score_70_plus"] = [
-                "Strengthen outline and topic interpretation.",
-                "Expand with more original analysis and examples.",
-                "Improve organization and transitions between paragraphs.",
-                "Enhance grammar, vocabulary, and writing style."
-            ]
-        if not parsed.get("overall_remarks"):
-            parsed["overall_remarks"] = "Review the grading criteria and essay structure for detailed feedback."
-        return parsed
 
     def _parse_range(rng: str) -> Tuple[int, int]:
-        parts = str(rng).split("-")
+        """
+        Parse a mark range string into (lo, hi).
+
+        Accepts:
+        - ASCII hyphen:        '6-8'
+        - En dash / em dash:   '6–8', '6—8'
+        - With spaces:         '6 – 8'
+        - 'to' as separator:   '6 to 8', '6   TO   8'
+
+        On any parse failure, returns (0, 0).
+        """
+        s = str(rng or "").strip()
+        if not s:
+            return 0, 0
+
+        # Normalise common separators to a simple hyphen
+        # U+2013 (EN DASH), U+2014 (EM DASH)
+        s = s.replace("–", "-").replace("—", "-")
+        # Replace textual 'to' with hyphen
+        s = re.sub(r"\bto\b", "-", s, flags=re.IGNORECASE)
+        # Collapse whitespace
+        s = re.sub(r"\s+", "", s)
+
+        parts = s.split("-")
         if len(parts) != 2:
             return 0, 0
         try:
@@ -854,29 +1180,70 @@ def call_grok_for_essay_grading_strict_range(
             lo, hi = _parse_range(rng)
             if hi - lo > 3:
                 hi = lo + 3
+            lo = max(0, lo)
+            hi = max(lo, hi)
             c["marks_awarded_range"] = f"{lo}-{hi}"
             sum_lo += lo
             sum_hi += hi
+
+        # Hard cap: total upper bound should not exceed 45 (strict marking)
+        target_hi_total = 45
+        if sum_hi > target_hi_total and crit_list:
+            scale = target_hi_total / float(sum_hi)
+            new_sum_lo = 0
+            new_sum_hi = 0
+            scaled_ranges: List[Tuple[int, int]] = []
+
+            for c in crit_list:
+                lo, hi = _parse_range(c.get("marks_awarded_range", "0-0"))
+                slo = max(0, int(round(lo * scale)))
+                shi = max(slo, min(int(round(hi * scale)), slo + 3))
+                scaled_ranges.append((slo, shi))
+                new_sum_lo += slo
+                new_sum_hi += shi
+
+            # If rounding still leaves us above the cap, reduce greedily
+            if new_sum_hi > target_hi_total:
+                excess = new_sum_hi - target_hi_total
+                idx = 0
+                while excess > 0 and scaled_ranges:
+                    i = idx % len(scaled_ranges)
+                    lo, hi = scaled_ranges[i]
+                    if hi > lo:
+                        scaled_ranges[i] = (lo, hi - 1)
+                        excess -= 1
+                    idx += 1
+                new_sum_hi = target_hi_total
+                new_sum_lo = sum(r[0] for r in scaled_ranges)
+
+            for c, (slo, shi) in zip(crit_list, scaled_ranges):
+                c["marks_awarded_range"] = f"{slo}-{shi}"
+            sum_lo, sum_hi = new_sum_lo, new_sum_hi
+
         parsed["total_awarded_range"] = f"{sum_lo}-{sum_hi}"
         return parsed
 
     last_err: Optional[Exception] = None
-    for attempt in range(2):
+    for attempt in range(4):
+        print(f"  Grading attempt {attempt + 1}/4...")
         data = _grok_chat(
             grok_api_key,
             messages=[system, {"role": "user", "content": instructions + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False)}],
-            temperature=0.08,  # Lower temp for faster, consistent grading
-            max_tokens=4000,  # Limit tokens for speed
-            timeout=120,  # Shorter timeout for faster failure
+            temperature=0.12,
         )
         content = data["choices"][0]["message"]["content"]
-        parsed = parse_json_with_repair(grok_api_key, content, debug_tag="essay_grading")
+        parsed = parse_json_with_repair(grok_api_key, content, debug_tag="essay_grading", max_fix_attempts=3)
+        if parsed is None:
+            print(f"  Parse failed on attempt {attempt + 1}")
+            last_err = ValueError("JSON parsing failed")
+            continue
         parsed = _enforce_range_rules(parsed)
-        parsed = _ensure_complete_grading(parsed)
         if _is_valid_grading(parsed):
+            print(f"  Grading validated successfully on attempt {attempt + 1}")
             return parsed
         last_err = ValueError("Invalid grading JSON: missing required fields")
 
+    print(f"  All grading attempts failed. Last parsed data: {json.dumps(parsed, indent=2) if parsed else 'None'}")
     raise ValueError(f"Grok grading output invalid after retries: {last_err}")
 
 
@@ -972,6 +1339,9 @@ def call_grok_for_essay_annotations(
         "Rules (MUST FOLLOW):\n"
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
+        "- You may use type outline_quality ONLY on outline pages listed in allowed_outline_pages; for other pages use other types.\n"
+        "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
+        "- Page suggestions are a separate list of quick fixes for the same page.\n"
         "\n"
         "ANCHOR RULE (CRITICAL):\n"
         "- You are given OCR_PAGE_TEXT below.\n"
@@ -985,7 +1355,7 @@ def call_grok_for_essay_annotations(
         "  grammar_language, repetitiveness, argumentation_depth,\n"
         "  organization_coherence, conclusion_quality, relevance_focus.\n"
         "\n"
-        "- page_suggestions: 2-4 short bullets for this page only.\n"
+        "- page_suggestions: 2-4 short bullets for this page only; make them specific and actionable (e.g., 'state thesis in first paragraph', 'replace repeated phrase X', 'add evidence for claim Y'), not generic.\n"
         "- Never mention OCR/scan/handwriting/legibility.\n"
         "Return JSON only matching schema."
     )
@@ -1011,6 +1381,16 @@ def call_grok_for_essay_annotations(
         "paragraph_map": structure.get("paragraph_map", []),
     }
 
+    outline_span = structure.get("outline_span") or {}
+    outline_pages_set = set()
+    try:
+        start_p = int(outline_span.get("start_page")) if outline_span.get("start_page") else None
+        end_p = int(outline_span.get("end_page")) if outline_span.get("end_page") else None
+        if start_p and end_p and end_p >= start_p:
+            outline_pages_set = set(range(start_p, end_p + 1))
+    except Exception:
+        outline_pages_set = set()
+
     for page in ocr_pages:
         page_num = page.get("page_number")
         if not isinstance(page_num, int):
@@ -1025,6 +1405,7 @@ def call_grok_for_essay_annotations(
             "ocr_page": _compact_ocr_page(page),
             "ocr_full_text": (ocr_data.get("full_text") or ""),
             "page_image": image_by_page.get(page_num),
+            "allowed_outline_pages": sorted(outline_pages_set),
             "output_schema": schema_hint,
         }
 
@@ -1048,10 +1429,9 @@ def call_grok_for_essay_annotations(
                 data = _grok_chat(
                     grok_api_key,
                     messages=[system, {"role": "user", "content": instructions + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False)}],
-                    temperature=0.08,  # Reduced from 0.12 for faster, consistent responses
-                    timeout=120,  # Reduced from 200 for faster timeout
-                    max_retries=2,  # Reduced from 4 for faster failure
-                    max_tokens=3000,  # Limit tokens for speed
+                    temperature=0.12,
+                    timeout=200,
+                    max_retries=4,
                 )
                 content = data["choices"][0]["message"]["content"]
                 parsed = parse_json_with_repair(grok_api_key, content, debug_tag=f"essay_annotations_p{page_num}")
@@ -1071,6 +1451,11 @@ def call_grok_for_essay_annotations(
                     if not isinstance(a, dict):
                         continue
                     aq = a.get("anchor_quote", "")
+                    atype = (a.get("type") or "").strip()
+                    # Enforce outline_quality only on outline pages
+                    if atype == "outline_quality" and outline_pages_set and page_num not in outline_pages_set:
+                        invalid_count += 1
+                        continue
                     
                     # If anchor_quote is empty, keep annotation anyway (just note it)
                     if not aq or not _anchor_is_valid(aq, ocr_page_text):
@@ -1201,11 +1586,10 @@ def render_essay_report_pages_range(
         cell_font = _scaled_font(base_sizes["cell"], scale)
         small_font = _scaled_font(base_sizes["small"], scale)
 
-        col_criterion = int(W * 0.33)
-        col_alloc = int(W * 0.12)
-        col_award = int(W * 0.14)
-        col_rating = int(W * 0.12)
-        col_comments = W - margin * 2 - (col_criterion + col_alloc + col_award + col_rating)
+        col_criterion = int(W * 0.25)
+        col_alloc = int(W * 0.09)
+        col_award = int(W * 0.10)
+        col_comments = W - margin * 2 - (col_criterion + col_alloc + col_award)
 
         img = Image.new("RGB", (W, H), "white")
         draw = ImageDraw.Draw(img)
@@ -1236,15 +1620,19 @@ def render_essay_report_pages_range(
         y += int(15 * scale)
         table_x = margin
         table_w = W - 2 * margin
-        row_h_base = max(40, int(72 * scale))
+        # Slightly taller table rows for readability
+        row_pad_y = max(2, int(8 * scale))
+        row_h_base = max(40, int(72 * scale) + row_pad_y)
+        header_fill = (100, 100, 100)
+        alt_fill = (200, 200, 200)
 
-        headers = ["Criterion", "Total Marks", "Marks Range", "Rating", "Key Comments"]
+        headers = ["Criterion", "Total Marks", "Marks Range", "Key Comments"]
         if not ensure_space(row_h_base + int(20 * scale)):
             return False, None
-        draw.rectangle([table_x, y, table_x + table_w, y + row_h_base], outline=(0, 0, 0), width=3)
+        draw.rectangle([table_x, y, table_x + table_w, y + row_h_base], fill=header_fill, outline=(0, 0, 0), width=3)
 
         x = table_x
-        splits = [col_criterion, col_alloc, col_award, col_rating, col_comments]
+        splits = [col_criterion, col_alloc, col_award, col_comments]
         for i, htxt in enumerate(headers):
             wcol = splits[i]
             draw.text((x + int(10 * scale), y + int(12 * scale)), htxt, font=header_font, fill=(0, 0, 0))
@@ -1254,7 +1642,7 @@ def render_essay_report_pages_range(
         y += row_h_base
 
         crit_list = grading.get("criteria") or []
-        for c in crit_list:
+        for idx_row, c in enumerate(crit_list):
             crit = c.get("criterion", "")
             alloc = str(c.get("marks_allocated", ""))
             award_range = str(c.get("marks_awarded_range", "0-0"))
@@ -1264,13 +1652,56 @@ def render_essay_report_pages_range(
             tmp_img = Image.new("RGB", (10, 10), "white")
             tmp_draw = ImageDraw.Draw(tmp_img)
             comment_lines = _wrap_text(tmp_draw, comments, header_font, col_comments - int(20 * scale))
-            crit_lines = _wrap_text(tmp_draw, crit, header_font, col_criterion - int(20 * scale))
+
+            def _force_two_lines_for_first_cell(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
+                """
+                Force the FIRST criterion cell (row 1, col 1) into exactly 2 lines,
+                even when it fits on one line (e.g., "Essay Outline & Topic Interpretation/Clarity").
+                """
+                s = (text or "").strip()
+                if not s:
+                    return ["", ""]
+                words = s.split()
+                if len(words) < 2:
+                    # Can't split meaningfully
+                    return [s, ""]
+
+                # Find the best split point at a space that keeps both lines within max_width
+                best: Optional[Tuple[float, List[str]]] = None
+                for split_i in range(1, len(words)):
+                    a = " ".join(words[:split_i]).strip()
+                    b = " ".join(words[split_i:]).strip()
+                    if not a or not b:
+                        continue
+                    wa = tmp_draw.textlength(a, font=font)
+                    wb = tmp_draw.textlength(b, font=font)
+                    if wa <= max_width and wb <= max_width:
+                        # Prefer balanced width lines (minimize max width)
+                        score = max(wa, wb)
+                        if best is None or score < best[0]:
+                            best = (score, [a, b])
+
+                if best is not None:
+                    return best[1]
+
+                # If no clean split fits, fall back to normal wrapping (keeps behavior safe)
+                wrapped = _wrap_text(tmp_draw, s, font, max_width)
+                if len(wrapped) >= 2:
+                    return [wrapped[0], " ".join(wrapped[1:])]
+                return [wrapped[0] if wrapped else s, ""]
+
+            crit_max_w = col_criterion - int(20 * scale)
+            if idx_row == 0:
+                crit_lines = _force_two_lines_for_first_cell(crit, header_font, crit_max_w)
+            else:
+                crit_lines = _wrap_text(tmp_draw, crit, header_font, crit_max_w)
             lines_needed = max(len(comment_lines), len(crit_lines), 1)
-            row_h = max(row_h_base, int(lines_needed * 64 * scale))
+            row_h = max(row_h_base, int(lines_needed * 64 * scale) + row_pad_y)
 
             if not ensure_space(row_h + int(10 * scale)):
                 return False, None
-            draw.rectangle([table_x, y, table_x + table_w, y + row_h], outline=(0, 0, 0), width=2)
+            fill_color = alt_fill if idx_row % 2 == 0 else None
+            draw.rectangle([table_x, y, table_x + table_w, y + row_h], fill=fill_color, outline=(0, 0, 0), width=2)
 
             x = table_x
             yy = y + int(12 * scale)
@@ -1288,10 +1719,6 @@ def render_essay_report_pages_range(
             x += col_award
             draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
 
-            draw.text((x + int(10 * scale), y + int(12 * scale)), rating, font=header_font, fill=(0, 0, 0))
-            x += col_rating
-            draw.line([x, y, x, y + row_h], fill=(0, 0, 0), width=2)
-
             yy = y + int(12 * scale)
             for ln in comment_lines:
                 draw.text((x + int(10 * scale), yy), ln, font=header_font, fill=(0, 0, 0))
@@ -1299,11 +1726,8 @@ def render_essay_report_pages_range(
 
             y += row_h
 
-        if not ensure_space(int(140 * scale)):
-            return False, None
+        # Spacer between table and bullet sections
         y += int(40 * scale)
-        draw.text((margin, y), f"Overall Rating: {grading.get('overall_rating','')}", font=title_font, fill=(0, 0, 0))
-        y += int(120 * scale)
 
         def draw_bullets(title: str, bullets: List[str]) -> bool:
             nonlocal y
@@ -1320,7 +1744,7 @@ def render_essay_report_pages_range(
                 for j, ln in enumerate(wrapped):
                     if not ensure_space(int(75 * scale)):
                         return False
-                    prefix = "• " if j == 0 else "  "
+                    prefix = "- " if j == 0 else "  "
                     draw.text((margin + int(35 * scale), y), prefix + ln, font=header_font, fill=(0, 0, 0))
                     y += int(70 * scale)
                 if not ensure_space(int(25 * scale)):
@@ -1331,22 +1755,8 @@ def render_essay_report_pages_range(
 
         if not draw_bullets("Reasons for Low Score", grading.get("reasons_for_low_score") or []):
             return False, None
-        if not draw_bullets("Suggested Improvements for Higher Score (70+)", grading.get("suggested_improvements_for_higher_score_70_plus") or []):
+        if not draw_bullets("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus") or []):
             return False, None
-
-        if not ensure_space(int(160 * scale)):
-            return False, None
-        draw.text((margin, y), "Overall Remarks:", font=title_font, fill=(0, 0, 0))
-        y += int(90 * scale)
-        remarks = str(grading.get("overall_remarks", "") or "")
-        tmp_img = Image.new("RGB", (10, 10), "white")
-        tmp_draw = ImageDraw.Draw(tmp_img)
-        rlines = _wrap_text(tmp_draw, remarks, header_font, W - 2 * margin)
-        for ln in rlines:
-            if not ensure_space(int(75 * scale)):
-                return False, None
-            draw.text((margin, y), ln, font=header_font, fill=(0, 0, 0))
-            y += int(70 * scale)
 
         return True, img
 
@@ -1375,11 +1785,179 @@ def pil_images_to_pdf_bytes(pages: List[Image.Image]) -> bytes:
     return out.getvalue()
 
 
+def add_spelling_annotations_to_pdf(
+    input_pdf_path: str,
+    output_pdf_path: str,
+    ocr_data: Dict[str, Any],
+    spelling_errors: List[Dict[str, Any]],
+) -> None:
+    """
+    Add PyMuPDF-based spelling annotations to the original PDF.
+    This should be called BEFORE essay grading annotations.
+    """
+    try:
+        from .annotate_pdf_with_essay_rubric import (
+            _word_rects_in_page_coords_fitz,
+            _find_error_word_span_fitz,
+        )
+    except (ImportError, ModuleNotFoundError):
+        from annotate_pdf_with_essay_rubric import (
+            _word_rects_in_page_coords_fitz,
+            _find_error_word_span_fitz,
+        )
+    
+    src_doc = fitz.open(input_pdf_path)
+    pages_data = ocr_data.get("pages", [])
+    matched_count = 0
+    total_count = len(spelling_errors)
+    
+    for error in spelling_errors:
+        page_num = error.get("page", 1) - 1  # Convert to 0-indexed
+        
+        if page_num < 0 or page_num >= len(src_doc):
+            continue
+        
+        page = src_doc[page_num]
+        page_info = pages_data[page_num] if page_num < len(pages_data) else {}
+        
+        error_text = error.get("error_text", "")
+        correction = error.get("correction", "")
+        anchor_quote = error.get("anchor_quote")
+        
+        if not error_text or not correction:
+            continue
+        
+        # Get word rectangles from OCR
+        wordrects = _word_rects_in_page_coords_fitz(page_info)
+        if not wordrects:
+            print(f"⚠ No wordrects for page {page_num + 1}")
+            continue
+        
+        # Find the error location
+        rect = _find_error_word_span_fitz(wordrects, error_text, anchor_quote)
+        if not rect:
+            # Debug: show first 5 words to help diagnose
+            sample_words = [w[2] for w in wordrects[:5]]
+            print(f"⚠ Could not locate error '{error_text}' on page {page_num + 1} (sample words: {sample_words})")
+            continue
+        
+        # Scale from Azure OCR coordinates to actual PDF page coordinates
+        page_w = float(page_info.get("page_width") or page.rect.width)
+        page_h = float(page_info.get("page_height") or page.rect.height)
+        unit = page_info.get("unit", "pixel")
+        azure_scale = 72.0 if unit.lower() == "inch" else 1.0
+        
+        if page_w > 0 and page_h > 0:
+            sx = page.rect.width / (page_w * azure_scale)
+            sy = page.rect.height / (page_h * azure_scale)
+            rect = rect * fitz.Matrix(sx, sy)
+        
+        matched_count += 1
+        
+        # Draw red rectangle around error with thicker border
+        page.draw_rect(rect, color=(0.8, 0, 0), width=2.5)
+        
+        # Prepare correction text without prefix
+        correction_text = correction
+        
+        # Use fixed font size for consistency
+        font_size = 11
+        text_width = fitz.get_text_length(correction_text, fontname="hebo", fontsize=font_size)
+        
+        text_height = 14  # Approximate height for this font size
+        padding_x = 8  # Increased horizontal padding
+        padding_y = 4  # Vertical padding
+        margin_from_edge = 8
+        
+        # Calculate required box width with extra padding
+        box_width = text_width + padding_x * 2 + 4
+        box_height = text_height + padding_y * 2
+        
+        # Determine best position: try above, below, left, right
+        positions = []
+        
+        # Try above
+        if rect.y0 >= box_height + 8:
+            positions.append({
+                'x': rect.x0,
+                'y': rect.y0 - box_height - 5,
+                'width': box_width,
+                'height': box_height,
+                'priority': 1  # Best option
+            })
+        
+        # Try below
+        if rect.y1 + box_height + 8 < page.rect.height:
+            positions.append({
+                'x': rect.x0,
+                'y': rect.y1 + 5,
+                'width': box_width,
+                'height': box_height,
+                'priority': 2
+            })
+        
+        if not positions:
+            # Fallback: place above with clipping
+            text_x = max(margin_from_edge, min(rect.x0, page.rect.width - box_width - margin_from_edge))
+            text_y = max(box_height + padding_y, rect.y0 - box_height - 5)
+        else:
+            # Use highest priority position
+            positions.sort(key=lambda p: p['priority'])
+            best_pos = positions[0]
+            text_x = best_pos['x']
+            text_y = best_pos['y']
+        
+        # Constrain to page bounds - shift box if it goes off right edge
+        if text_x + box_width > page.rect.width - margin_from_edge:
+            text_x = page.rect.width - box_width - margin_from_edge
+        
+        # Ensure not off left edge
+        text_x = max(margin_from_edge, text_x)
+        
+        # Constrain vertically
+        text_y = max(padding_y, min(text_y, page.rect.height - box_height - padding_y))
+        
+        # Draw white background with red border for correction text - make it wider
+        bg_rect = fitz.Rect(
+            text_x - padding_x,
+            text_y - padding_y,
+            text_x + text_width + padding_x + 2,
+            text_y + text_height + padding_y
+        )
+        
+        # Ensure bg_rect stays in bounds
+        if bg_rect.x1 > page.rect.width:
+            bg_rect = fitz.Rect(page.rect.width - box_width, bg_rect.y0, page.rect.width - margin_from_edge, bg_rect.y1)
+        if bg_rect.x0 < 0:
+            bg_rect = fitz.Rect(margin_from_edge, bg_rect.y0, margin_from_edge + box_width, bg_rect.y1)
+        
+        page.draw_rect(bg_rect, color=(0.8, 0, 0), fill=(1, 1, 1), width=1.5)
+        
+        # Insert correction text in bold dark red
+        text_point = fitz.Point(text_x, text_y + text_height - 3)
+        page.insert_text(
+            text_point,
+            correction_text,
+            fontsize=font_size,
+            color=(0.8, 0, 0),
+            fontname="hebo"
+        )
+    
+    src_doc.save(output_pdf_path)
+    src_doc.close()
+    
+    if spelling_errors:
+        print(f"✓ Rendered {matched_count}/{total_count} spelling/grammar annotations using PyMuPDF")
+
+
 def merge_report_and_annotated_answer(
     report_pages: List[Image.Image],
     annotated_pages: List[Image.Image],
     output_pdf_path: str,
 ) -> None:
+    """
+    Merge report pages and annotated answer pages into a final PDF.
+    """
     report_pdf = pil_images_to_pdf_bytes(report_pages)
     answer_pdf = pil_images_to_pdf_bytes(annotated_pages)
 
@@ -1388,7 +1966,7 @@ def merge_report_and_annotated_answer(
         rdoc = fitz.open("pdf", report_pdf)
         out_doc.insert_pdf(rdoc)
         rdoc.close()
-
+    
     if answer_pdf:
         adoc = fitz.open("pdf", answer_pdf)
         out_doc.insert_pdf(adoc)
@@ -1399,66 +1977,99 @@ def merge_report_and_annotated_answer(
 
 
 # -----------------------------
-# API Wrapper for Integration
+# Main
 # -----------------------------
 
 def run_essay_grading(
     pdf_path: str,
     output_json_path: str,
     output_pdf_path: str,
+    essay_rubric_docx: str = "CSS English Essay Evaluation Rubric Based on FPSC Examiners.docx",
+    annotations_rubric_docx: str = "ANNOTATIONS RUBRIC FOR ESSAY.docx",
+    report_format_docx: str = "Report Format.docx",
     ocr_workers: int = 3,
+    debug_ocr_pages_dir: str = "",
+    debug_structure_json: str = "",
+    debug_ocr_json: str = "",
     progress_callback: Optional[callable] = None,
 ) -> Dict[str, Any]:
     """
-    Wrapper function for essay grading to be called by the API.
+    Programmatic entry point for essay grading pipeline.
+    Called from API routes to grade PDFs with optional progress tracking.
     
     Args:
         pdf_path: Path to input PDF
-        output_json_path: Path to save JSON result
+        output_json_path: Path to save grading JSON
         output_pdf_path: Path to save annotated PDF
+        essay_rubric_docx: Path to essay rubric document
+        annotations_rubric_docx: Path to annotations rubric document
+        report_format_docx: Path to report format document
         ocr_workers: Number of parallel OCR workers
-        progress_callback: Optional callback function(percent, message) for progress updates
-        
+        debug_ocr_pages_dir: Directory to save OCR debug pages (empty to disable)
+        debug_structure_json: Path to save structure debug JSON (empty to disable)
+        debug_ocr_json: Path to save OCR debug JSON (empty to disable)
+        progress_callback: Optional callback function(percentage: float, message: str)
+    
     Returns:
-        Dictionary containing grading results
+        Dict with status, paths, and grading results
     """
-    def update_progress(pct: float, msg: str):
-        if progress_callback:
-            try:
-                progress_callback(pct, msg)
-            except Exception:
-                pass  # Don't fail if progress callback fails
-    
-    # Find rubric files in the eng_essay directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    essay_rubric_path = os.path.join(script_dir, "CSS English Essay Evaluation Rubric Based on FPSC Examiners.docx")
-    annotations_rubric_path = os.path.join(script_dir, "ANNOTATIONS RUBRIC FOR ESSAY.docx")
-    report_format_path = os.path.join(script_dir, "Report Format.docx")
-    
     validate_input_paths(pdf_path, output_json_path, output_pdf_path)
-    update_progress(5, "Starting evaluation...")
-    
     grok_key, doc_client = load_environment()
-    essay_rubric_text = load_essay_rubric_text(essay_rubric_path)
-    annotations_rubric_text = load_annotations_rubric_text(annotations_rubric_path)
-    report_format_text = load_report_format_text(report_format_path)
     
-    update_progress(15, "Reading your essay...")
+    essay_rubric_text = load_essay_rubric_text(essay_rubric_docx)
+    annotations_rubric_text = load_annotations_rubric_text(annotations_rubric_docx)
+    report_format_text = load_report_format_text(report_format_docx)
+
+    total_start = time.perf_counter()
+    timings: Dict[str, float] = {}
+
+    if progress_callback:
+        progress_callback(10, "Running OCR on PDF...")
+    
+    print("Running OCR (Azure Document Intelligence)...")
+    t0 = time.perf_counter()
     ocr_data = run_ocr_on_pdf(
         doc_client,
         pdf_path,
-        workers=ocr_workers if ocr_workers > 0 else 5,  # Default to 5 workers for speed
-        debug_pages_dir=None,
+        workers=ocr_workers,
+        debug_pages_dir=debug_ocr_pages_dir or None,
     )
+    timings["OCR extraction"] = time.perf_counter() - t0
+    print(f"OCR done. Time: {_format_duration(timings['OCR extraction'])}")
     
-    update_progress(35, "Analyzing structure...")
-    # Skip saving image files to disk for speed - only encode for Grok API
-    page_images = pdf_to_page_images_for_grok(pdf_path, output_dir=None)
+    if debug_ocr_json:
+        os.makedirs(os.path.dirname(debug_ocr_json), exist_ok=True)
+        with open(debug_ocr_json, "w", encoding="utf-8") as f:
+            json.dump(ocr_data, f, indent=2, ensure_ascii=False)
+
+    if progress_callback:
+        progress_callback(20, "Preparing page images...")
     
-    update_progress(45, "Understanding outline & content...")
-    structure = call_grok_for_essay_structure_paragraphs_only(grok_key, ocr_data, page_images)
+    page_images = pdf_to_page_images_for_grok(pdf_path)
+
+    if progress_callback:
+        progress_callback(30, "Analyzing essay structure...")
     
-    update_progress(60, "Evaluating quality...")
+    print("Analyzing essay structure...")
+    t0 = time.perf_counter()
+    structure = call_grok_for_essay_structure_paragraphs_only(
+        grok_key,
+        ocr_data,
+        page_images,
+    )
+    timings["Structure analysis"] = time.perf_counter() - t0
+    print(f"Structure analysis done. Time: {_format_duration(timings['Structure analysis'])}")
+    
+    if debug_structure_json:
+        os.makedirs(os.path.dirname(debug_structure_json), exist_ok=True)
+        with open(debug_structure_json, "w", encoding="utf-8") as f:
+            json.dump(structure, f, ensure_ascii=False, indent=2)
+
+    if progress_callback:
+        progress_callback(50, "Grading essay content...")
+    
+    print("Grading essay content (STRICT range marking)...")
+    t0 = time.perf_counter()
     grading = call_grok_for_essay_grading_strict_range(
         grok_key,
         essay_rubric_text=essay_rubric_text,
@@ -1467,8 +2078,25 @@ def run_essay_grading(
         structure=structure,
         page_images=page_images,
     )
+    timings["Content grading"] = time.perf_counter() - t0
+    print(f"Content grading done. Time: {_format_duration(timings['Content grading'])}")
+
+    if progress_callback:
+        progress_callback(65, "Checking spelling and grammar...")
     
-    update_progress(75, "Adding feedback...")
+    print("Detecting spelling/grammar errors...")
+    t0 = time.perf_counter()
+    spelling_errors = detect_spelling_grammar_errors(grok_key, ocr_data)
+    spelling_errors = _filter_errors(spelling_errors)
+    timings["Spelling detection"] = time.perf_counter() - t0
+    print(f"Spelling detection done. Time: {_format_duration(timings['Spelling detection'])}")
+    print(f"Found {len(spelling_errors)} spelling/grammar errors.")
+
+    if progress_callback:
+        progress_callback(70, "Generating annotations...")
+    
+    print("Generating annotations...")
+    t0 = time.perf_counter()
     ann_pack = call_grok_for_essay_annotations(
         grok_key,
         annotations_rubric_text=annotations_rubric_text,
@@ -1477,46 +2105,105 @@ def run_essay_grading(
         grading=grading,
         page_images=page_images,
     )
-    
+    timings["Annotations"] = time.perf_counter() - t0
+    print(f"Annotations done. Time: {_format_duration(timings['Annotations'])}")
+
     annotations = ann_pack.get("annotations") or []
     page_suggestions = ann_pack.get("page_suggestions") or []
     ann_errors = ann_pack.get("errors") or []
-    
-    output = {
+    print(f"Annotations: {len(annotations)}")
+    print(f"Spelling/Grammar errors: {len(spelling_errors)}")
+
+    # Save JSON
+    output_data = {
         "structure": structure,
         "grading": grading,
         "annotations": annotations,
         "page_suggestions": page_suggestions,
         "annotation_errors": ann_errors,
+        "spelling_grammar_errors": spelling_errors,
     }
-    
-    update_progress(85, "Processing results...")
     with open(output_json_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+        json.dump(output_data, f, indent=2, ensure_ascii=False)
+    print(f"Saved grading JSON → {output_json_path}")
+
+    temp_spelling_pdf = None
+    pdf_for_grading = pdf_path
+    if spelling_errors:
+        if progress_callback:
+            progress_callback(80, "Marking spelling errors on PDF...")
+        
+        print("Creating spelling-marked PDF...")
+        t0 = time.perf_counter()
+        import tempfile
+        temp_spelling_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        add_spelling_annotations_to_pdf(
+            input_pdf_path=pdf_path,
+            output_pdf_path=temp_spelling_pdf,
+            ocr_data=ocr_data,
+            spelling_errors=spelling_errors,
+        )
+        pdf_for_grading = temp_spelling_pdf
+        timings["Spelling marking"] = time.perf_counter() - t0
+        print(f"Spelling marking done. Time: {_format_duration(timings['Spelling marking'])}")
+
+    if progress_callback:
+        progress_callback(85, "Rendering report and annotations...")
     
-    update_progress(90, "Creating report...")
-    page_size = get_report_page_size(pdf_path)
+    print("Rendering report + annotations...")
+    t0 = time.perf_counter()
+    page_size = get_report_page_size(pdf_for_grading)
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
-    
-    update_progress(95, "Finalizing PDF...")
+
     annotated_pages = annotate_pdf_essay_pages(
-        pdf_path=pdf_path,
+        pdf_path=pdf_for_grading,
         ocr_data=ocr_data,
         structure=structure,
         grading=grading,
         annotations=annotations,
         page_suggestions=page_suggestions,
+        spelling_errors=None,  # Already added in step 1
     )
-    
-    merge_report_and_annotated_answer(report_pages, annotated_pages, output_pdf_path)
-    update_progress(100, "Complete! ✓")
-    
-    return output
 
+    merge_report_and_annotated_answer(
+        report_pages,
+        annotated_pages,
+        output_pdf_path,
+    )
 
-# -----------------------------
-# Main
-# -----------------------------
+    if temp_spelling_pdf:
+        try:
+            os.unlink(temp_spelling_pdf)
+        except Exception:
+            pass
+
+    timings["Rendering"] = time.perf_counter() - t0
+    print(f"Rendering done. Time: {_format_duration(timings['Rendering'])}")
+    print(f"Saved annotated PDF → {output_pdf_path}")
+
+    total_elapsed = time.perf_counter() - total_start
+    print("")
+    print("=" * 60)
+    print("ESSAY GRADING TIMING SUMMARY")
+    print("=" * 60)
+    for phase, elapsed in timings.items():
+        print(f"  {phase}: {_format_duration(elapsed)}")
+    print("-" * 60)
+    print(f"  Total essay grading time: {_format_duration(total_elapsed)}")
+    print("=" * 60)
+
+    if progress_callback:
+        progress_callback(100, "Essay grading complete!")
+
+    return {
+        "status": "success",
+        "json_path": output_json_path,
+        "pdf_path": output_pdf_path,
+        "grading": grading,
+        "timings": timings,
+        "total_time": total_elapsed,
+    }
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -1543,6 +2230,9 @@ def main():
         help="Optional path to save full OCR output for debugging",
     )
     args = parser.parse_args()
+    
+    import os
+    import tempfile
 
     validate_input_paths(args.pdf, args.output_json, args.output_pdf)
 
@@ -1552,14 +2242,19 @@ def main():
     annotations_rubric_text = load_annotations_rubric_text(args.annotations_rubric_docx)
     report_format_text = load_report_format_text(args.report_format_docx)
 
-    print("Reading your essay...")
+    total_start = time.perf_counter()
+    timings: Dict[str, float] = {}
+
+    print("Running OCR (Azure Document Intelligence)...")
+    t0 = time.perf_counter()
     ocr_data = run_ocr_on_pdf(
         doc_client,
         args.pdf,
         workers=args.ocr_workers,
         debug_pages_dir=args.debug_ocr_pages_dir or None,
     )
-    print("OCR done.")
+    timings["OCR extraction"] = time.perf_counter() - t0
+    print(f"OCR done. Time: {_format_duration(timings['OCR extraction'])}")
     if args.debug_ocr_json:
         os.makedirs(os.path.dirname(args.debug_ocr_json), exist_ok=True)
         with open(args.debug_ocr_json, "w", encoding="utf-8") as f:
@@ -1569,8 +2264,10 @@ def main():
     page_images = pdf_to_page_images_for_grok(args.pdf)
 
     print("Calling Grok for structure detection (outline first)...")
+    t0 = time.perf_counter()
     structure = call_grok_for_essay_structure_paragraphs_only(grok_key, ocr_data, page_images)
-    print("Structure detected.")
+    timings["Grok structure detection"] = time.perf_counter() - t0
+    print(f"Structure detected. Time: {_format_duration(timings['Grok structure detection'])}")
     if args.debug_structure_json:
         os.makedirs(os.path.dirname(args.debug_structure_json), exist_ok=True)
         with open(args.debug_structure_json, "w", encoding="utf-8") as f:
@@ -1578,6 +2275,7 @@ def main():
         print(f"Structure saved to {args.debug_structure_json}")
 
     print("Calling Grok for STRICT range grading...")
+    t0 = time.perf_counter()
     grading = call_grok_for_essay_grading_strict_range(
         grok_key,
         essay_rubric_text=essay_rubric_text,
@@ -1586,9 +2284,19 @@ def main():
         structure=structure,
         page_images=page_images,
     )
-    print("Grading done.")
+    timings["Strict range grading"] = time.perf_counter() - t0
+    print(f"Grading done. Time: {_format_duration(timings['Strict range grading'])}")
+    
+    
+    print("Detecting spelling and grammar errors...")
+    t0 = time.perf_counter()
+    spelling_errors = detect_spelling_grammar_errors(grok_key, ocr_data)
+    spelling_errors = _filter_errors(spelling_errors)
+    timings["Spelling and grammar detection"] = time.perf_counter() - t0
+    print(f"Found {len(spelling_errors)} spelling/grammar errors. Time: {_format_duration(timings['Spelling and grammar detection'])}")
     
     print("Calling Grok for annotations...")
+    t0 = time.perf_counter()
     ann_pack = call_grok_for_essay_annotations(
         grok_key,
         annotations_rubric_text=annotations_rubric_text,
@@ -1597,12 +2305,14 @@ def main():
         grading=grading,
         page_images=page_images,
     )
-    
+    timings["Annotations"] = time.perf_counter() - t0
+    print(f"Annotations done. Time: {_format_duration(timings['Annotations'])}")
 
     annotations = ann_pack.get("annotations") or []
     page_suggestions = ann_pack.get("page_suggestions") or []
     ann_errors = ann_pack.get("errors") or []
     print(f"Annotations: {len(annotations)}")
+    print(f"Spelling/Grammar errors: {len(spelling_errors)}")
 
     output = {
         "structure": structure,
@@ -1610,25 +2320,67 @@ def main():
         "annotations": annotations,
         "page_suggestions": page_suggestions,
         "annotation_errors": ann_errors,
+        "spelling_grammar_errors": spelling_errors,
     }
     with open(args.output_json, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     print(f"Saved JSON  {args.output_json}")
     
-    page_size = get_report_page_size(args.pdf)
+    # STEP 1–3: Rendering (spelling annotations, report + annotated pages, merge)
+    print("Rendering report and annotated PDF...")
+    t0 = time.perf_counter()
+    temp_spelling_pdf = None
+    pdf_for_grading = args.pdf
+
+    if spelling_errors:
+        temp_spelling_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        add_spelling_annotations_to_pdf(
+            input_pdf_path=args.pdf,
+            output_pdf_path=temp_spelling_pdf,
+            ocr_data=ocr_data,
+            spelling_errors=spelling_errors,
+        )
+        pdf_for_grading = temp_spelling_pdf
+
+    page_size = get_report_page_size(pdf_for_grading)
     report_pages = render_essay_report_pages_range(grading, page_size=page_size)
 
     annotated_pages = annotate_pdf_essay_pages(
-        pdf_path=args.pdf,
+        pdf_path=pdf_for_grading,
         ocr_data=ocr_data,
         structure=structure,
         grading=grading,
         annotations=annotations,
         page_suggestions=page_suggestions,
+        spelling_errors=None,  # Already added in step 1
     )
 
-    merge_report_and_annotated_answer(report_pages, annotated_pages, args.output_pdf)
+    merge_report_and_annotated_answer(
+        report_pages,
+        annotated_pages,
+        args.output_pdf,
+    )
+
+    if temp_spelling_pdf:
+        try:
+            os.unlink(temp_spelling_pdf)
+        except Exception:
+            pass
+
+    timings["Rendering"] = time.perf_counter() - t0
+    print(f"Rendering done. Time: {_format_duration(timings['Rendering'])}")
     print(f"Saved annotated PDF  {args.output_pdf}")
+
+    total_elapsed = time.perf_counter() - total_start
+    print("")
+    print("=" * 60)
+    print("ESSAY GRADING TIMING SUMMARY")
+    print("=" * 60)
+    for phase, elapsed in timings.items():
+        print(f"  {phase}: {_format_duration(elapsed)}")
+    print("-" * 60)
+    print(f"  Total essay grading time: {_format_duration(total_elapsed)}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,52 @@ except ImportError:
     from ocr_vision import run_ocr_on_pdf
     from progress_tracker import OCRProgressTracker
 
+# -------- 4. OCR Spell Correction Module --------
+print("\n" + "="*60)
+print("Initializing OCR Spell Correction Module...")
+print("="*60)
+try:
+    import importlib.util
+    
+    # Get correct path relative to this file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    spell_correction_path = os.path.join(current_dir, "ocr-spell-correction.py")
+    
+    if os.path.exists(spell_correction_path):
+        spec = importlib.util.spec_from_file_location("ocr_spell_correction", spell_correction_path)
+        if spec and spec.loader:
+            ocr_spell_module = importlib.util.module_from_spec(spec)
+            sys.modules["ocr_spell_correction"] = ocr_spell_module
+            spec.loader.exec_module(ocr_spell_module)
+            
+            # Import needed functions
+            detect_spelling_grammar_errors = ocr_spell_module.detect_spelling_grammar_errors
+            run_ocr_on_pdf_azure = ocr_spell_module.run_ocr_on_pdf
+            _filter_spell_errors = ocr_spell_module._filter_errors
+            
+            print("✓ OCR Spell Correction Module: ENABLED")
+            print(f"✓ Loaded from: {spell_correction_path}")
+        else:
+            print(f"✗ Failed to create module spec from: {spell_correction_path}")
+            print("✗ OCR Spell Correction Module: DISABLED")
+            detect_spelling_grammar_errors = None
+            run_ocr_on_pdf_azure = None
+            _filter_spell_errors = None
+    else:
+        print(f"✗ ocr-spell-correction.py not found at: {spell_correction_path}")
+        print("✗ OCR Spell Correction Module: DISABLED")
+        detect_spelling_grammar_errors = None
+        run_ocr_on_pdf_azure = None
+        _filter_spell_errors = None
+except Exception as e:
+    print(f"✗ ERROR loading OCR spell correction: {e}")
+    print(f"Traceback: {traceback.format_exc()}")
+    print("✗ OCR Spell Correction Module: DISABLED")
+    detect_spelling_grammar_errors = None
+    run_ocr_on_pdf_azure = None
+    _filter_spell_errors = None
+print("="*60 + "\n")
+
 
 # -----------------------------
 # UTILS & ENV
@@ -265,6 +311,83 @@ def _format_time(seconds: float) -> str:
         return f"{minutes} min {secs} sec"
     else:
         return f"{secs} sec"
+
+
+def _convert_spell_errors_to_annotations(
+    spell_errors: List[Dict[str, Any]],
+    ocr_data: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Convert OCR spell correction errors to annotation format.
+    
+    Args:
+        spell_errors: List of errors from detect_spelling_grammar_errors
+        ocr_data: OCR data with pages and full_text (Google Vision format)
+        
+    Returns:
+        List of annotations in the format expected by annotate_pdf_answer_pages
+    """
+    annotations = []
+    
+    # Build page text map for context extraction
+    page_texts = {}
+    for page in ocr_data.get("pages", []):
+        page_num = page.get("page_number")
+        lines = page.get("lines", [])
+        page_text = " ".join([line.get("text", "") for line in lines])
+        page_texts[page_num] = page_text
+    
+    for err in spell_errors:
+        page = err.get("page") or err.get("page_number")
+        if not page or page not in page_texts:
+            continue
+        
+        error_text = (err.get("error_text") or "").strip()
+        correction = (err.get("correction") or "").strip()
+        anchor_quote = (err.get("anchor_quote") or "").strip()
+        error_type = (err.get("type") or "spelling").lower()
+        
+        if not error_text or not correction or not anchor_quote:
+            continue
+        
+        # Extract context from anchor_quote
+        # anchor_quote format: "...context_before error_text context_after..."
+        page_text = page_texts[page]
+        
+        # Find error_text position in anchor_quote
+        error_pos_in_anchor = anchor_quote.find(error_text)
+        if error_pos_in_anchor == -1:
+            # Fallback: use whole anchor as context
+            context_before = ""
+            context_after = ""
+        else:
+            # Extract context before and after from anchor_quote
+            before_text = anchor_quote[:error_pos_in_anchor].strip()
+            after_text = anchor_quote[error_pos_in_anchor + len(error_text):].strip()
+            
+            # Get last 3-5 words from before_text
+            before_words = before_text.split()
+            context_before = " ".join(before_words[-5:]) if len(before_words) > 0 else ""
+            
+            # Get first 3-5 words from after_text
+            after_words = after_text.split()
+            context_after = " ".join(after_words[:5]) if len(after_words) > 0 else ""
+        
+        # Create annotation in the expected format
+        annotation = {
+            "type": "grammar_language",  # Use grammar_language for all spelling/grammar errors
+            "rubric_point": "grammar_language",
+            "page": page,
+            "target_word_or_sentence": error_text,
+            "context_before": context_before,
+            "context_after": context_after,
+            "correction": correction,
+            "comment": f"{error_type} error" if error_type in ["spelling", "grammar"] else "error",
+        }
+        
+        annotations.append(annotation)
+    
+    return annotations
 
 
 
@@ -1570,25 +1693,26 @@ def call_grok_for_refined_rubric_annotations(
         "       * WRONG: target='1707', correction='1707', comment='Year is correct' (DO NOT DO THIS!)\n"
         "       * CORRECT: target='1944', correction='1945', comment='Year should be 1945 not 1944'\n"
         "       * CORRECT: target='World War I', correction='World War II', comment='Should be WWII not WWI'\n\n"
-        "4) Spelling only (no grammar):\n"
-        "   - Focus ONLY on clear spelling mistakes (wrongly spelled words).\n"
-        "   - Do NOT correct grammar, sentence structure, style, or phrasing.\n"
-        "   - For each spelling issue, create type 'grammar_language' with:\n"
-        "       rubric_point = 'grammar_language',\n"
-        "       page = page where the misspelled word appears,\n"
-        "       target_word_or_sentence = EXACT misspelled word or very short span (1-3 words) from OCR,\n"
-        "       context_before = EXACT 3-5 words from OCR immediately before the misspelled word,\n"
-        "       context_after = EXACT 3-5 words from OCR immediately after the misspelled word,\n"
-        "       correction = the correctly spelled word or very short corrected phrase,\n"
-        "       comment = brief note like 'spelling error'.\n"
-        "   - Always cross-check using BOTH OCR text AND the page image:\n"
-        "       * Use ocr_full_text to locate the word,\n"
-        "       * Then visually verify the spelling directly on the page image.\n"
-        "       * If OCR and the image disagree, TRUST THE IMAGE and do NOT flag a spelling error.\n"
-        "   - Do not send entire paragraphs or long sentences as target_word_or_sentence.\n"
-        "   - If the same misspelling occurs multiple times on the same page, create a SEPARATE annotation for EACH occurrence,\n"
-        "     with different context_before and context_after for each instance.\n\n"
-        "5) Repetition:\n"
+        # COMMENTED OUT: Spelling/grammar checking now handled by OCR spell correction module
+        # "4) Spelling only (no grammar):\n"
+        # "   - Focus ONLY on clear spelling mistakes (wrongly spelled words).\n"
+        # "   - Do NOT correct grammar, sentence structure, style, or phrasing.\n"
+        # "   - For each spelling issue, create type 'grammar_language' with:\n"
+        # "       rubric_point = 'grammar_language',\n"
+        # "       page = page where the misspelled word appears,\n"
+        # "       target_word_or_sentence = EXACT misspelled word or very short span (1-3 words) from OCR,\n"
+        # "       context_before = EXACT 3-5 words from OCR immediately before the misspelled word,\n"
+        # "       context_after = EXACT 3-5 words from OCR immediately after the misspelled word,\n"
+        # "       correction = the correctly spelled word or very short corrected phrase,\n"
+        # "       comment = brief note like 'spelling error'.\n"
+        # "   - Always cross-check using BOTH OCR text AND the page image:\n"
+        # "       * Use ocr_full_text to locate the word,\n"
+        # "       * Then visually verify the spelling directly on the page image.\n"
+        # "       * If OCR and the image disagree, TRUST THE IMAGE and do NOT flag a spelling error.\n"
+        # "   - Do not send entire paragraphs or long sentences as target_word_or_sentence.\n"
+        # "   - If the same misspelling occurs multiple times on the same page, create a SEPARATE annotation for EACH occurrence,\n"
+        # "     with different context_before and context_after for each instance.\n\n"
+        "4) Repetition:\n"
         "   - If content is repeated across pages, create type 'repetition' with:\n"
         "       rubric_point = 'repetitiveness',\n"
         "       page = the page where the repeated content appears again,\n"
@@ -3701,6 +3825,94 @@ def grade_pdf_answer(
 
         annotations = refined_result.get("annotations", []) or []
         refined_summary = refined_result.get("refined_rubric_summary", []) or []
+
+        # NEW: Step 9.5: Run OCR spell correction for spelling/grammar checking
+        print("\n" + "="*60)
+        print("Step 9.5: Running OCR-based spelling and grammar checking...")
+        print("="*60)
+        spell_annotations = []
+        
+        if detect_spelling_grammar_errors is None or run_ocr_on_pdf_azure is None or _filter_spell_errors is None:
+            print("  ✗ OCR spell correction functions not available")
+            print("  ✗ Spelling/grammar checking DISABLED")
+            _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=module_not_loaded")
+        else:
+            try:
+                # Get Azure credentials from environment
+                load_dotenv()  # Reload to ensure latest values
+                azure_endpoint = os.getenv("AZURE_ENDPOINT")
+                azure_key = os.getenv("AZURE_KEY")
+                
+                print(f"  Azure Endpoint: {'✓ Found' if azure_endpoint else '✗ Missing'}")
+                print(f"  Azure Key: {'✓ Found' if azure_key else '✗ Missing'}")
+                
+                if not azure_endpoint or not azure_key:
+                    print("  ✗ Azure credentials not found in .env file")
+                    print("  ✗ Spelling/grammar checking DISABLED")
+                    print("  Hint: Add AZURE_ENDPOINT and AZURE_KEY to your .env file")
+                    _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=azure_credentials_missing")
+                else:
+                    from azure.ai.formrecognizer import DocumentAnalysisClient
+                    from azure.core.credentials import AzureKeyCredential
+                    
+                    print("  ✓ Azure credentials loaded successfully")
+                    azure_client = DocumentAnalysisClient(
+                        endpoint=azure_endpoint,
+                        credential=AzureKeyCredential(azure_key)
+                    )
+                    
+                    # Run Azure OCR (specialized for spell checking)
+                    print("  → Running Azure OCR for precise word-level detection...")
+                    azure_ocr_data = run_ocr_on_pdf_azure(azure_client, pdf_path)
+                    print(f"  ✓ Azure OCR complete: {len(azure_ocr_data.get('pages', []))} pages processed")
+                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 azure_ocr_pages={len(azure_ocr_data.get('pages', []))}")
+                    
+                    # Detect spelling/grammar errors using Grok
+                    print("  → Detecting spelling and grammar errors with Grok...")
+                    spell_errors = detect_spelling_grammar_errors(grok_key, azure_ocr_data)
+                    print(f"  ✓ Initial detection: {len(spell_errors)} potential errors found")
+                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 initial_spell_errors={len(spell_errors)}")
+                    
+                    # Filter OCR-like confusions
+                    print("  → Filtering OCR artifacts and visual confusions...")
+                    spell_errors = _filter_spell_errors(spell_errors)
+                    print(f"  ✓ After filtering: {len(spell_errors)} genuine spelling/grammar errors")
+                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 filtered_spell_errors={len(spell_errors)}")
+                    
+                    if spell_errors:
+                        # Show sample errors
+                        print("  Sample errors detected:")
+                        for i, err in enumerate(spell_errors[:3]):
+                            print(f"    {i+1}. Page {err.get('page')}: '{err.get('error_text')}' → '{err.get('correction')}'")
+                        if len(spell_errors) > 3:
+                            print(f"    ... and {len(spell_errors) - 3} more")
+                    
+                    # Convert to annotation format
+                    print("  → Converting errors to annotation format...")
+                    spell_annotations = _convert_spell_errors_to_annotations(spell_errors, ocr_data)
+                    print(f"  ✓ Converted to {len(spell_annotations)} annotations")
+                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 spell_annotations_created={len(spell_annotations)}")
+                    
+                    if len(spell_annotations) != len(spell_errors):
+                        print(f"  ⚠ Warning: {len(spell_errors) - len(spell_annotations)} errors could not be converted")
+                        _append_log(log_path, "WARN", f"request={request_id} step=9.5 conversion_failures={len(spell_errors) - len(spell_annotations)}")
+                    
+            except Exception as e:
+                print(f"  ✗ ERROR: Spell checking failed: {e}")
+                print(f"  Traceback: {traceback.format_exc()}")
+                _append_log(log_path, "ERROR", f"request={request_id} step=9.5 spell_check_error={str(e)}")
+                spell_annotations = []
+        
+        # Merge spell annotations with refined annotations
+        if spell_annotations:
+            print(f"\n  → Merging {len(spell_annotations)} spell annotations with {len(annotations)} refined annotations")
+            annotations.extend(spell_annotations)
+            print(f"  ✓ Total annotations after merge: {len(annotations)}")
+            _append_log(log_path, "INFO", f"request={request_id} step=9.5 total_annotations_after_merge={len(annotations)}")
+        else:
+            print("  ⚠ No spell annotations to merge")
+        
+        print("="*60 + "\n")
 
         def _normalize_heading_key(text: str) -> str:
             return re.sub(r"\s+", " ", (text or "").strip().lower())

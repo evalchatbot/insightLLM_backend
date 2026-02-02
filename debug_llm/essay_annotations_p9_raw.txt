@@ -1,0 +1,43 @@
+{
+  "page": 9,
+  "page_suggestions": [
+    "Correct misspellings: 'CPFC' to 'CPEC', 'Palustanis' to 'Pakistanis', 'operationalice' to 'operationalize', 'proid' to 'period'.",
+    "Fix grammar: 'canyel' to 'can yet', 'up shoot' to 'boost', 'benefit cent' to 'benefit from'.",
+    "Vary 'game changer' phrasing to avoid repetition with prior pages.",
+    "Add analysis after job claim, e.g., explain long-term economic multipliers or skill gaps."
+  ],
+  "annotations": [
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "CPFC Special Economic zones would operationalice",
+      "correction": "CPEC Special Economic Zones would operationalize",
+      "comment": "Correct 'CPFC' to 'CPEC', capitalize 'Zones', fix 'operationalice' to 'operationalize' for formal accuracy."
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "millions of Palustanis would get benefit cent of this situation",
+      "correction": "millions of Pakistanis would benefit from this situation",
+      "comment": "Fix 'Palustanis' to 'Pakistanis' and 'benefit cent' to 'benefit from' for spelling and idiomatic correctness."
+    },
+    {
+      "page": 9,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "CPFC game changing character shines bright",
+      "correction": "CPEC's transformative character shines bright",
+      "comment": "Replace repetitive 'game changing' (echoes prior 'game changer') with 'transformative' to eliminate redundancy."
+    },
+    {
+      "page": 9,
+      "type": "argumentation_depth",
+      "rubric_point": "OVERALL ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "bringing within Pakistan huge employment upto 200,000 jobs over the proid of years of its development",
+      "correction": "bringing huge employment of up to 200,000 jobs over the period of its development",
+      "comment": "Expand descriptive job claim with critical analysis of quality, sustainability, or limitations instead of assertion."
+    }
+  ]
+}
