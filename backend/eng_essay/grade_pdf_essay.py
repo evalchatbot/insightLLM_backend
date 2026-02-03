@@ -1601,20 +1601,20 @@ def render_essay_report_pages_range(
     doc = fitz.open()
     page = doc.new_page(width=W_pt, height=H_pt)
     
-    # Font sizes in points
-    title_size = 31
-    header_size = 19
-    cell_size = 15
+    # Font sizes in points (balanced for readability and page filling)
+    title_size = 28
+    header_size = 16
+    cell_size = 13
     
     print(f"Essay report font sizes: title={title_size}pt, header={header_size}pt, cell={cell_size}pt")
     
     # Margins and layout
-    margin = W_pt * 0.06
+    margin = W_pt * 0.055
     y = margin
     
     # Column widths (proportional to page width)
-    col_criterion = W_pt * 0.25
-    col_alloc = W_pt * 0.09
+    col_criterion = W_pt * 0.27
+    col_alloc = W_pt * 0.085
     col_award = W_pt * 0.10
     col_comments = W_pt - margin * 2 - (col_criterion + col_alloc + col_award)
     
@@ -1665,7 +1665,7 @@ def render_essay_report_pages_range(
     # Table header
     table_x = margin
     table_w = W_pt - 2 * margin
-    row_h = 40
+    row_h = 36
     
     headers = ["Criterion", "Total Marks", "Marks Range", "Key Comments"]
     header_rect = fitz.Rect(table_x, y, table_x + table_w, y + row_h)
@@ -1674,7 +1674,7 @@ def render_essay_report_pages_range(
     x = table_x
     splits = [col_criterion, col_alloc, col_award, col_comments]
     for i, htxt in enumerate(headers):
-        page.insert_text((x + 5, y + 25), htxt, fontname="hebo", fontsize=header_size, color=(0, 0, 0))
+        page.insert_text((x + 5, y + 23), htxt, fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         x += splits[i]
         if i < len(headers) - 1:
             page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=2)
@@ -1695,7 +1695,7 @@ def render_essay_report_pages_range(
         crit_chars_per_line = int((col_criterion - 10) / (cell_size * 0.5))
         crit_lines = max(1, (len(crit) + crit_chars_per_line - 1) // crit_chars_per_line)
         
-        row_h = max(40, max(comment_lines, crit_lines) * cell_size * 1.6)
+        row_h = max(35, max(comment_lines, crit_lines) * cell_size * 1.55)
         
         # Alternating row color
         fill_color = (0.8, 0.8, 0.8) if idx % 2 == 0 else (1, 1, 1)
@@ -1706,7 +1706,7 @@ def render_essay_report_pages_range(
         x = table_x
         
         # Criterion (with wrapping)
-        crit_y = y + 20
+        crit_y = y + 18
         crit_words = crit.split()
         crit_line = ""
         for word in crit_words:
@@ -1715,7 +1715,7 @@ def render_essay_report_pages_range(
             if text_width > col_criterion - 10:
                 if crit_line:
                     page.insert_text((x + 5, crit_y), crit_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
-                    crit_y += cell_size * 1.4
+                    crit_y += cell_size * 1.35
                 crit_line = word + " "
             else:
                 crit_line = test_line
@@ -1726,17 +1726,17 @@ def render_essay_report_pages_range(
         page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
         
         # Total Marks
-        page.insert_text((x + 5, y + 20), alloc, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        page.insert_text((x + 5, y + 18), alloc, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
         x += col_alloc
         page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
         
         # Marks Range
-        page.insert_text((x + 5, y + 20), award_range, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
+        page.insert_text((x + 5, y + 18), award_range, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
         x += col_award
         page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
         
         # Key Comments (with wrapping)
-        comment_y = y + 20
+        comment_y = y + 18
         comment_words = comments.split()
         comment_line = ""
         for word in comment_words:
@@ -1745,7 +1745,7 @@ def render_essay_report_pages_range(
             if text_width > col_comments - 10:
                 if comment_line:
                     page.insert_text((x + 5, comment_y), comment_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
-                    comment_y += cell_size * 1.4
+                    comment_y += cell_size * 1.35
                 comment_line = word + " "
             else:
                 comment_line = test_line
@@ -1755,7 +1755,7 @@ def render_essay_report_pages_range(
         y += row_h
     
     # Add bullet sections
-    y += 30
+    y += 28
     
     def draw_bullet_section(title: str, bullets: List[str]) -> None:
         nonlocal y
@@ -1778,7 +1778,7 @@ def render_essay_report_pages_range(
                     if bullet_line:
                         prefix = "" if not first_line else ""
                         page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
-                        y += header_size * 1.4
+                        y += header_size * 1.35
                         first_line = False
                     bullet_line = word + " "
                 else:
@@ -1786,9 +1786,9 @@ def render_essay_report_pages_range(
             if bullet_line:
                 prefix = "" if not first_line else ""
                 page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
-                y += header_size * 1.4
+                y += header_size * 1.35
             y += 10
-        y += 20
+        y += 18
     
     draw_bullet_section("Reasons for Low Score", grading.get("reasons_for_low_score", []))
     draw_bullet_section("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus", []))
