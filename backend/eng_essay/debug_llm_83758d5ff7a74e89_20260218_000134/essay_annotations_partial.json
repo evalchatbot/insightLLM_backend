@@ -1,0 +1,1188 @@
+{
+  "annotations": [
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "OR FEULLING WARP",
+      "correction": "OR FUELLING WAR",
+      "comment": "Spelling errors 'FEULLING WARP'; correct to 'fuelling war' for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "By strengthening strategic uncertainty among great powers intensifying security dilemma and promoting bloc politics, multipolarity is inadvertently fuelling war.",
+      "correction": "By strengthening strategic uncertainty among great powers, intensifying the security dilemma and promoting bloc politics, multipolarity is inadvertently fuelling war.",
+      "comment": "Missing comma after 'powers' and article 'the'; insert for proper clause separation and grammar.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "(a). Multipolarity strengthens strategic uncertainty among great powers. · US-China - Russia competition.",
+      "correction": "(a). Multipolarity strengthens strategic uncertainty among great powers, e.g., US-China-Russia competition heightens miscalculation risks and fuels war.",
+      "comment": "Sub-point descriptive only; add analytical depth explaining war linkage.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "By strengthening strategic uncertainty among great powers intensifying security dilemma and promoting bloc politics, multipolarity is inadvertently fuelling war. Nevertheless, by empowering international institutions and prioritizing soft power, peace can be maintained ..",
+      "correction": "By strengthening strategic uncertainty among great powers, intensifying the security dilemma, and promoting bloc politics, multipolarity inadvertently fuels war; nevertheless, empowering institutions and soft power can maintain peace.",
+      "comment": "Thesis vague in structure due to grammar; punctuate clearly and balance war/peace preview.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "Outline",
+      "anchor_quote": "(9). Nationalist militarism surges due to the rise of middle powers .. · Middle powers asserting regional influence . (h)",
+      "correction": "(g). Nationalist militarism surges due to the rise of middle powers. · Middle powers asserting regional influence fuels nationalist militarism by [brief analysis]. (h)",
+      "comment": "Lettering inconsistencies (e.g., '(9)' instead of '(g)') confuse structure; use consistent sequential lettering.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "Outline",
+      "anchor_quote": "(1). Multipolarity fuels financial pluralism heightening financial security dilemma.",
+      "correction": "(i). Multipolarity fuels financial pluralism, heightening financial security dilemma and risking economic wars.",
+      "comment": "Point indirectly addresses prompt; explicitly link financial pluralism to fueling war via economic conflict.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "· Middle powers asserting regional influence .",
+      "correction": "· Middle powers asserting regional influence escalates nationalist militarism through [cause-effect analysis].",
+      "comment": "Sub-point merely descriptive and lacks analytical depth; add cause-effect on how it fuels war.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "Outline",
+      "anchor_quote": "(j) Multipolarity intensifies ideological and normative competition. · Liberalism Vs. Authoritarianism V 1 - conflict IV STRATEGIC MEASURES TO PROMOTE PEACE (a). Strengthening and empowering international institutions to mediate conflicts. . Role of the United Nations (0)",
+      "correction": "Standardize to sequential lettering (i), (j), (a), (b)",
+      "comment": "Inconsistent lettering (e.g., '(j)' to '(a)', '(0)') confuses structure; use sequential alphabetical order.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "(0) Promoting preventing diplomacy to resolve conflicts before they escalate into war.",
+      "correction": "Promoting preventive diplomacy",
+      "comment": "Redundant 'preventing'; use 'preventive diplomacy' for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "· The 2015 Iran-US backchannel diplomacy in Oman (C), Prioritizing soft power engagement to reduce hostility among rival powers. · The Ping Pong Diplomacy (1971) (d), Managing great power competition through controlled rivalry and crisis management protocols",
+      "correction": "Add analysis e.g., 'JCPOA via backchannel reduced nuclear escalation risks by...'",
+      "comment": "Sub-points list descriptive examples without analytical depth; link each to specific war prevention mechanism.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "Outline",
+      "anchor_quote": "IV STRATEGIC MEASURES TO PROMOTE PEACE (a). Strengthening and empowering international institutions to mediate conflicts.",
+      "correction": "Expand with 7-9 sub-points matching fuels war section",
+      "comment": "Peace measures underdeveloped vs. lengthy fuels war section; add balanced sub-points for comprehensive coverage.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "outline_quality",
+      "rubric_point": "Flag if sub-points/arguments in the outline are merely descriptive and lack analytical depth",
+      "anchor_quote": "(6), Reducing nuclear risks through updated treaties, no-first use pledges and de-escalation mechanisms",
+      "correction": "Add analysis e.g., 'mitigates strategic uncertainty via verification'.",
+      "comment": "Descriptive list lacks depth; explain how measures counter multipolarity war risks.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Spelling errors",
+      "anchor_quote": "The US-Russia New Start Tred",
+      "correction": "'Treaty'",
+      "comment": "Misspelled 'Tred'; correct to 'Treaty' for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Spelling and grammar errors",
+      "anchor_quote": "In a nutshell, as the world transitions towards multipolarit the risks of entanglements surge. To address there challenges shared global cooperation remains imperative.",
+      "correction": "'multipolarity'; 'these'",
+      "comment": "Spelling errors 'multipolarit', 'there'; correct to 'multipolarity', 'these challenges'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion & Overall Impression",
+      "anchor_quote": "In a nutshell, as the world transitions towards multipolarit the risks of entanglements surge. To address there challenges shared global cooperation remains imperative.",
+      "correction": "",
+      "comment": "Vague summary lacks thesis restatement; add synthesis of key arguments and call to action.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "It is oply quoted by Henry Kissinger in his book World Order\", \"Multipolar systems are the most prone to war because they contain the greatest potential for miscalculations",
+      "correction": "Address essay prompt on multipolarity promoting peace or fuelling war, then state clear thesis before quotes.",
+      "comment": "Introduction starts with quote instead of prompt terms and thesis; begin with topic interpretation and explicit stance upfront.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Multipolarity, by strengthening strategic uncertainty among great powers, intensifying security dilemma and promoting bloc politics is inadvertently fuelling war",
+      "correction": "Multipolarity, by strengthening strategic uncertainty among great powers, intensifying the security dilemma, and promoting bloc politics, is inadvertently fuelling war.",
+      "comment": "Fix parallel structure in gerund list by adding 'the', commas, and conjunction for subject-verb agreement.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Along with this as the world transitions towards multipolarity the threat of bloc politics, return of hard power and global supply chain disruption have become inevitable.",
+      "correction": "Along with this, the threat of bloc politics, return of hard power, and global supply chain disruption have become inevitable.",
+      "comment": "Remove repeated 'as the world transitions towards multipolarity' (echoes prior sentence) to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "From Samuel P. Huntington's \"Clash of Civilization\" to Henry Kissinger's \"World Order\" and Fareed Zakaria's \"Ten Lessons for the Post Pandemic World\" all converge to say that multipolarity fuels war by intensifying ideological confrontation restoring competitive great-power politics and weakening global institutions.",
+      "correction": "Limit to one key quote; provide concise preview of main arguments (e.g., fuels war points, peace measures).",
+      "comment": "Excessive quotes bury thesis and lack argument overview; condense quotes and outline key sections explicitly.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Before charting the forward it is imperative path to understand multipolarity",
+      "correction": "Before charting the forward path, it is imperative to understand multipolarity.",
+      "comment": "Awkward phrasing and word order; rearrange into a complete, clear sentence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Multipolarity is af distribution of \"power",
+      "correction": "Multipolarity is a distribution of power",
+      "comment": "Spelling error 'af' instead of 'a'; correct for readability and accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "zero. sum game",
+      "correction": "zero-sum game",
+      "comment": "Missing hyphen and extra period; use 'zero-sum game' for standard terminology.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This highlights that multipolarity drags nations in a zero. sum game.",
+      "correction": "",
+      "comment": "Descriptive claim lacks analysis; explain cause-effect link to war risks with evidence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "with the emergence of China in 2008",
+      "correction": "with China's emergence (e.g., post-2008 global financial crisis)",
+      "comment": "Vague date lacks source or context; attribute to specific event like 2008 Olympics or crisis.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "Meanwhile, the emergence of Russia and its anti-western doctrine have instigated the return of hard power, escalating the risks of miscalculations and mistrust.",
+      "correction": "Change 'have instigated' to 'has instigated'",
+      "comment": "Subject-verb agreement error with singular 'emergence'; use 'has' for consistency.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "As Ronald Reagan notes in his book \"An American Life\" \"Multipolarity intensifies the Thucydides Trap because several rising powers challenge several established ones simultaneously.\"",
+      "correction": "Reattribute to Graham Allison or verify source",
+      "comment": "Incorrect attribution: Thucydides Trap coined by Allison in 2011 after Reagan's death; cite reliable source.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "due to multipolarity one of the most significant features of multipolarity is that it strengthens strategic uncertainty among great powers.",
+      "correction": "Rephrase to 'one key feature is that it strengthens'",
+      "comment": "Unnecessary repetition of 'multipolarity' in one sentence; consolidate for conciseness.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "paragraph_flow",
+      "rubric_point": "LOGICAL FLOW OF A PARAGRAPH",
+      "anchor_quote": "Having highlighted the term multipolarity, it is now crucial to underline the potential faultlines that can fuel war.",
+      "correction": "Add topic sentence linking to prior context",
+      "comment": "Transition feels abrupt without clear topic sentence; start paragraph with explicit point (a) reference.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Russia as a counterweight to the established unipolar hegemony of the us have fuelled strategy uncertainty",
+      "correction": "Russia as a counterweight to the established unipolar hegemony of the US has fuelled strategic uncertainty",
+      "comment": "Fix subject-verb agreement ('have' to 'has'), capitalize 'US', correct 'strategy' to 'strategic'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "locked them in a zero-cum game",
+      "correction": "locked them in a zero-sum game",
+      "comment": "Correct misspelling 'zero-cum' to 'zero-sum'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "one of the most militarized and volatile region of the world",
+      "correction": "one of the most militarized and volatile regions of the world",
+      "comment": "Change 'region' to 'regions' for plural agreement with 'one of the most...'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "escalating the risks of full-scale war. ... lead to a full- scale war.",
+      "comment": "Repeated emphasis on 'full-scale war' risks; consolidate examples to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 8,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "The military buildup of one state creates a security dilemma in other states which contributes to an arms race.",
+      "comment": "Descriptive explanation lacks critical analysis of cause-effect or evidence; add specific data or evaluation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 9,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "The alliances system of Otto von Bismarck sowed the seeds of the World War II.",
+      "correction": "The alliance system of Otto von Bismarck sowed the seeds of World War I.",
+      "comment": "Factual error: Bismarck's system led to WWI, not WWII; correct historical reference.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "ideological quarantees",
+      "correction": "ideological guarantees",
+      "comment": "Spelling error 'quarantees'; correct to 'guarantees'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "the most devastation world wars",
+      "correction": "the most devastating world wars",
+      "comment": "Grammatical issue: use 'devastating' (adjective) instead of 'devastation' (noun).",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "pre-Ww2",
+      "correction": "pre-WWII",
+      "comment": "Spelling inconsistency; standardize to 'pre-WWII'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "promotes alliances and counter- alliances and instigates bloc politics. As witnessed in the pre-WWI and pre-Ww2 era, the emergence of alliances and counter-alliances",
+      "correction": "promotes alliances and counter-alliances, instigating bloc politics. As witnessed in the pre-WWI and pre-WWII eras, such emergence",
+      "comment": "Repetition of 'alliances and counter-alliances'; consolidate phrasing to avoid redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Russia has initiated to invade eastern European territories",
+      "correction": "Russia initiated an invasion of eastern European territories",
+      "comment": "Incorrect verb construction 'initiated to invade'; change to 'initiated an invasion of' for proper grammar.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "consensus-building in global institution.",
+      "correction": "consensus-building in global institutions.",
+      "comment": "Singular 'institution' mismatches plural context; use 'institutions' for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "The Russian invasion of Ukraine on February 24, 2022",
+      "correction": "The Russian invasion of Ukraine on February 24, 2022 (source: UN report)",
+      "comment": "Factual date lacks source attribution; add reliable reference like UN or news outlet.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "The transformation of Iran- Israel conflict from covert operations to full- scale confrontation",
+      "correction": "The transformation of the Iran-Israel conflict from covert operations to full-scale confrontation exemplifies...",
+      "comment": "Abrupt incomplete ending; finish sentence and add transition to maintain flow.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Multipolarity exacerbates the return of hard power.",
+      "correction": "Multipolarity exacerbates the return of hard power by enabling multiple actors to pursue aggressive deterrence.",
+      "comment": "Descriptive claim lacks analysis; add cause-effect explanation of multipolarity's role.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "igniting a way that will not only have regional repercussions but also global consequences.",
+      "correction": "igniting a war that will not only have regional repercussions but also global consequences.",
+      "comment": "Typo 'way' should be 'war'; replace to correctly describe conflict escalation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "This highlights that how a multipolar world opens channels of covert and intelligence.",
+      "correction": "This highlights how a multipolar world opens channels of covert and intelligence.",
+      "comment": "Redundant 'that how'; remove 'that' for grammatical correctness.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "the proxy conflicts in the Middle East.",
+      "correction": "",
+      "comment": "Repeated 'proxy conflicts in the Middle East' twice; consolidate to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "Such operations contribute to regional instability and can also drag great powers ,thereby igniting a way that will not only have regional repercussions but also global consequences.",
+      "correction": "",
+      "comment": "Descriptive proxy example lacks critical cause-effect analysis; add evaluation of escalation mechanisms.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "such states contect for regional autonomy",
+      "correction": "such states contest for regional autonomy",
+      "comment": "Spelling error 'contect' should be 'contest'; fix to ensure professional readability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "in pre- WWII erg.",
+      "correction": "in pre-WWII era.",
+      "comment": "Incomplete/abbreviated 'erg.' should be 'era'; expand and punctuate properly.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "disrupt global supply chains thereupon heralding economic shocks and inflation",
+      "correction": "disrupt global supply chains, leading to economic shocks and inflation",
+      "comment": "Repeated phrase 'disrupt global supply chains' from prior sentence; vary wording to reduce redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "With the rise of middle powers such as India, Brazil, Turkey, South Africa and Saudi Arabia the world order has become more complex.",
+      "correction": "With the rise of middle powers such as India, Brazil, Turkey, South Africa, and Saudi Arabia exerting regional influence through rearmament, the world order has become more complex and prone to nationalist conflicts.",
+      "comment": "Listing middle powers is descriptive; add cause-effect analysis on how they fuel militarism.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "Therefore, multipolarity is fuelling nationalism as it did. in pre- WWII erg. Multipolarity escalates economic contestation thereby disrupting global supply chains",
+      "comment": "Abrupt shift from nationalism to economic contestation mixes ideas; add transition or split paragraphs.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "The multipolar world challenger the hegemony of the US dollar",
+      "correction": "The multipolar world challenges the hegemony of the US dollar",
+      "comment": "Subject-verb agreement error; change 'challenger' to 'challenges'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "Such initiative have triggered a financial security dilemma",
+      "correction": "Such initiatives have triggered a financial security dilemma",
+      "comment": "Subject-verb mismatch and singular/plural error; use 'initiatives have'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "heighteningfinancial security - dilemma.",
+      "correction": "heightening financial security dilemma.",
+      "comment": "Missing space and poor formatting; insert space after 'heightening' and remove dashes.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "cartographing alternatives the world is slowly paring the way",
+      "correction": "charting alternatives, the world is slowly paving the way",
+      "comment": "Spelling errors and run-on; correct to 'charting', add comma, change 'paring' to 'paving'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "can potentially fuel wat",
+      "correction": "can potentially fuel war",
+      "comment": "Spelling error 'wat'; replace with 'war' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "As witnessed in the Cold War, the United States and the USSR were largely dragged into war due to their ideological differences",
+      "correction": "As seen in the Cold War, ideological differences fueled US-USSR tensions and proxy wars but not direct conflict",
+      "comment": "Inaccurate; Cold War had no direct war between superpowers; specify proxy conflicts instead.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "\"The most destructive conflicte in history grose from ideological confrontations.\"",
+      "correction": "\"The most destructive conflict in history arose from ideological confrontations.\"",
+      "comment": "Spelling errors 'conflicte' and 'grose'; correct to 'conflict' and 'arose'; verify quote source.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "authorianism propagated by China",
+      "correction": "authoritarianism propagated by China",
+      "comment": "Spelling error 'authorianism'; correct to 'authoritarianism'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "genstrategic and geoeconomic tools",
+      "correction": "geostrategic and geoeconomic tools",
+      "comment": "Spelling error 'genstrategic'; correct to 'geostrategic'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "now the task potential there has to chart a path forward that can ensure shared good",
+      "correction": "now the task at hand is to chart a path forward that can ensure shared good",
+      "comment": "Awkward phrasing confuses meaning; reword for clarity and grammatical correctness",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "empour UN as a neutral global institute",
+      "correction": "empower UN as a neutral global institute",
+      "comment": "Spelling error 'empour'; correct to 'empower' for accuracy",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "To quote Henry Cobat, \"The primary the fundamental the essential , purpose of the United Nations is to promote peace.\"",
+      "correction": "Correctly attribute quote to verified source (e.g., UN Charter or accurate author)",
+      "comment": "Misattributed and garbled quote; verify source and attribute properly",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "Preventive diplomacy uses early- warning systems shuttle diplomam mediation and confidence-building",
+      "correction": "Preventive diplomacy uses early-warning systems, shuttle diplomacy, mediation, and confidence-building measures",
+      "comment": "Abrupt ending and run-on; complete sentence with punctuation and transition to next idea",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Frequent grammar errors; spelling errors",
+      "anchor_quote": "backcharmel diplomacy in Oman",
+      "correction": "backchannel diplomacy in Oman",
+      "comment": "Spelling error: change 'backcharmel' to 'backchannel'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Frequent grammar errors; spelling errors",
+      "anchor_quote": "his helped both nations to address their concerns",
+      "correction": "This helped both nations to address their concerns",
+      "comment": "Typo and capitalization: change 'his helped' to 'This helped'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Frequent grammar errors; spelling errors",
+      "anchor_quote": "Track I and Track IL diplomacy reduce misperceptions",
+      "correction": "Track I and Track II diplomacy reduces misperceptions",
+      "comment": "Spelling and subject-verb agreement: fix 'IL' to 'II' and 'reduce' to 'reduces'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Frequent grammar errors; spelling errors",
+      "anchor_quote": "soft Dower engagement to reduce hostility",
+      "correction": "soft power engagement to reduce hostility",
+      "comment": "Spelling error: change 'Dower' to 'power'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Frequent grammar errors; spelling errors",
+      "anchor_quote": "Soft power remains the cornerstore of peaceful coexistence",
+      "correction": "Soft power remains the cornerstone of peaceful coexistence",
+      "comment": "Spelling error: change 'cornerstore' to 'cornerstone'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 17,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "educational and technological exchanger builds trust among nations",
+      "correction": "educational and technological exchange builds trust among nations",
+      "comment": "Correct misspelling 'exchanger' to 'exchange' for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 17,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "When people to people ties remain open and stakes are shared ,",
+      "correction": "When people-to-people ties remain open and stakes are shared,",
+      "comment": "Add hyphens to 'people-to-people ties' and adjust comma for proper grammar.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 17,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "As the US. China and US-Russia rivalries intensify the risks of miscalculation grow.",
+      "correction": "As the US-China and US-Russia rivalries intensify, the risks of miscalculation grow.",
+      "comment": "Fix 'US. China' to 'US-China' and add comma after 'intensify' for correct punctuation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 17,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "The US-China military hotline restored in 2024 after years of communication freeze helped prevent naval",
+      "correction": "",
+      "comment": "Attribute source for 2024 US-China hotline restoration to ensure verifiability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 17,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Henceforth, by undertaking sovereignty and national interests of states , peaceful multipolar world can sustain:",
+      "correction": "Henceforth, by respecting the sovereignty and national interests of states, a peaceful multipolar world can be sustained.",
+      "comment": "Revise awkward phrasing and add article 'a'/'the' for grammatical clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 18,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "no-frist use pledges",
+      "correction": "no-first-use pledges",
+      "comment": "Spelling error; correct 'no-frist' to 'no-first-use' for standard terminology.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 18,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "vodating Cold War arms control treaties",
+      "correction": "updating Cold War arms control treaties",
+      "comment": "Spelling error; correct 'vodating' to 'updating' to indicate treaty renewal.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 18,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "no-first use doctrines increasing transparency in nuclear deployments and modernizing nuclear risk hotlines",
+      "correction": "no-first-use doctrines, increasing transparency in nuclear deployments, and modernizing nuclear risk hotlines",
+      "comment": "Run-on list; add commas and 'and' for parallel structure and readability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 18,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "The US - Russia New START Treaty (2010) extended till 2026 capped deployed nuclear warheads and included",
+      "correction": "The US-Russia New START Treaty (2010), extended till 2026, capped deployed nuclear warheads and included verification mechanisms.",
+      "comment": "Abrupt ending; complete sentence with verification details and smooth transition.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 18,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Lastly reducing nuclear risks through updated treaties, no-frist use pledges and de- escalation mechanisms.",
+      "correction": "",
+      "comment": "Descriptive list lacks analysis; explain cause-effect on mitigating multipolar nuclear risks.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 19,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion & Overall Impression",
+      "anchor_quote": "Nonetheless, a peaceful multipolar world does",
+      "correction": "Nonetheless, a peaceful multipolar world does not remain a distant dream.",
+      "comment": "Abrupt ending mid-sentence weakens impact; complete with strong synthesis of risks and peace path.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 19,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "multipolarin has strengthened strategic uncertainty among great powers",
+      "correction": "multipolarity has strengthened strategic uncertainty among great powers",
+      "comment": "Spelling error 'multipolarin' to 'multipolarity'; correct for clarity and consistency.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 19,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "multipolarty has intensified arms race",
+      "correction": "multipolarity has intensified arms race",
+      "comment": "Spelling error 'multipolarty' to 'multipolarity'; proofread summary for errors.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 19,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "In a nutshell, multipolarin has strengthened strategic uncertainty among great powers which holds the potential to fuel war. Furthermore, by intensifying security dilemma, multipolarty has intensified arms race",
+      "correction": "",
+      "comment": "Repeats body arguments verbatim; synthesize into concise insights instead of listing.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 19,
+      "type": "paragraph_flow",
+      "rubric_point": "LOGICAL FLOW OF A PARAGRAPH",
+      "anchor_quote": "Additionally, multipolarity accelerates proxy conflicts indirect warfare and intelligence. led operations. This compell rival dates to take reactive actions,",
+      "correction": "Additionally, multipolarity accelerates proxy conflicts, indirect warfare, and intelligence-led operations. This compels rival states to take reactive actions,",
+      "comment": "Fragmented phrasing and abrupt jumps; use proper connectors and complete sentences for smooth flow.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 20,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "not remains a distant dream",
+      "correction": "peace does not remain a distant dream",
+      "comment": "Sentence fragment with subject-verb error; complete and correct to 'peace does not remain a distant dream'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 20,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "adopting preventing diplomacy",
+      "correction": "adopting preventive diplomacy",
+      "comment": "Spelling error; change 'preventing' to 'preventive' for correct term.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 20,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion Quality",
+      "anchor_quote": "By institutionalizing global cooperation through unbiased global institutions, adopting preventing diplomacy and prioritizing soft power engagement, the world can peacefully transition toward multipolarity.",
+      "correction": "By institutionalizing global cooperation through unbiased global institutions, adopting preventive diplomacy, and prioritizing soft power engagement—countering strategic uncertainty and bloc politics—the world can peacefully transition toward multipolarity.",
+      "comment": "Restates peace path but lacks synthesis of war risks; integrate recap of key fuels-of-war points for cohesive close.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 20,
+      "type": "organization_coherence",
+      "rubric_point": "Organization & Coherence",
+      "anchor_quote": "As Ronald Reagan remarked, \"Peace is not the absence of conflicts, but the ability to handle conflicts by peaceful means.\"",
+      "correction": "As Ronald Reagan remarked in 'An American Life,' 'Peace is not the absence of conflicts, but the ability to handle conflicts by peaceful means'—echoing the need to manage multipolarity's fault lines.",
+      "comment": "Quote provides thoughtful end but abrupt; link explicitly to essay thesis and risks for better cohesion.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    }
+  ],
+  "page_suggestions": [
+    {
+      "page": 1,
+      "suggestions": [
+        "Correct 'FEULLING WARP' to 'fuelling war' in topic title.",
+        "Add comma after 'great powers' and 'the' before 'security dilemma' in thesis.",
+        "Expand outline sub-points (a)-(b) with analytical links to war risks.",
+        "Revise thesis punctuation, e.g., fix '..' to '.' and ensure clause separation."
+      ]
+    },
+    {
+      "page": 2,
+      "suggestions": [
+        "Standardize inconsistent lettering like '(9)', '(h)', '(1)' to sequential '(g)', '(h)', '(i)'",
+        "Add analytical depth to descriptive sub-points like 'Middle powers asserting regional influence'",
+        "Explicitly link indirect points like financial pluralism to how multipolarity fuels war",
+        "Balance fuels-war section length with peace measures in later outline pages"
+      ]
+    },
+    {
+      "page": 3,
+      "suggestions": [
+        "Standardize inconsistent lettering like '(j)', '(0)', '(C)' to sequential (a)-(k)",
+        "Replace 'Promoting preventing diplomacy' with 'Promoting preventive diplomacy'",
+        "Expand peace measures sub-points with analytical explanations of how they counter war risks",
+        "Balance fuels war and peace sections by adding more details to peace countermeasures"
+      ]
+    },
+    {
+      "page": 4,
+      "suggestions": [
+        "Correct 'Tred' to 'Treaty' and specify 'New START Treaty'.",
+        "Fix 'multipolarit' to 'multipolarity' and 'there challenges' to 'these challenges'.",
+        "Expand outline point (6) with analysis linking measures to multipolarity risks.",
+        "Develop conclusion summary to restate thesis and synthesize war/peace arguments."
+      ]
+    },
+    {
+      "page": 5,
+      "suggestions": [
+        "Start introduction by addressing prompt key terms and state thesis before quotes.",
+        "Revise thesis sentence for parallel structure and grammar: add 'the' before 'security dilemma', commas in gerund list.",
+        "Eliminate repetition of 'world transitioning towards multipolarity' phrase.",
+        "Limit quotes to one and add concise overview of main arguments/sections."
+      ]
+    },
+    {
+      "page": 6,
+      "suggestions": [
+        "Restructure 'Before charting the forward it is imperative path to understand multipolarity' for clarity",
+        "Correct 'af' to 'a' in Huntington's definition of multipolarity",
+        "Hyphenate 'zero. sum game' as 'zero-sum game' and fix punctuation",
+        "Add source or context for 'emergence of China in 2008' claim"
+      ]
+    },
+    {
+      "page": 7,
+      "suggestions": [
+        "Correct subject-verb agreement in 'emergence of Russia...have instigated' to 'has instigated'",
+        "Verify Reagan quote attribution for Thucydides Trap and attribute to Graham Allison if accurate",
+        "Eliminate repetition of 'multipolarity' in opening sentence of point (a)",
+        "Strengthen analysis of Thucydides Trap with cause-effect beyond quote"
+      ]
+    },
+    {
+      "page": 8,
+      "suggestions": [
+        "Correct subject-verb agreement and spelling in 'Russia as a counterweight to the established unipolar hegemony of the us have fuelled strategy uncertainty' to 'has fuelled strategic uncertainty'.",
+        "Replace 'zero-cum game' with 'zero-sum game' for accuracy.",
+        "Change 'volatile region' to 'volatile regions' to match plural context.",
+        "Consolidate repeated references to 'full-scale war' to reduce redundancy."
+      ]
+    },
+    {
+      "page": 9,
+      "suggestions": [
+        "Correct factual error: Bismarck's alliances sowed seeds of WWI, not WWII.",
+        "Fix spelling: 'quarantees' to 'guarantees', 'Ww2' to 'WWII', 'institutionals' to 'institutions'.",
+        "Revise 'most devastation world wars' to 'most devastating world wars' for proper adjective use.",
+        "Replace repetitive 'counter-alliances' phrasing and clarify 'resisting on' to 'resting on'."
+      ]
+    },
+    {
+      "page": 10,
+      "suggestions": [
+        "Revise 'Russia has initiated to invade' to 'Russia initiated an invasion of' for grammatical accuracy",
+        "Pluralize 'global institution' to 'global institutions' to fit context",
+        "Cite reliable source for 'Russian invasion of Ukraine on February 24, 2022' fact",
+        "Complete 'Iran-Israel conflict' sentence and analyze its link to multipolarity fueling hard power"
+      ]
+    },
+    {
+      "page": 11,
+      "suggestions": [
+        "Correct 'igniting a way' to 'igniting a war'",
+        "Remove 'that' from 'highlights that how' to fix redundancy",
+        "Consolidate repeated 'proxy conflicts in the Middle East' phrases",
+        "Add cause-effect analysis to proxy conflict example for deeper argumentation"
+      ]
+    },
+    {
+      "page": 12,
+      "suggestions": [
+        "Correct spelling 'contect' to 'contest' and 'erg.' to 'era' for clarity",
+        "Rephrase repeated 'disrupt global supply chains' to avoid redundancy",
+        "Add analytical depth to middle powers list with specific cause-effect examples",
+        "Split nationalism and economic contestation into separate paragraphs with transitions"
+      ]
+    },
+    {
+      "page": 13,
+      "suggestions": [
+        "Correct 'challenger' to 'challenges' in US dollar hegemony sentence",
+        "Fix subject-verb agreement: 'Such initiative have' to 'Such initiatives have'",
+        "Add space in 'heighteningfinancial' and remove dashes for clarity",
+        "Replace 'cartographing' with 'charting' and 'paring' with 'paving' in final sentence"
+      ]
+    },
+    {
+      "page": 14,
+      "suggestions": [
+        "Correct 'wat' to 'war' and fix fragmented opening sentence.",
+        "Revise Cold War claim for accuracy: US-USSR avoided direct war, focus on proxy conflicts.",
+        "Correct spelling in Huntington quote: 'conflicte' to 'conflict', 'grose' to 'arose'; verify original.",
+        "Fix 'authorianism' to 'authoritarianism', 'two blues' to 'two blocs', 'genstrategic' to 'geostrategic'."
+      ]
+    },
+    {
+      "page": 15,
+      "suggestions": [
+        "Reword awkward transition 'now the task potential there has to chart a path forward' to 'now the task at hand is to chart a path forward'",
+        "Correct spelling 'empour' to 'empower' and 'diplomar'/'diplomam' to 'diplomacy'",
+        "Verify and correct quote attribution from 'Henry Cobat' to accurate source",
+        "Complete abrupt ending of preventive diplomacy sentence with examples or transition"
+      ]
+    },
+    {
+      "page": 16,
+      "suggestions": [
+        "Correct 'backcharmel' to 'backchannel' in JCPOA example",
+        "Fix 'his helped' to 'This helped' for proper sentence start",
+        "Revise 'Track I and Track IL diplomacy reduce' to 'Track I and Track II diplomacy reduces' for spelling and agreement",
+        "Change 'soft Dower' to 'soft power' and 'cornerstore' to 'cornerstone'"
+      ]
+    },
+    {
+      "page": 17,
+      "suggestions": [
+        "Correct 'exchanger' to 'exchange' in soft power sentence",
+        "Hyphenate 'people to people ties' and fix spacing/grammar",
+        "Revise awkward phrasing 'by undertaking sovereignty and national interests of states , peaceful multipolar world can sustain' for clarity",
+        "Cite source for 'US-China military hotline restored in 2024' claim"
+      ]
+    },
+    {
+      "page": 18,
+      "suggestions": [
+        "Correct 'no-frist use pledges' to 'no-first-use pledges'",
+        "Change 'vodating Cold War arms control treaties' to 'updating Cold War arms control treaties'",
+        "Add commas and 'and' to parallel structure in 'no-first use doctrines increasing transparency...'",
+        "Complete New START Treaty sentence with verification details and link to multipolarity risks"
+      ]
+    },
+    {
+      "page": 19,
+      "suggestions": [
+        "complete abrupt ending 'Nonetheless, a peaceful multipolar world does' with synthesis of peace path",
+        "correct spelling 'multipolarin' and 'multipolarty' to 'multipolarity' throughout summary",
+        "condense repetitive list of risks into synthesized analysis linking to countermeasures",
+        "strengthen conclusion by explicitly refuting war risks with peace measures"
+      ]
+    },
+    {
+      "page": 20,
+      "suggestions": [
+        "Complete opening fragment to 'Peace does not remain a distant dream' for smooth start",
+        "Correct 'preventing diplomacy' to 'preventive diplomacy'",
+        "Synthesize war risks with peace measures in final paragraph for stronger closure",
+        "Explicitly link Reagan quote to thesis for impactful ending"
+      ]
+    }
+  ],
+  "errors": [],
+  "completed_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ]
+}

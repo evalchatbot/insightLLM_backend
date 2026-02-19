@@ -1,21 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
-from fastapi.responses import JSONResponse
-import logging
-import os
-import shutil
-import uuid
-import json
-from backend.eng_essay.grade_pdf_essay import run_essay_grading
-from backend.db.storage import StorageService
-
-router = APIRouter(prefix="/api/essay", tags=["essay"])
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse
 import logging
 import os
 import shutil
+import stat
 import uuid
 import json
 import time
@@ -44,12 +32,116 @@ def _get_logs_dir() -> str:
     logs_dir = os.path.join(project_root, "logs")
     return os.path.abspath(logs_dir)
 
+def _get_eng_essay_dir() -> str:
+    """
+    Get the eng_essay directory path for temp folders.
+    """
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    eng_essay_dir = os.path.abspath(os.path.join(current_file_dir, "..", "eng_essay"))
+    return eng_essay_dir
+
+def _cleanup_temp_folders():
+    """
+    Clean up ALL old timestamped temp folders (debug_llm_*, grok_images_essay_*).
+    This prevents old files from previous jobs appearing and handles concurrent requests properly.
+    """
+    try:
+        eng_essay_dir = _get_eng_essay_dir()
+        
+        # Clean up ALL timestamped debug and grok folders (not just one specific folder)
+        import glob
+        patterns_to_clean = [
+            os.path.join(eng_essay_dir, "debug_llm_*"),
+            os.path.join(eng_essay_dir, "grok_images_essay_*"),
+            os.path.join(eng_essay_dir, "__pycache__"),
+            # Also clean legacy folders without timestamp for backward compatibility
+            os.path.join(eng_essay_dir, "debug_llm"),
+            os.path.join(eng_essay_dir, "grok_images_essay"),
+        ]
+        
+        folders_to_clean = []
+        for pattern in patterns_to_clean:
+            if "*" in pattern:
+                folders_to_clean.extend(glob.glob(pattern))
+            elif os.path.exists(pattern):
+                folders_to_clean.append(pattern)
+        
+        logger.info(f"Found {len(folders_to_clean)} temp folder(s) to clean")
+        
+        for folder in folders_to_clean:
+            if os.path.exists(folder):
+                try:
+                    # Force delete: remove read-only files first
+
+                    def remove_readonly(func, path, _):
+                        """Clear read-only bit and retry."""
+                        os.chmod(path, stat.S_IWRITE)
+                        func(path)
+                    
+                    shutil.rmtree(folder, onerror=remove_readonly)
+                    logger.info(f"Cleaned up old temp folder: {folder}")
+                except Exception as e:
+                    logger.error(f"Failed to clean {folder}: {e}")
+                    # Try harder - delete files individually if folder delete fails
+                    try:
+                        for root, dirs, files in os.walk(folder, topdown=False):
+                            for name in files:
+                                try:
+                                    file_path = os.path.join(root, name)
+                                    os.chmod(file_path, stat.S_IWRITE)
+                                    os.remove(file_path)
+                                except:
+                                    pass
+                            for name in dirs:
+                                try:
+                                    os.rmdir(os.path.join(root, name))
+                                except:
+                                    pass
+                        os.rmdir(folder)
+                        logger.info(f"Force cleaned {folder}")
+                    except Exception as e2:
+                        logger.error(f"Force cleanup also failed for {folder}: {e2}")
+    except Exception as e:
+        logger.warning(f"Failed to clean up temp folders: {e}")
+
+def _cleanup_old_results(max_age_hours: int = 24):
+    """
+    Delete result files (JSON/PDF) older than max_age_hours to free up disk space.
+    """
+    try:
+        results_dir = os.path.join(_get_logs_dir(), "essay_results")
+        if not os.path.exists(results_dir):
+            return
+        
+        cutoff_time = time.time() - (max_age_hours * 3600)
+        deleted_count = 0
+        
+        for filename in os.listdir(results_dir):
+            filepath = os.path.join(results_dir, filename)
+            if os.path.isfile(filepath):
+                file_mtime = os.path.getmtime(filepath)
+                if file_mtime < cutoff_time:
+                    os.remove(filepath)
+                    deleted_count += 1
+                    logger.info(f"Cleaned up old result file: {filename}")
+        
+        if deleted_count > 0:
+            logger.info(f"Cleaned up {deleted_count} old result file(s)")
+    except Exception as e:
+        logger.warning(f"Failed to clean up old results: {e}")
+
 def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: str, user_id: str, original_filename: str):
     """
     Background task wrapper for essay grading
     """
     # Use standard logs dir so /api/ocr/progress/{id} can find it
     tracker = OCRProgressTracker(logs_dir=_get_logs_dir())
+    
+    # Clean up old results (older than 24 hours) to save disk space
+    _cleanup_old_results()
+    
+    # Clean up old temp folders (debug_llm, grok_images_essay) before starting new analysis
+    _cleanup_temp_folders()
     
     # Progress callback for run_essay_grading
     def progress_callback(pct: float, msg: str):
@@ -74,6 +166,14 @@ def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: s
         output_json_path = _job_manager._get_result_json_path(job_id)
         output_pdf_path = _job_manager._get_result_pdf_path(job_id)
         
+        # CRITICAL: Clean up any existing results for this job to prevent cache issues
+        if output_json_path.exists():
+            logger.info(f"Essay job {job_id} - Removing old cached JSON: {output_json_path}")
+            os.remove(output_json_path)
+        if output_pdf_path.exists():
+            logger.info(f"Essay job {job_id} - Removing old cached PDF: {output_pdf_path}")
+            os.remove(output_pdf_path)
+        
         # Ensure paths exist
         os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
         os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
@@ -86,7 +186,8 @@ def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: s
              output_json_path=str(output_json_path),
              output_pdf_path=str(output_pdf_path),
              ocr_workers=5,  # Increased for better parallelization
-             progress_callback=progress_callback
+             progress_callback=progress_callback,
+             job_id=job_id,  # Pass job_id for unique folder naming
         )
         
         # Verify outputs exist

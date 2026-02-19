@@ -28,6 +28,11 @@ Thumbs.db
 *.log
 logs/
 
+# Temporary essay processing folders (inside eng_essay)
+backend/eng_essay/debug_llm/
+backend/eng_essay/grok_images_essay/
+backend/eng_essay/temp_essay_job_*/
+
 # Test and coverage
 htmlcov/
 .coverage

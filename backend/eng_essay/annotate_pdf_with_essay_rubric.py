@@ -45,6 +45,9 @@ STOP = {
 def _normalize(text: str) -> str:
     return (text or "").strip().lower()
 
+def _normalize_compact(text: str) -> str:
+    return " ".join(_tokenize_full(text))
+
 def _tokenize_full(text: str) -> List[str]:
     clean = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
     return [t for t in clean.split() if t]
@@ -53,6 +56,95 @@ def _keywords_only(s: str, max_words: int = 7) -> str:
     toks = _tokenize_full(s)
     toks = [t for t in toks if t not in STOP]
     return " ".join(toks[:max_words])
+
+def _build_strict_annotation_candidates(a: Dict[str, Any]) -> List[str]:
+    """Build multiple candidate texts for matching, ordered by priority."""
+    out: List[str] = []
+
+    # Handle different annotation types
+    section_id = (a.get("section_id") or "").strip()
+    target_word = (a.get("target_word_or_sentence") or "").strip()
+    target_sentence = (a.get("target_sentence") or "").strip()
+    target_sentence_start = (a.get("target_sentence_start") or "").strip()
+    
+    # Legacy fields
+    anchor_quote = (a.get("anchor_quote") or a.get("anchorQuote") or "").strip()
+    target = (a.get("target_word_or_sentence") or "").strip() if not target_word else target_word
+    cb = (a.get("context_before") or "").strip()
+    ca = (a.get("context_after") or "").strip()
+    comment = (a.get("comment") or "").strip()
+
+    # Priority 1: anchor_quote (highest priority - direct from OCR)
+    if anchor_quote:
+        out.append(anchor_quote)
+        # Also try first 10-15 words if anchor is very long
+        anchor_words = anchor_quote.split()
+        if len(anchor_words) > 15:
+            out.append(" ".join(anchor_words[:15]))
+        if len(anchor_words) > 10:
+            out.append(" ".join(anchor_words[:10]))
+
+    # Priority 2: Section ID (heading text)
+    if section_id:
+        out.append(section_id)
+        # Remove numbering and extract clean heading text
+        clean_section = re.sub(r'^\([a-z0-9]+\)\s*', '', section_id, flags=re.IGNORECASE)
+        clean_section = re.sub(r'^[a-z0-9]+[\)\.]\s*', '', clean_section, flags=re.IGNORECASE)
+        if clean_section and clean_section != section_id:
+            out.append(clean_section)
+
+    # Priority 3: Target sentence (for factual errors)
+    if target_sentence:
+        out.append(target_sentence)
+        # Try first 15 words if sentence is very long
+        sentence_words = target_sentence.split()
+        if len(sentence_words) > 15:
+            out.append(" ".join(sentence_words[:15]))
+        if target_sentence_start:
+            out.append(target_sentence_start)
+    
+    # Priority 4: Target word/sentence (for grammar errors)
+    if target_word:
+        out.append(target_word)
+        # If target_word is very short, try adding context
+        if len(target_word.split()) <= 3 and (cb or ca):
+            if cb and ca:
+                out.append(f"{cb} {target_word} {ca}".strip())
+            elif cb:
+                out.append(f"{cb} {target_word}".strip())
+            elif ca:
+                out.append(f"{target_word} {ca}".strip())
+
+    # Priority 5: Legacy target field
+    if target and target != target_word:
+        out.append(target)
+        if cb and ca:
+            out.append(f"{cb} {target} {ca}".strip())
+        if cb:
+            out.append(f"{cb} {target}".strip())
+        if ca:
+            out.append(f"{target} {ca}".strip())
+    
+    # Priority 6: Extract keywords from comment as last resort
+    if comment and len(out) < 3:
+        comment_words = comment.split()
+        # Extract first meaningful phrase (4-8 words)
+        for start_idx in range(0, min(3, len(comment_words))):
+            phrase = " ".join(comment_words[start_idx:start_idx+8])
+            if len(phrase.split()) >= 4:
+                out.append(phrase)
+
+    # Dedup by normalized content
+    final: List[str] = []
+    seen = set()
+    for t in out:
+        if not t:
+            continue
+        k = _normalize_compact(t)
+        if k and k not in seen and len(k.split()) >= 2:  # At least 2 tokens
+            seen.add(k)
+            final.append(t)
+    return final
 
 def _token_coverage(target: str, candidate: str) -> float:
     t_tokens = _tokenize_full(target)
@@ -413,6 +505,44 @@ def _find_match_rect_in_pdf_text(
     pad = 4
     return (max(0, x1 - pad), max(0, y1 - pad), min(pix_w - 1, x2 + pad), min(pix_h - 1, y2 + pad))
 
+def _find_exact_rect_in_pdf_text(
+    page: fitz.Page,
+    pix_w: int,
+    pix_h: int,
+    target_text: str,
+) -> Optional[Tuple[int, int, int, int]]:
+    """Exact token sequence match in PDF text (strict, prevents mismatches)."""
+    tgt_tokens = _tokenize_full(target_text)
+    if not tgt_tokens:
+        return None
+
+    words = _extract_pdf_words(page)
+    if not words:
+        return None
+
+    tokens: List[Tuple[str, Tuple[float, float, float, float]]] = []
+    for w in words:
+        for tok in _tokenize_full(w["text"]):
+            tokens.append((tok, w["rect"]))
+
+    if len(tokens) < len(tgt_tokens):
+        return None
+
+    N = len(tgt_tokens)
+    for i in range(0, len(tokens) - N + 1):
+        window_tokens = [t for t, _ in tokens[i:i + N]]
+        if window_tokens == tgt_tokens:
+            rect = None
+            for _, r in tokens[i:i + N]:
+                rect = _union_rects(rect, r)
+            if not rect:
+                return None
+            rect_px = _pdf_rects_to_pix_rect(rect, page, pix_w, pix_h)
+            x1, y1, x2, y2 = rect_px
+            pad = 4
+            return (max(0, x1 - pad), max(0, y1 - pad), min(pix_w - 1, x2 + pad), min(pix_h - 1, y2 + pad))
+    return None
+
 
 # ============================================================
 # OCR MATCHING (SCANNED PDFs)
@@ -441,6 +571,114 @@ def _best_window_match(
     for r in rects[1:]:
         u = _union_rects(u, r)
     return combined_text, u
+
+def _find_exact_rect_from_ocr(
+    page_ocr: Dict[str, Any],
+    target_text: str,
+    pix_w: int,
+    pix_h: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    """Exact normalized substring match in OCR lines (lenient for OCR variations)."""
+    if not page_ocr:
+        return None
+    extent = _compute_page_extent(page_ocr)
+    if not extent:
+        return None
+    lines = page_ocr.get("lines") or []
+    if not lines:
+        return None
+
+    tgt_norm = _normalize_compact(target_text)
+    if not tgt_norm:
+        return None
+
+    # Try multiple matching strategies
+    tgt_tokens = _tokenize_full(target_text)
+    tgt_first_3 = " ".join(tgt_tokens[:3]) if len(tgt_tokens) >= 3 else tgt_norm
+    tgt_first_5 = " ".join(tgt_tokens[:5]) if len(tgt_tokens) >= 5 else tgt_norm
+    
+    # DEBUG: Show search details
+    print(f"          🔍 Target ({len(tgt_tokens)} tokens): {tgt_norm[:80]}")
+    if lines:
+        sample_text, _ = _best_window_match(lines, 0, min(3, len(lines)))
+        if sample_text:
+            print(f"          📄 OCR sample: {_normalize_compact(sample_text)[:80]}")
+    
+    # Strategy 1: Full normalized substring match (expanded window)
+    for win in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+        for i in range(0, len(lines) - win + 1):
+            combined_text, rect_raw = _best_window_match(lines, i, win)
+            if not combined_text or not rect_raw:
+                continue
+            combined_norm = _normalize_compact(combined_text)
+            
+            # Try full match
+            if tgt_norm in combined_norm:
+                return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+            
+            # Try first 5 tokens (for long text)
+            if len(tgt_tokens) >= 5 and tgt_first_5 in combined_norm:
+                return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+            
+            # Try first 3 tokens (more lenient)
+            if len(tgt_tokens) >= 3 and tgt_first_3 in combined_norm:
+                return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+    
+    # Strategy 2: Token-by-token matching (lenient - 20% threshold for poor OCR)
+    best_match_count = 0
+    best_match_window = None
+    if len(tgt_tokens) >= 2:
+        for win in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+            for i in range(0, len(lines) - win + 1):
+                combined_text, rect_raw = _best_window_match(lines, i, win)
+                if not combined_text or not rect_raw:
+                    continue
+                combined_tokens = _tokenize_full(combined_text)
+                
+                # Check if at least 20% of target tokens are present (very lenient for OCR errors)
+                matches = sum(1 for t in tgt_tokens if t in combined_tokens)
+                if matches > best_match_count:
+                    best_match_count = matches
+                    best_match_window = (rect_raw, combined_text)
+                
+                # Accept if we have at least 2 tokens AND 20% coverage
+                if matches >= max(2, len(tgt_tokens) * 0.20):
+                    print(f"          ✓ Token match: {matches}/{len(tgt_tokens)} tokens ({matches*100//len(tgt_tokens)}%)")
+                    return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+    
+    # Strategy 3: Use best partial match if we found at least 3 tokens or 15%
+    if best_match_count >= max(3, len(tgt_tokens) * 0.15) and best_match_window:
+        rect_raw, matched_text = best_match_window
+        print(f"          ⚠ Partial match: {best_match_count}/{len(tgt_tokens)} tokens ({best_match_count*100//len(tgt_tokens)}%)")
+        return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+    
+    # Strategy 4: Ultra-fuzzy keyword matching (extract significant words only)
+    if len(tgt_tokens) >= 5:
+        # Extract non-stop words
+        significant_tokens = [t for t in tgt_tokens if t not in STOP and len(t) > 3]
+        if len(significant_tokens) >= 3:
+            print(f"          🔍 Ultra-fuzzy: trying {len(significant_tokens)} keywords")
+            for win in (1, 2, 3, 4, 5, 6, 7, 8):
+                for i in range(0, len(lines) - win + 1):
+                    combined_text, rect_raw = _best_window_match(lines, i, win)
+                    if not combined_text or not rect_raw:
+                        continue
+                    combined_tokens = _tokenize_full(combined_text)
+                    
+                    # Match if at least 2 significant keywords found
+                    keyword_matches = sum(1 for t in significant_tokens if t in combined_tokens)
+                    if keyword_matches >= min(2, len(significant_tokens)):
+                        print(f"          ✓ Keyword match: {keyword_matches}/{len(significant_tokens)} keywords")
+                        return _scale_rect_by_extent(rect_raw, extent, pix_w, pix_h)
+    
+    # DEBUG: Show why we failed
+    if best_match_count > 0:
+        threshold = max(2, int(len(tgt_tokens) * 0.20))
+        print(f"          ✗ Best: {best_match_count}/{len(tgt_tokens)} tokens (need {threshold})")
+    else:
+        print(f"          ✗ No token matches found in {len(lines)} OCR lines")
+
+    return None
 
 def _find_best_match_rect_from_ocr(
     page_ocr: Dict[str, Any],
@@ -638,6 +876,31 @@ _UNICODE_REPLACEMENTS = {
     "•": "*",
     "·": "-",
 }
+
+def _clip_rect(rect: Tuple[int, int, int, int], max_w: int, max_h: int) -> Tuple[int, int, int, int]:
+    x1, y1, x2, y2 = rect
+    x1 = max(0, min(x1, max_w - 1))
+    y1 = max(0, min(y1, max_h - 1))
+    x2 = max(0, min(x2, max_w - 1))
+    y2 = max(0, min(y2, max_h - 1))
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    return (x1, y1, x2, y2)
+
+def _draw_pointer_line(
+    img: np.ndarray,
+    annotation_box: Tuple[int, int, int, int],
+    target_rect: Tuple[int, int, int, int],
+    color: Tuple[int, int, int] = (0, 0, 255),
+    thickness: int = 2,
+) -> None:
+    ax1, ay1, ax2, ay2 = annotation_box
+    tx1, ty1, tx2, ty2 = target_rect
+    start = (ax1, (ay1 + ay2) // 2)
+    end = (tx2, (ty1 + ty2) // 2)
+    cv2.line(img, start, end, color, thickness, cv2.LINE_AA)
 
 
 def _sanitize_text_for_render(text: str) -> str:
@@ -979,6 +1242,52 @@ def annotate_pdf_essay_pages(
         if isinstance(pno, int) and pno >= 1:
             suggestions_by_page[pno] = [str(x) for x in sug if str(x).strip()]
 
+    # Build normalized OCR page text index for exact matching
+    page_text_norm_by_num: Dict[int, str] = {}
+    for pn, p in ocr_pages_by_num.items():
+        text = (p.get("ocr_page_text") or p.get("ocr_full_text_page") or "").strip()
+        if not text:
+            lines = p.get("lines") or []
+            text = " ".join(_line_text(ln) for ln in lines if _line_text(ln))
+        page_text_norm_by_num[pn] = _normalize_compact(text)
+
+    def _find_pages_for_candidate(cand: str) -> List[int]:
+        cand_norm = _normalize_compact(cand)
+        if not cand_norm:
+            return []
+        return [pn for pn, ptxt in page_text_norm_by_num.items() if cand_norm in ptxt]
+
+    # Resolve annotations to the correct page using exact OCR matches
+    resolved_annotations: List[Dict[str, Any]] = []
+    for a in annotations:
+        orig_page = a.get("page")
+        resolved_page = orig_page if isinstance(orig_page, int) else None
+        resolved_candidate = ""
+        resolved = False
+
+        for cand in _build_strict_annotation_candidates(a):
+            pages = _find_pages_for_candidate(cand)
+            if not pages:
+                continue
+            if isinstance(orig_page, int) and orig_page in pages:
+                resolved_page = orig_page
+                resolved_candidate = cand
+                resolved = True
+                break
+            if len(pages) == 1:
+                resolved_page = pages[0]
+                resolved_candidate = cand
+                resolved = True
+                break
+
+        ann2 = dict(a)
+        if resolved_page is not None:
+            ann2["_resolved_page"] = resolved_page
+        if resolved_candidate:
+            ann2["_resolved_candidate"] = resolved_candidate
+        ann2["_resolved_match"] = resolved
+        resolved_annotations.append(ann2)
+
     RED = (0, 0, 255)
     annotated_pages: List[Image.Image] = []
 
@@ -1123,58 +1432,77 @@ def annotate_pdf_essay_pages(
         # NOTE: Spelling/grammar errors are added using PyMuPDF after PIL images are created
         # See _add_spelling_annotations_to_pdf_pages() function called at the end
 
-        # Build callouts for this page
-        anns = [a for a in annotations if a.get("page") == page_number][:max_callouts_per_page]
+        # Build callouts for this page (use resolved page if present)
+        anns = [
+            a for a in resolved_annotations
+            if a.get("_resolved_page", a.get("page")) == page_number
+        ][:max_callouts_per_page]
         print(f"  Annotations for this page: {len(anns)}")
 
         callout_items: List[Dict[str, Any]] = []
 
         for idx, a in enumerate(anns):
-            # Matching/anchors disabled: skip detailed processing
-            continue
             a_type = (a.get("type") or "").strip()
             rubric_point = (a.get("rubric_point") or "").strip()
             comment = (a.get("comment") or "").strip()
             correction = (a.get("correction") or "").strip()
             anchor_quote = (a.get("anchor_quote") or "").strip()
 
-            header = f"[{a_type}] {rubric_point}".strip()
+            # For outline_quality and introduction_quality, use clean type names as headers instead of full rubric_point
+            if a_type == "outline_quality":
+                header = "Outline Quality"
+            elif a_type == "introduction_quality":
+                header = "Introduction Quality"
+            else:
+                # Use rubric_point as header without type brackets
+                header = rubric_point if rubric_point else a_type
             body = (comment + (f"  Fix: {correction}" if correction else "")).strip()
             if a_type != "grammar_language" and correction:
-                body = (comment + ("  Suggestion: " + correction)).strip()
+                body = (comment ).strip()
 
-            candidates = _build_annotation_candidates(a)
-            
+            # Strict candidates to avoid mismatching
+            resolved_candidate = (a.get("_resolved_candidate") or "").strip()
+            candidates = [resolved_candidate] if resolved_candidate else _build_strict_annotation_candidates(a)
+
             # DEBUG: Show what we're trying to match
-            if not anchor_quote:
-                first_cand = candidates[0][0] if candidates else ""
-                print(f"    [{idx+1}] ❌ has_anchor=False | first_candidate={first_cand[:60]}")
+            section_id = (a.get("section_id") or "").strip()
+            if not section_id and not anchor_quote and not resolved_candidate:
+                first_cand = candidates[0] if candidates else ""
+                print(f"    [{idx+1}] ❌ no anchor/section | first_candidate={first_cand[:60]}")
             else:
-                print(f"    [{idx+1}] ✓ has_anchor=True | anchor_quote={anchor_quote[:60]}")
+                display = section_id or anchor_quote or resolved_candidate
+                print(f"    [{idx+1}] ✓ has match target | text={display[:60]}")
 
             match_candidates: List[Tuple[float, Tuple[int, int, int, int]]] = []
 
             # attempt matching with best-first candidates
-            for cand_text, is_anchor in candidates:
-                # 1) PDF text match (best for digital PDFs)
-                rect_pdf = _find_match_rect_in_pdf_text(page_obj, orig_w, orig_h, cand_text)
-                if rect_pdf:
-                    match_candidates.append((0.95 if is_anchor else 0.90, rect_pdf))
-                    # PDF text hit is strong enough; don't waste time
+            for cand_idx, cand_text in enumerate(candidates, 1):
+                if not cand_text:
                     continue
+
+                # 1) PDF text exact match (best for digital PDFs)
+                rect_pdf = _find_exact_rect_in_pdf_text(page_obj, orig_w, orig_h, cand_text)
+                if rect_pdf:
+                    match_candidates.append((0.95, rect_pdf))
+                    print(f"        ✓ Match found via PDF text (candidate #{cand_idx})")
+                    # Exact PDF hit is sufficient
+                    break
 
                 # 2) OCR match
                 if page_ocr:
-                    rect_ocr = _find_best_match_rect_from_ocr(
+                    rect_ocr = _find_exact_rect_from_ocr(
                         page_ocr,
                         cand_text,
                         orig_w,
                         orig_h,
-                        prefer_anchor=is_anchor,
                     )
                     if rect_ocr:
-                        # anchors get higher base confidence
-                        match_candidates.append((0.80 if is_anchor else 0.65, rect_ocr))
+                        match_candidates.append((0.90, rect_ocr))
+                        print(f"        ✓ Match found via OCR (candidate #{cand_idx}) rect={rect_ocr}")
+                        break
+                    else:
+                        if cand_idx <= 2:  # Only show first 2 failures
+                            print(f"        ✗ No match for candidate #{cand_idx}: {cand_text[:50]}...")
 
             # keep top-K unique rects
             match_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -1194,8 +1522,8 @@ def annotate_pdf_essay_pages(
                 "header": header,
                 "body": body,
                 "cands": uniq,
-                "has_anchor": any(is_anchor for _, is_anchor in candidates),
-                "primary_candidate_preview": candidates[0][0] if candidates else "",
+                "has_anchor": bool(anchor_quote),
+                "primary_candidate_preview": candidates[0] if candidates else "",
             })
 
         # GLOBAL ASSIGNMENT + page-level fallback
@@ -1247,28 +1575,12 @@ def annotate_pdf_essay_pages(
                 print(f"     has_anchor={item['has_anchor']}")
                 print(f"     candidate_preview={item['primary_candidate_preview'][:120]}")
 
-        # RIGHT MARGIN LAYOUT (no overlap). Matching/anchors removed; all callouts are page-level in input order.
-        box_w = int(right_width - 2 * margin_px)
-        resolved_callouts: List[Dict[str, Any]] = []
-        for idx, a in enumerate(anns):
-            a_type = (a.get("type") or "").strip()
-            rubric_point = (a.get("rubric_point") or "").strip()
-            comment = (a.get("comment") or "").strip()
-            correction = (a.get("correction") or "").strip()
-            header = f"[{a_type}] {rubric_point}".strip()
-            body = (comment + (f"  Fix: {correction}" if correction else "")).strip()
-            if a_type != "grammar_language" and correction:
-                body = (comment ).strip()
-            resolved_callouts.append({
-                "rect": None,
-                "header": header,
-                "body": body,
-                "y_sort": idx,
-                "page_level": True,
-            })
+        # Sort resolved callouts by y position (or put page-level ones at end)
         resolved_callouts.sort(key=lambda x: x["y_sort"])
 
-        last_bottom_y = margin_px
+        # RIGHT MARGIN LAYOUT - start from top, stack downwards
+        box_w = int(right_width - 2 * margin_px)
+        last_bottom_y = margin_px  # Start from top of page
         gap = 12
 
         for item in resolved_callouts:
@@ -1287,32 +1599,50 @@ def annotate_pdf_essay_pages(
             bx1 = left_width + orig_w + margin_px
             bx2 = bx1 + box_w
 
-            # Stack top-to-bottom without collisions; anchor near rect if present
-            desired_y = rect[1] - 20 if rect else last_bottom_y + gap
-            start_y = max(margin_px, last_bottom_y + gap, desired_y)
+            # Stack top-to-bottom from last position (ignore rect position for right margin)
+            # This ensures annotations don't overlap and stay within page bounds
+            start_y = last_bottom_y + gap
 
             by1 = int(start_y)
             by2 = int(by1 + box_h)
 
             # Ensure box stays within page bounds
-            max_bottom = orig_h - margin_px
+            max_bottom = orig_h + y_offset - margin_px
             if by2 > max_bottom:
-                # Try to move box up while respecting last_bottom_y
-                by2 = max_bottom
-                by1 = max(margin_px, last_bottom_y + gap, by2 - box_h)
-                # Constrain by2 again if by1 adjustment caused overflow
-                if by1 + box_h > max_bottom:
-                    by2 = max_bottom
-                    by1 = max(margin_px, last_bottom_y + gap)
+                # Calculate available space
+                available_space = max_bottom - max(margin_px, last_bottom_y + gap)
+                if available_space < 100:  # Minimum viable box height
+                    # Skip this annotation - not enough space
+                    print(f"      ⚠ Skipping annotation (no space): {header[:50]}")
+                    continue
+                
+                # Shrink box to fit available space
+                by1 = max(margin_px, last_bottom_y + gap)
+                by2 = min(by1 + box_h, max_bottom)
+                box_h = by2 - by1  # Actual constrained height
 
             last_bottom_y = by2
 
-            # highlight + connector only if rect exists
+            # Draw annotation box
             cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
             _draw_wrapped_text(canvas, bx1 + 12, by1 + 24, header, header_scale, 2, box_w - 24, (0, 0, 255), line_gap=l_gap)
             _draw_wrapped_text(canvas, bx1 + 12, by1 + 30 + h_h, body, body_scale, 2, box_w - 24, (0, 0, 0), line_gap=l_gap)
 
-            # Intentionally omit on-page highlights/connectors to avoid overlaying essay content.
+            # Draw pointer line if rect exists (no highlight box)
+            if rect:
+                print(f"      → Drawing pointer: annotation at ({bx1},{by1}) to text at {rect}")
+                # Get target text position (clip to essay bounds)
+                rx1, ry1, rx2, ry2 = _clip_rect(
+                    _shift_rect(rect, -left_width, -y_offset),
+                    orig_w, orig_h
+                )
+                highlight_rect_canvas = _shift_rect((rx1, ry1, rx2, ry2), left_width, y_offset)
+
+                # Draw pointer line from annotation box to text location
+                annotation_box = (bx1, by1, bx2, by2)
+                _draw_pointer_line(canvas, annotation_box, highlight_rect_canvas, color=(0, 0, 255), thickness=2)
+            else:
+                print(f"      ✗ No rect for annotation: {header[:50]}")
 
         annotated_pages.append(Image.fromarray(canvas[:, :, ::-1]))
 

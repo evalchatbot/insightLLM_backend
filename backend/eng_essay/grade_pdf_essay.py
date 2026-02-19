@@ -66,6 +66,11 @@ except (ImportError, ModuleNotFoundError):
                 print("  Warning: PDF compression module not available. Skipping compression.")
                 return False
 
+# Helper to get eng_essay directory for temp folders
+def _get_eng_essay_dir() -> str:
+    """Get the eng_essay directory path for temp folders."""
+    return os.path.dirname(os.path.abspath(__file__))
+
 try:
     from .annotate_pdf_with_essay_rubric import annotate_pdf_essay_pages
 except (ImportError, ModuleNotFoundError):
@@ -190,6 +195,7 @@ def parse_json_with_repair(
     *,
     debug_tag: str = "grok",
     max_fix_attempts: int = 2,
+    debug_dir_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Try strict JSON parse.
@@ -198,8 +204,14 @@ def parse_json_with_repair(
     """
     raw_clean = clean_json_from_llm(raw_text)
 
-    os.makedirs("debug_llm", exist_ok=True)
-    raw_path = os.path.join("debug_llm", f"{debug_tag}_raw.txt")
+    # Use override debug_dir if provided, otherwise create default
+    if debug_dir_override:
+        debug_dir = debug_dir_override
+    else:
+        eng_essay_dir = _get_eng_essay_dir()
+        debug_dir = os.path.join(eng_essay_dir, "debug_llm")
+    os.makedirs(debug_dir, exist_ok=True)
+    raw_path = os.path.join(debug_dir, f"{debug_tag}_raw.txt")
     with open(raw_path, "w", encoding="utf-8") as f:
         f.write(raw_text or "")
 
@@ -251,7 +263,7 @@ def parse_json_with_repair(
         repaired = data["choices"][0]["message"]["content"]
         repaired_clean = clean_json_from_llm(repaired)
 
-        repaired_path = os.path.join("debug_llm", f"{debug_tag}_repaired_attempt{attempt}.txt")
+        repaired_path = os.path.join(debug_dir, f"{debug_tag}_repaired_attempt{attempt}.txt")
         with open(repaired_path, "w", encoding="utf-8") as f:
             f.write(repaired)
 
@@ -277,7 +289,7 @@ def pdf_to_page_images_for_grok(
     max_pages: Optional[int] = None,
     max_dim: int = 800,
     base64_cap: Optional[int] = None,
-    output_dir: str = "grok_images_essay",
+    output_dir: Optional[str] = None,
     max_total_base64_chars: int = 240_000,
 ) -> List[Dict[str, Any]]:
     """
@@ -286,6 +298,10 @@ def pdf_to_page_images_for_grok(
     stays under `max_total_base64_chars` to avoid Grok API size/context errors.
     """
 
+    # Create grok_images_essay inside eng_essay directory if not specified
+    if output_dir is None:
+        eng_essay_dir = _get_eng_essay_dir()
+        output_dir = os.path.join(eng_essay_dir, "grok_images_essay")
     os.makedirs(output_dir, exist_ok=True)
     doc = fitz.open(pdf_path)
     try:
@@ -1331,6 +1347,7 @@ def call_grok_for_essay_annotations(
     structure: Dict[str, Any],
     grading: Dict[str, Any],
     page_images: List[Dict[str, Any]],
+    debug_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Returns:
@@ -1368,7 +1385,6 @@ def call_grok_for_essay_annotations(
         "Rules (MUST FOLLOW):\n"
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
-        "- You may use type outline_quality ONLY on outline pages listed in allowed_outline_pages; for other pages use other types.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
         "- Page suggestions are a separate list of quick fixes for the same page.\n"
         "\n"
@@ -1384,13 +1400,37 @@ def call_grok_for_essay_annotations(
         "  grammar_language, repetitiveness, argumentation_depth,\n"
         "  organization_coherence, conclusion_quality, relevance_focus.\n"
         "\n"
+        "MANDATORY COMMENTS (MUST ALWAYS INCLUDE):\n"
+        "- For pages containing or expected to contain the OUTLINE:\n"
+        "  ALWAYS generate an 'outline_quality' annotation. If outline is present, assess its quality.\n"
+        "  If outline is NOT present or incomplete, use suggestive tone (e.g., 'Consider including a\n"
+        "  structured outline to organize main points before writing').\n"
+        "- For pages containing or expected to contain the ESSAY INTRODUCTION:\n"
+        "  ALWAYS generate an 'introduction_quality' annotation. If introduction is present, assess it.\n"
+        "  If introduction is NOT present or weak, use suggestive tone (e.g., 'A clear introduction\n"
+        "  with thesis statement would strengthen the essay opening').\n"
+        "- These annotations should appear on the FIRST relevant page (outline on page 1-2, intro on early essay pages).\n"
+        "\n"
         "- page_suggestions: 2-4 short bullets for this page only; make them specific and actionable (e.g., 'state thesis in first paragraph', 'replace repeated phrase X', 'add evidence for claim Y'), not generic.\n"
         "- Never mention OCR/scan/handwriting/legibility.\n"
         "Return JSON only matching schema."
     )
 
-    os.makedirs("debug_llm", exist_ok=True)
-    partial_path = os.path.join("debug_llm", "essay_annotations_partial.json")
+    # Use provided debug_dir or create default one
+    if debug_dir is None:
+        eng_essay_dir = _get_eng_essay_dir()
+        debug_dir = os.path.join(eng_essay_dir, "debug_llm")
+    os.makedirs(debug_dir, exist_ok=True)
+    partial_path = os.path.join(debug_dir, "essay_annotations_partial.json")
+    
+    # CRITICAL: Delete old partial file to prevent cache issues
+    if os.path.exists(partial_path):
+        try:
+            os.remove(partial_path)
+            print(f"✓ Deleted old partial annotations cache: {partial_path}")
+        except Exception as e:
+            print(f"⚠ Failed to delete partial cache: {e}")
+    
     partial = _load_partial_annotations(partial_path)
     annotations: List[Dict[str, Any]] = partial.get("annotations") or []
     page_suggestions: List[Dict[str, Any]] = partial.get("page_suggestions") or []
@@ -1463,7 +1503,12 @@ def call_grok_for_essay_annotations(
                     max_retries=4,
                 )
                 content = data["choices"][0]["message"]["content"]
-                parsed = parse_json_with_repair(grok_api_key, content, debug_tag=f"essay_annotations_p{page_num}")
+                parsed = parse_json_with_repair(
+                    grok_api_key, 
+                    content, 
+                    debug_tag=f"essay_annotations_p{page_num}",
+                    debug_dir_override=debug_dir
+                )
                 if not isinstance(parsed, dict):
                     raise ValueError("Annotation JSON is not an object")
                 if not isinstance(parsed.get("annotations"), list):
@@ -1481,12 +1526,14 @@ def call_grok_for_essay_annotations(
                         continue
                     aq = a.get("anchor_quote", "")
                     atype = (a.get("type") or "").strip()
-                    # Enforce outline_quality only on outline pages
-                    if atype == "outline_quality" and outline_pages_set and page_num not in outline_pages_set:
-                        invalid_count += 1
+                    
+                    # Allow outline_quality and introduction_quality even without perfect anchors
+                    # (they should appear even if section is missing)
+                    if atype in ["outline_quality", "introduction_quality"]:
+                        valid_ann.append(a)
                         continue
                     
-                    # If anchor_quote is empty, keep annotation anyway (just note it)
+                    # For other annotation types, validate anchor
                     if not aq or not _anchor_is_valid(aq, ocr_page_text):
                         invalid_count += 1
                         # Still add it, but log that it's missing anchor
@@ -1641,11 +1688,9 @@ def render_essay_report_pages_range(
     margin = W_pt * 0.055
     y = margin
     
-    # Column widths (proportional to page width)
-    col_criterion = W_pt * 0.27
-    col_alloc = W_pt * 0.085
-    col_award = W_pt * 0.10
-    col_comments = W_pt - margin * 2 - (col_criterion + col_alloc + col_award)
+    # Column widths (proportional to page width) - only Criterion and Key Comments
+    col_criterion = W_pt * 0.35
+    col_comments = W_pt - margin * 2 - col_criterion
     
     # Get grading data
     topic = grading.get("topic", "")
@@ -1681,27 +1726,28 @@ def render_essay_report_pages_range(
         page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         y += header_size * 1.4
     
-    # Total marks
+    # Total marks - bigger font and red color
+    total_marks_size = header_size * 1.5  # 50% bigger
     page.insert_text(
         (margin, y),
         f"Total Marks (Range): {total_range}/100",
         fontname="hebo",
-        fontsize=header_size,
-        color=(0, 0, 0)
+        fontsize=total_marks_size,
+        color=(1, 0, 0)  # Red color
     )
-    y += header_size * 1.8
+    y += total_marks_size * 1.5
     
-    # Table header
+    # Table header - only Criterion and Key Comments
     table_x = margin
     table_w = W_pt - 2 * margin
     row_h = 36
     
-    headers = ["Criterion", "Total Marks", "Marks Awarded", "Key Comments"]
+    headers = ["Criterion", "Key Comments"]
     header_rect = fitz.Rect(table_x, y, table_x + table_w, y + row_h)
     page.draw_rect(header_rect, color=(0, 0, 0), fill=(0.4, 0.4, 0.4), width=2)
     
     x = table_x
-    splits = [col_criterion, col_alloc, col_award, col_comments]
+    splits = [col_criterion, col_comments]
     for i, htxt in enumerate(headers):
         page.insert_text((x + 5, y + 23), htxt, fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         x += splits[i]
@@ -1709,19 +1755,9 @@ def render_essay_report_pages_range(
             page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=2)
     y += row_h
     
-    # Table rows
+    # Table rows - only Criterion and Key Comments columns
     for idx, c in enumerate(criteria_list):
         crit = c.get("criterion", "")
-        alloc = str(c.get("marks_allocated", ""))
-        # Display single marks_awarded value, with fallback to range minimum
-        marks_awarded = c.get("marks_awarded")
-        if marks_awarded is not None:
-            award_display = str(marks_awarded)
-        else:
-            # Fallback: parse range and use minimum
-            rng = c.get("marks_awarded_range", "0-0")
-            lo, _ = _parse_range(rng)
-            award_display = str(lo)
         comments = str(c.get("key_comments", ""))
         
         # Estimate row height based on text wrapping
@@ -1760,16 +1796,6 @@ def render_essay_report_pages_range(
             page.insert_text((x + 5, crit_y), crit_line.strip(), fontname="helv", fontsize=cell_size, color=(0, 0, 0))
         
         x += col_criterion
-        page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
-        
-        # Total Marks
-        page.insert_text((x + 5, y + 18), alloc, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
-        x += col_alloc
-        page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
-        
-        # Marks Awarded
-        page.insert_text((x + 5, y + 18), award_display, fontname="helv", fontsize=cell_size, color=(0, 0, 0))
-        x += col_award
         page.draw_line((x, y), (x, y + row_h), color=(0, 0, 0), width=1)
         
         # Key Comments (with wrapping)
@@ -2065,6 +2091,7 @@ def run_essay_grading(
     debug_structure_json: str = "",
     debug_ocr_json: str = "",
     progress_callback: Optional[callable] = None,
+    job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Programmatic entry point for essay grading pipeline.
@@ -2095,6 +2122,18 @@ def run_essay_grading(
 
     total_start = time.perf_counter()
     timings: Dict[str, float] = {}
+    
+    # Create unique timestamped folders for this job to prevent mixing between concurrent requests
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_suffix = f"{job_id}_{timestamp}" if job_id else timestamp
+    eng_essay_dir = _get_eng_essay_dir()
+    debug_folder_name = f"debug_llm_{job_suffix}"
+    grok_folder_name = f"grok_images_essay_{job_suffix}"
+    debug_dir = os.path.join(eng_essay_dir, debug_folder_name)
+    grok_images_dir = os.path.join(eng_essay_dir, grok_folder_name)
+    
+    print(f"Using unique folders: {debug_folder_name}, {grok_folder_name}")
 
     if progress_callback:
         progress_callback(10, "Running OCR on PDF...")
@@ -2118,7 +2157,7 @@ def run_essay_grading(
     if progress_callback:
         progress_callback(20, "Preparing page images...")
     
-    page_images = pdf_to_page_images_for_grok(pdf_path)
+    page_images = pdf_to_page_images_for_grok(pdf_path, output_dir=grok_images_dir)
 
     if progress_callback:
         progress_callback(30, "Analyzing essay structure...")
@@ -2177,6 +2216,7 @@ def run_essay_grading(
         structure=structure,
         grading=grading,
         page_images=page_images,
+        debug_dir=debug_dir,
     )
     timings["Annotations"] = time.perf_counter() - t0
     print(f"Annotations done. Time: {_format_duration(timings['Annotations'])}")
@@ -2202,11 +2242,34 @@ def run_essay_grading(
 
     temp_spelling_pdf = None
     pdf_for_grading = pdf_path
-    if spelling_errors:
+    # Separate grammar_language annotations for inline display
+    # grammar_language -> inline display (like spelling errors)
+    # outline_quality, introduction_quality, and other types -> right-side margin display
+    grammar_language_annotations = [a for a in annotations if a.get("type") == "grammar_language"]
+    other_annotations = [a for a in annotations if a.get("type") != "grammar_language"]
+    
+    print(f"Annotation breakdown: {len(grammar_language_annotations)} grammar (inline), {len(other_annotations)} other (right-side)")
+    
+    # Convert grammar_language annotations to spelling error format for inline display
+    grammar_errors_inline = []
+    for ann in grammar_language_annotations:
+        error_item = {
+            "page": ann.get("page", 1),
+            "error_text": ann.get("target_word_or_sentence", "") or ann.get("anchor_quote", ""),
+            "error_type": ann.get("rubric_point", "Grammar/Language"),
+            "suggestion": ann.get("correction", "") or ann.get("comment", ""),
+        }
+        grammar_errors_inline.append(error_item)
+    
+    # Combine grammar errors with spelling errors for inline display
+    all_inline_errors = spelling_errors + grammar_errors_inline
+    print(f"Total inline errors: {len(spelling_errors)} spelling + {len(grammar_errors_inline)} grammar = {len(all_inline_errors)}")
+    
+    if all_inline_errors:
         if progress_callback:
-            progress_callback(80, "Marking spelling errors on PDF...")
+            progress_callback(80, "Marking spelling and grammar errors on PDF...")
         
-        print("Creating spelling-marked PDF...")
+        print("Creating spelling+grammar marked PDF...")
         t0 = time.perf_counter()
         import tempfile
         temp_spelling_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
@@ -2214,11 +2277,11 @@ def run_essay_grading(
             input_pdf_path=pdf_path,
             output_pdf_path=temp_spelling_pdf,
             ocr_data=ocr_data,
-            spelling_errors=spelling_errors,
+            spelling_errors=all_inline_errors,  # Include both spelling and grammar errors
         )
         pdf_for_grading = temp_spelling_pdf
-        timings["Spelling marking"] = time.perf_counter() - t0
-        print(f"Spelling marking done. Time: {_format_duration(timings['Spelling marking'])}")
+        timings["Spelling+Grammar marking"] = time.perf_counter() - t0
+        print(f"Spelling+Grammar marking done. Time: {_format_duration(timings['Spelling+Grammar marking'])}")
 
     if progress_callback:
         progress_callback(85, "Rendering report and annotations...")
@@ -2245,9 +2308,9 @@ def run_essay_grading(
         ocr_data=ocr_data,
         structure=structure,
         grading=grading,
-        annotations=annotations,
+        annotations=other_annotations,  # Only non-grammar_language annotations for right side
         page_suggestions=page_suggestions,
-        spelling_errors=None,  # Already added in step 1
+        spelling_errors=None,  # Already added inline in step 1
     )
 
     merge_report_and_annotated_answer(
@@ -2424,21 +2487,44 @@ def main():
     }
     with open(args.output_json, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print(f"Saved JSON  {args.output_json}")
+    print(f"Saved JSON → {args.output_json}")
+
+    # Separate grammar_language annotations for inline display
+    # grammar_language -> inline display (like spelling errors)
+    # outline_quality and other types -> right-side margin display
+    grammar_language_annotations = [a for a in annotations if a.get("type") == "grammar_language"]
+    other_annotations = [a for a in annotations if a.get("type") != "grammar_language"]
     
-    # STEP 1–3: Rendering (spelling annotations, report + annotated pages, merge)
+    print(f"Annotation breakdown: {len(grammar_language_annotations)} grammar (inline), {len(other_annotations)} other (right-side)")
+    
+    # Convert grammar_language annotations to spelling error format for inline display
+    grammar_errors_inline = []
+    for ann in grammar_language_annotations:
+        error_item = {
+            "page": ann.get("page", 1),
+            "error_text": ann.get("target_word_or_sentence", "") or ann.get("anchor_quote", ""),
+            "error_type": ann.get("rubric_point", "Grammar/Language"),
+            "suggestion": ann.get("correction", "") or ann.get("comment", ""),
+        }
+        grammar_errors_inline.append(error_item)
+    
+    # Combine grammar errors with spelling errors for inline display
+    all_inline_errors = spelling_errors + grammar_errors_inline
+    print(f"Total inline errors: {len(spelling_errors)} spelling + {len(grammar_errors_inline)} grammar = {len(all_inline_errors)}")
+    
+    # STEP 1–3: Rendering (spelling+grammar annotations, report + annotated pages, merge)
     print("Rendering report and annotated PDF...")
     t0 = time.perf_counter()
     temp_spelling_pdf = None
     pdf_for_grading = args.pdf
 
-    if spelling_errors:
+    if all_inline_errors:
         temp_spelling_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
         add_spelling_annotations_to_pdf(
             input_pdf_path=args.pdf,
             output_pdf_path=temp_spelling_pdf,
             ocr_data=ocr_data,
-            spelling_errors=spelling_errors,
+            spelling_errors=all_inline_errors,  # Include both spelling and grammar errors
         )
         pdf_for_grading = temp_spelling_pdf
 
@@ -2462,7 +2548,7 @@ def main():
         ocr_data=ocr_data,
         structure=structure,
         grading=grading,
-        annotations=annotations,
+        annotations=other_annotations,  # Only non-grammar_language annotations for right side
         page_suggestions=page_suggestions,
         spelling_errors=None,  # Already added in step 1
     )
