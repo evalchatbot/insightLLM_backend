@@ -1,0 +1,943 @@
+{
+  "annotations": [
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "I. Introduction Dialogue is the art of exchanging perspectives to resolve differences. It efficient use can transform conflicts into cooperation leading towards the end of forces that create division.",
+      "comment": "Introduction section defines dialogue but lacks explicit thesis; add concise stance statement affirming 'dialogue is the antidote of division'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "1. Dialogue enables articulation of needs, fears and expectations.",
+      "comment": "Sub-point is merely descriptive lacking analytical depth; explain how articulation leads to resolving divisions via cause-effect.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "It efficient use can transform conflicts into cooperation leading towards the end of forces that create division.",
+      "correction": "Its efficient use can transform conflicts into cooperation leading towards the end of forces that create division.",
+      "comment": "Missing possessive 's'; change 'It efficient use' to 'Its efficient use'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Dialogue is the anti-dote of Division",
+      "correction": "Dialogue is the antidote of Division",
+      "comment": "'anti-dote' misspelled; correct to 'antidote'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Franco - German dialoque",
+      "correction": "Franco-German dialogue",
+      "comment": "'dialoque' misspelled and spacing inconsistent; correct to 'Franco-German dialogue'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "2. Extremism and identity politics fuel intolerance: Case in Point: (Religious extremism (2) Sectarian differences 3. Nationalistic hubris and egoistic leadership around world: Case in Point: Narendra Modi's hardline Stances and Netanyahu criminal mind seet.",
+      "correction": "",
+      "comment": "Impediments sub-points relevant but merely descriptive listings; add analytical depth explaining how each blocks dialogue process",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Netanyahu criminal mind seet.",
+      "correction": "Netanyahu's hardline stances",
+      "comment": "Subjective 'criminal mind' unverifiable without source; replace with neutral facts on actions and cite reliable reference",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "IV. Recommendations to remove impediments to ensure dialogue becomes antidote of division 1. Deradicalization and social inclusion. 2. Reform digital media and re curb misinformation",
+      "correction": "",
+      "comment": "Recommendations list strategies descriptively without analysis; develop cause-effect on how each overcomes specific impediments",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "In this context, dialogue is not merely idealistic but an indisponsible need for unity and",
+      "correction": "",
+      "comment": "Lacks explicit thesis and overview of main arguments; add one-sentence thesis stating stance and previewing structure (e.g., how, impediments, recommendations).",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "under- Standing and articulating only",
+      "correction": "understanding and articulating",
+      "comment": "Spelling error in 'under-Standing'; correct to 'understanding' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Sto expres their - fears, needs, and aspirations",
+      "correction": "to express their",
+      "comment": "Typo in 'Sto expres'; correct to 'to express' to fix incomplete phrasing.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Dialogue is not just the exchange of words only, it is a structured process of listening, under- Standing and articulating only",
+      "correction": "",
+      "comment": "Repetitive 'only'; remove second instance to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "From averting nuclear Cold Catastrophes during the World War to descalating tensions between Pakistan and India, Post May 2025 conflict",
+      "correction": "",
+      "comment": "Historical examples lack source attribution; cite reliable sources for claims.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "4. Dialogue prevents radicalisation and chances of terrorism: Case in Point: Qatar led negotiations with Taliban",
+      "correction": "",
+      "comment": "Sub-point merely lists case study without analytical depth; add how dialogue fostered deradicalization.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "6. Dialogue averts international conflicts: Case in Point: Deescalation of May 2025 Pak- India conflict presented war.",
+      "correction": "",
+      "comment": "Supporting detail descriptive and incomplete; explain dialogue's role in averting conflict for depth.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Dialogue makes the world peace",
+      "correction": "Dialogue makes world peace possible",
+      "comment": "Awkward and grammatically incorrect phrasing; revise to 'Dialogue makes world peace possible'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Rising political polarization obstructs meaningful negotiation: Case in Point: Democratic VS non-democra- tic blocs diving world.",
+      "correction": "dividing the world",
+      "comment": "OCR garble in 'diving world'; correct to 'dividing the world' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Once the trust is entact,",
+      "correction": "Once the trust is intact,",
+      "comment": "Correct 'entact' to 'intact' to fix spelling error.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "one of the greatest regional organizations come into being",
+      "correction": "one of the greatest regional organizations comes into being",
+      "comment": "Change 'come' to 'comes' for subject-verb agreement with singular 'one'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "protected the Europe from division",
+      "correction": "protected Europe from division",
+      "comment": "Remove 'the' before 'Europe' as it is a proper noun without article.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "As discussed earlier, first and foremost dialogue begins with expression of grievances and then understanding.",
+      "correction": "",
+      "comment": "Remove recap of prior points to eliminate repetition and focus on new trust-building content.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "A relevant example is that of origin of European Union that was only possible because France and Germany after years of hostility decided to initiate dialogue, build trust and later cooperate.",
+      "correction": "",
+      "comment": "Add analytical depth by explaining specific mechanisms (e.g., ECSC) showing cause-effect in trust-building.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "Therefore, the proposition that \"dialogue is the antidote of division\" is most relevant and required thread to stitch the torn societies of the world and create a more cooperative world.",
+      "correction": "",
+      "comment": "Restates proposition well but lacks explicit concise one-sentence thesis; add clear stance statement.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "There are many ways to justify that dialogue is the antidote of division.",
+      "correction": "",
+      "comment": "Repeats core proposition verbatim; rephrase for variety to reduce redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "The first and foremost is that dialogue enables the human beings to express their needs, fears and expection.",
+      "correction": "",
+      "comment": "Point is descriptive without evidence or analysis; add case study and cause-effect reasoning.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "needs, fears and expection.",
+      "correction": "needs, fears, and expectations",
+      "comment": "Correct spelling to 'expectations' and add serial comma for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "dialogue helped with expresion and resolution of issues.",
+      "correction": "dialogue helps with expression and resolution of issues.",
+      "comment": "Fix 'expresion' to 'expression'; use present tense 'helps' for general principle.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "reacha point of understanding",
+      "correction": "reach a point of understanding",
+      "comment": "Correct misspelling 'reacha' to 'reach a' to fix word separation error.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "with the efficient use of dialogue",
+      "correction": "With the efficient use of dialogue",
+      "comment": "Capitalize 'with' to 'With' as it starts a new sentence after period.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "by enabling cooperation and CS CamScanner",
+      "correction": "",
+      "comment": "Paragraph ends abruptly; complete thought on cooperation with full sentence and transition.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "In history an example of reaching mutual understanding with the help of dialogue is the genesis of United Nations with the Signing of the UN Charter, 1945 on the premises that world can not afford more wars and so they come up with the mutual understanding of building an international institution for ensuring lasting peace.",
+      "correction": "",
+      "comment": "Example is descriptive; add critical analysis via cause-effect on how dialogue built UN consensus.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "mutual understanding",
+      "correction": "",
+      "comment": "Repeated 'mutual understanding' multiple times; vary phrasing to avoid redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "bridgene division.",
+      "correction": "bridging division",
+      "comment": "Misspelling 'bridgene'; correct to 'bridging' to accurately convey unifying role.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "their wen well being, rather existence.",
+      "correction": "their own well-being or very existence",
+      "comment": "Typo 'wen well being'; revise to 'own well-being' or 'very existence' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "This constitutional body essentially works for dialogue and negotiations between the federal government as well as the provinces in order to address their issues which resultantly helps in building trust and unity at the national level.",
+      "correction": "",
+      "comment": "CCI description is narrative; add cause-effect analysis of how negotiations resolve specific issues.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "Hence, in this way dialogue once again proves its utility in bridgene division.",
+      "correction": "",
+      "comment": "Repetitive 'Hence... proves its utility'; vary phrasing to avoid echoing prior paragraphs.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "India and Pakistan in May 2025 when India blatantly violated the sovereignty of the land of Pakistan and Pakistan retaliated with iron fist. The conflict could have escalated into an all-in war but US mediated dialogue led to ceasefire between Pakistan and India",
+      "correction": "",
+      "comment": "Source for factual data on May 2025 Pak-India conflict not mentioned; attribute to reliable source.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Global institutions like United Nations (UN) provide global dialogue platform via which huge conflicts in the world has been sorted in the past such as Korean War (1950s) and Suez Canal Crisis (1956).",
+      "correction": "",
+      "comment": "Descriptive examples lack critical analysis through cause-effect; explain how dialogue specifically resolved conflicts.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "International peace and It ability is nothing but dialogue and negotiations occuring every often.",
+      "correction": "International peace and its ability is nothing but dialogue and negotiations occurring every so often.",
+      "comment": "Fix 'It' to 'its', 'occuring' to 'occurring', 'every often' to 'every so often', and subject-verb agreement.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Hence, dialogue protected the South Asia from eternal diplomatic division this way.",
+      "correction": "",
+      "comment": "Repeated use of 'Hence' for similar concluding phrases; vary transitions to avoid repetition.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "One such example is that of Qatar led U.S and Taliban peace deal signed in 2020, owing to its negotiations and dialogues among parties. This one peace deal ended years long division and conflict arena that was consuming billions of dollars as well as innocent lives. Hence, the art of dialogue protected and played role in deradicalization.",
+      "comment": "Descriptive example lacks critical analysis; add cause-effect explanation of how dialogues led to deradicalization.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 8,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "They use it to share grievances and negotiate a deal which helps CS CamScanner",
+      "comment": "Paragraph ends abruptly mid-sentence; complete with full explanation and transition to next idea.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Hence, the art of dialogue protected and played role in deradicalization.",
+      "correction": "played a role",
+      "comment": "Missing article; insert 'a' before 'role' for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Dialogue is an important instrument that can be efficiently used to cleanse the minds from negativity and animosity and make them open to cooperation and understanding.",
+      "comment": "Repeats prior ideas on dialogue fostering cooperation; vary phrasing or integrate new insight.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "that are in way of making dialogue an absolute antidote",
+      "correction": "that are in the way of making dialogue an absolute antidote",
+      "comment": "Missing 'the' before 'way'; insert 'the' for correct preposition phrase.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "an dialogue antidate of division",
+      "correction": "an absolute antidote to division",
+      "comment": "Misspelling 'antidate' and awkward article/phrasing; correct to 'an absolute antidote to division'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "dialogue antidate of division",
+      "comment": "Repeats 'antidote of division' from prior sentence; rephrase to avoid redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 11,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "the rising radicalization and polarization in the world today. This has turned out to be a great obstruction in the way of meaningful negotiation.",
+      "comment": "Descriptive claim lacks analytical depth; add cause-effect analysis on how polarization hinders dialogue.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 11,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "World owing to technologies and Artificial Intelligence (AI) is getting closer than ever but the",
+      "comment": "Run-on and incomplete sentence; restructure as full thought or split for smooth flow.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Examples are that of democratic and non democratic blocs (US-China rivalry) on ideological grounds and global south and global north on economic grounds.",
+      "correction": "",
+      "comment": "No source mentioned for factual examples; cite reliable sources to verify claims.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "These phenomenons are only radicalizing and polarizing the world ever more.",
+      "correction": "These phenomena are only radicalizing and polarizing the world ever more.",
+      "comment": "'Phenomenons' is incorrect plural; use 'phenomena' for standard English form.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Hence, this pase greater challenge to establishment of peace via dialogue.",
+      "correction": "Hence, this poses a greater challenge to the establishment of peace via dialogue.",
+      "comment": "'Pase' misspelled and missing article/verb agreement; correct to 'poses a greater challenge to the'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Extremist ideologies as well as myopic identity based political rationality are very difficult to reason with People with such mindset hardly listen and then follow logic-",
+      "correction": "",
+      "comment": "Descriptive assertion lacks critical cause-effect analysis; explain mechanisms with evidence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "dialoguve and negotiation becomes very difficult : Hence, dialogue is unable to reap its benefits.",
+      "correction": "dialogue and negotiation become very difficult; hence, dialogue is unable to reap its benefits.",
+      "comment": "Correct spelling ('dialogue'), subject-verb agreement ('become'), punctuation, and capitalization ('hence').",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Dialogue loose all its impact when it comes to such myopic mindset individuals.",
+      "correction": "Dialogue loses all its impact when dealing with such myopic-minded individuals.",
+      "comment": "Change 'loose' to 'loses'; improve phrasing for grammatical accuracy and precision.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of A Paragraph",
+      "anchor_quote": "In the same vein, nationali- stic hubris and egoistic leadership around world. also pose to be a blockade",
+      "correction": "",
+      "comment": "Repetitive connector 'in the same vein'; use varied transitions to improve flow.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Leaders with Such mentality radicalize their nations in order to gain support. Their political manuverings impact the peace of the world",
+      "correction": "",
+      "comment": "Descriptive without analysis; add cause-effect links and evidence for deeper critique.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "Pakistan's National Action Plan (NAP) is one of the most impressive plan on gradual deradicalization of the Society.",
+      "correction": "",
+      "comment": "Descriptive praise lacks analysis or evidence; explain cause-effect on dialogue with examples.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "one of the most impressive plan",
+      "correction": "one of the most impressive plans",
+      "comment": "Subject-verb mismatch; use plural 'plans' after 'one of the most'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "there is need to reform digital media curb mis-inf- formation with force.",
+      "correction": "there is a need to reform digital media to curb misinformation with force.",
+      "comment": "Missing article 'a' and preposition 'to'; add for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Pakistan's National Action Plan (NAP) is one of the most impressive plan on gradual deradicalization of the Society.",
+      "correction": "",
+      "comment": "Unverifiable subjective claim; attribute to reliable source or report.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "paragraph_flow",
+      "rubric_point": "LOGICAL FLOW OF A PARAGRAPH",
+      "anchor_quote": "hence their monitoring is essential In this content.",
+      "correction": "",
+      "comment": "Misused word 'content'; replace with 'context' for logical transition.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Hene, in such negatively charged environment, dialogue loses its ability",
+      "correction": "Hence, in such negatively charged environment, dialogue loses its ability",
+      "comment": "Change 'Hene' to 'Hence' to fix spelling error.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "ensure dialogue's intensity to remain antidate of division.",
+      "correction": "ensure dialogue's intensity remains an antidote to division.",
+      "comment": "Correct 'antidate' to 'antidote' and rephrase for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "the enforcement of deradicalization and enforcing social inclusion.",
+      "correction": "the enforcement of deradicalization and promotion of social inclusion.",
+      "comment": "Remove repetition of 'enforcing' by varying wording like 'promotion'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "\" The \"rage bait\" phenomenon is primarily being used to instill anger and negativity among the masses.",
+      "comment": "Descriptive claim lacks critical analysis; add cause-effect links or evidence to deepen argument.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 14,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Social media - platforms like Face Book, [Twitter) X as well as freelance journalism are being exploited to build - negative mindsets.",
+      "comment": "Unattributed claims about social media; cite reliable sources for verifiability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 16,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion & Overall Impression",
+      "anchor_quote": "To conclude, dialogue rem- ains one of the most effective tools to reduce division in any society. In today's world where extremism, misinformation and political intolerance are rising the need for open and Sincere dialogue has become more urgent than ever. Therefore, - the idea that \"dialogue is the antidote of division\" is not just a slog an but a practical truth.",
+      "correction": "",
+      "comment": "Conclusion restates thesis and urges action effectively but is brief; expand synthesis of main arguments for deeper impact.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "inter-faith, inter-province and inter-culture dialogue is essentially important to neutralize differences and 1 that is only possible via means of dialogue among the aggrieved stake holders to ensure all gets an acceptable out come from - dialogue.",
+      "correction": "",
+      "comment": "Excessive repetition of 'dialogue' in one sentence; consolidate or vary phrasing to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "In today's world where extremism, misinformation and political intolerance are rising the need for open and",
+      "correction": "are rising, the need",
+      "comment": "Missing comma after 'rising'; insert comma to separate clauses properly.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "the idea that \"dialogue is the antidote of division\" is not just a slog an but a practical truth.",
+      "correction": "slogan",
+      "comment": "Misspelling 'slog an'; correct to 'slogan' for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    }
+  ],
+  "page_suggestions": [
+    {
+      "page": 1,
+      "suggestions": [
+        "Explicitly state a concise thesis in the I. Introduction section of the outline",
+        "Add analytical depth to sub-points like '1. Dialogue enables articulation...' by noting cause-effect resolution of divisions",
+        "Link case examples (e.g., UN Charter) more directly to how they build mutual understanding",
+        "Preview full structure including impediments and recommendations for balanced coverage"
+      ]
+    },
+    {
+      "page": 3,
+      "suggestions": [
+        "Elaborate on how each impediment (e.g., extremism, nationalistic hubris) directly obstructs dialogue with cause-effect analysis",
+        "Neutralize biased examples in leadership sub-point to focus on verifiable actions impeding negotiation",
+        "Add brief strategies or examples under each recommendation to demonstrate practical implementation",
+        "Balance case details across all impediments to avoid over-emphasis on specific leaders"
+      ]
+    },
+    {
+      "page": 4,
+      "suggestions": [
+        "Explicitly state a concise one-sentence thesis affirming 'dialogue is the antidote of division' with main arguments preview.",
+        "Provide roadmap of key sections: how dialogue counters division, impediments, recommendations.",
+        "Limit historical examples to framing; move detailed cases to body paragraphs."
+      ]
+    },
+    {
+      "page": 2,
+      "suggestions": [
+        "Add brief analytical explanation to point 4 on how Qatar-Taliban dialogue specifically deradicalized parties.",
+        "Clarify point 6 with outcomes showing how dialogue deescalated 2025 Pak-India conflict.",
+        "Develop point 1 under impediments by linking polarization to failed negotiations with cause-effect.",
+        "Ensure case studies in points 4-7 tie directly to thesis of dialogue countering division."
+      ]
+    },
+    {
+      "page": 7,
+      "suggestions": [
+        "Elaborate on EU trust-building process with specific historical details like Schuman Plan for deeper analysis.",
+        "Connect trust-building to deradicalization with transitional sentence to improve flow.",
+        "Strengthen EU example by explaining cause-effect link to preventing division."
+      ]
+    },
+    {
+      "page": 5,
+      "suggestions": [
+        "Explicitly state a concise one-sentence thesis affirming the proposition as your stance.",
+        "Add a specific example or case study to support the claim that dialogue articulates needs, fears, and expectations.",
+        "Vary phrasing of the core proposition to avoid immediate repetition and improve conciseness.",
+        "Strengthen the first body point with evidence tied to reducing division as per outline."
+      ]
+    },
+    {
+      "page": 6,
+      "suggestions": [
+        "Elaborate UN Charter example with cause-effect analysis showing how dialogue overcame post-WWII mistrust.",
+        "Complete final sentence on cooperation to explain its role in eliminating division.",
+        "Deepen analysis of mutual understanding by linking to broader thesis on dialogue as antidote."
+      ]
+    },
+    {
+      "page": 9,
+      "suggestions": [
+        "Expand CCI example with specific provincial disputes resolved to show trust-building impact.",
+        "Detail the international conflict case (e.g., key negotiation steps) for stronger evidence.",
+        "Analyze cause-effect of dialogue in CCI beyond description for deeper argumentation."
+      ]
+    },
+    {
+      "page": 10,
+      "suggestions": [
+        "Cite reliable source for May 2025 Pak-India conflict to verify and strengthen evidence.",
+        "Deepen analysis of UN's dialogue role in Korean War and Suez Crisis with specific cause-effect mechanisms.",
+        "Explicitly link examples to thesis by explaining how dialogue counters division in these cases."
+      ]
+    },
+    {
+      "page": 8,
+      "suggestions": [
+        "Elaborate on Qatar-Taliban deal with specific negotiation outcomes showing deradicalization process.",
+        "Introduce concrete example for societal cohesion, such as CCI Pakistan from outline.",
+        "Complete societal unity paragraph with analysis of how dialogue sustains national grievances resolution.",
+        "Link examples explicitly to thesis on dialogue as antidote to division."
+      ]
+    },
+    {
+      "page": 11,
+      "suggestions": [
+        "Elaborate on how rising radicalization obstructs meaningful negotiation with cause-effect analysis",
+        "Provide specific examples like US-China rivalry to illustrate polarization impeding dialogue",
+        "Develop the technology paradox (closeness via AI yet greater division) with evidence from reliable sources",
+        "Strengthen transition by explicitly linking UN's success to current impediments"
+      ]
+    },
+    {
+      "page": 12,
+      "suggestions": [
+        "Add source citation for US-China rivalry and global south/north examples to support polarization claim.",
+        "Elaborate cause-effect analysis on how extremism prevents reasoning and dialogue success.",
+        "Strengthen religious/sectarian bigotry example with specific verifiable case study.",
+        "Link impediments back to thesis by noting dialogue's potential despite challenges."
+      ]
+    },
+    {
+      "page": 13,
+      "suggestions": [
+        "Deepen analysis of egoistic leadership by explaining specific manipulative tactics with evidence.",
+        "Provide concrete examples of media narratives fueling division to strengthen impediment claim.",
+        "Balance impediments section with brief counter to maintain argumentative depth."
+      ]
+    },
+    {
+      "page": 15,
+      "suggestions": [
+        "Add specific NAP outcomes or statistics to evidence deradicalization effectiveness.",
+        "Elaborate media reform strategies with examples of successful monitoring.",
+        "Link diplomacy recommendation to specific impediments like polarization with analysis.",
+        "Explicitly connect recommendations to enhancing dialogue as antidote to division."
+      ]
+    },
+    {
+      "page": 14,
+      "suggestions": [
+        "Add evidence or examples explaining how 'rage bait' specifically obstructs dialogue.",
+        "Elaborate on specific actions for international organizations and national policies to enforce deradicalization.",
+        "Deepen analysis of media's role by discussing cause-effect relationship with rigid mindsets.",
+        "Link media impediments directly to deradicalization recommendation for stronger transitions."
+      ]
+    },
+    {
+      "page": 16,
+      "suggestions": [
+        "Synthesize recommendations with impediments to show how dialogue overcomes divisions",
+        "Recap key body examples like UN and Pak-India to reinforce thesis in conclusion",
+        "Strengthen call to action by linking to specific global challenges mentioned earlier"
+      ]
+    }
+  ],
+  "errors": [],
+  "completed_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ]
+}

@@ -1,0 +1,726 @@
+{
+  "annotations": [
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "Irrelevant sub-point",
+      "anchor_quote": "5. The democratic slogan,\"Life, Liberty and Property\" becomes meaningless without economic equality.",
+      "correction": "",
+      "comment": "Sub-point 5 in III is tangential and fails to address how inequality weakens democracy; revise to provide direct analytical connection to prompt.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "Over-emphasis on sections",
+      "anchor_quote": "IV. Suggested Measures to Mitigate Economic Inequality in Order to Revitalize Democracy:",
+      "correction": "",
+      "comment": "Section IV over-emphasizes measures with 6 descriptive points lacking balance and explicit links to democracy; condense and add subpoints tying to revitalization.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "argumentation_depth",
+      "rubric_point": "Descriptive sub-points lacking depth",
+      "anchor_quote": "1. Provide free or, atleast, affordable education to the general public.",
+      "correction": "",
+      "comment": "IV sub-points are merely descriptive lists without analytical depth; expand each with cause-effect explanation on mitigating inequality for democracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "II. The Interrelation between Economic Inequality and Democracy",
+      "correction": "",
+      "comment": "Section II is heading only without subpoints, causing imbalance; develop arguments to cover interrelation comprehensively.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "It is an undeniable fact that the economic inequality is a paramount factor leading to the weakening of democracy. However, with the appropriate and well- guided policy measures, this inequality can be mitigated, leading to substantial revitalization of democracy.",
+      "correction": "",
+      "comment": "Stance/thesis in I is vague and wordy; condense to explicit one-sentence thesis demonstrating prompt understanding.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "1. Economically deprived illiterate masses are unable to bring right people to power",
+      "correction": "",
+      "comment": "Subpoint descriptive lacking analysis; explain cause-effect on democratic elections for critical depth.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Economic disparity, itself, proves that there is no rule of law ..",
+      "correction": "Economic disparity indicates absence of rule of law.",
+      "comment": "Awkward phrasing and extra dots; revise for grammatical clarity and precision.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "It is, indeed, an undeniable fact that the economic fainequality is a para- mount factor leading to the weakening of democracy. However, with the appropriate and well-guided policy measures, this inequality can be mitigated, leading to substantial revitalization of democracy.",
+      "correction": "",
+      "comment": "Verbose and split thesis lacks sharpness; condense to one sentence with explicit stance and argument preview.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Pondering, on their socioeconomic status, it comes to light that there is significant drop in the economic inequality among people their as compared to the developing democracy like Pakistan.",
+      "correction": "",
+      "comment": "Factual comparison lacks source; attribute to reliable data or index like Gini coefficient.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "economic fainequality",
+      "correction": "economic inequality",
+      "comment": "Misspelling 'fainequality'; correct to 'inequality'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "There is a significant internation between economic inequality and democracy.",
+      "correction": "interaction",
+      "comment": "Misspelling 'internation'; correct to 'interaction'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "Democratic way of government, enveloped in the idea, \"Government of the people, by the people, for the people,\" has to ensure that the economic well being of all the people is prioritized in the like manner.",
+      "correction": "",
+      "comment": "Lincoln quote provides background without tying to inequality-democracy link; connect explicitly or remove.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "There is possibly no way to deny the fact that economic inequality makes it impossible for democracy to thrive.",
+      "correction": "Economic inequality makes it impossible for democracy to thrive.",
+      "comment": "Hedges assertive stance with 'possibly' and lacks explicit thesis with overview of main arguments; revise to clear thesis previewing weakening effects and measures.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "Democracy essentially demands that the people of a state are provided with equal economic opportunities ? that they are all equipped with the essential resources which they con employ to progress economically.",
+      "correction": "Democracy demands equal economic opportunities so people are equipped with essential resources to progress economically.",
+      "comment": "Lacks concise overview of key points/sections; add structured preview of interrelation, weakening ways, and mitigation measures.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "An econ- comically deprived individual is bound to Secure a low social rank Similary, if an individualiseconomically weak, their opinions get unheard, leading to their political deprivation,",
+      "correction": "An economically deprived individual is bound to secure a low social rank. Similarly, if an individual is economically weak, their opinions get unheard, leading to political deprivation.",
+      "comment": "Spelling/typos ('econ- comically', 'Similary', 'individualiseconomically'), improper capitalization ('Secure'), and run-on; correct spelling, capitalize properly, and split into sentences.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "all the stratas of the society",
+      "correction": "all strata of society",
+      "comment": "Misspelled plural ('stratas'); use 'strata' and simplify phrasing for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "factual_accuracy",
+      "rubric_point": "If the source of factual data is not mentioned, flag it.",
+      "anchor_quote": "Canada's economic equality index is one of the highest in the world. Similarly, their literacy rate is around 84% which has led the people to choose their leadership right hand made Canada 6th largest economy of the world.",
+      "comment": "Factual claims about Canada's index, literacy rate, and economy lack source; cite reliable verifiable source.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 6,
+      "type": "argumentation_depth",
+      "rubric_point": "If the arguments in paragraphs are narrative or descriptive and don’t provide critical analysis through cause and effect relationship, flag them as weak arguments.",
+      "anchor_quote": "the illiterate masses are unable to bring the right people to power. This is the kind of illiteracy that breeds from unavailability of the resources necessary to get education.",
+      "comment": "Illiteracy argument is descriptive; add critical cause-effect analysis and supporting evidence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 6,
+      "type": "relevance_focus",
+      "rubric_point": "Flag if any argument/sub-point in the outline is irrelevant and does not demonstrate accurate understanding of the topic’s key terms and demands.",
+      "anchor_quote": "Canada's economic equality index is one of the highest in the world. Similarly, their literacy rate is around 84%",
+      "comment": "Canada example digresses without direct tie to inequality weakening democracy; explicitly link to thesis.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 6,
+      "type": "paragraph_flow",
+      "rubric_point": "Flag if more than one idea is discussed in the paragraph.",
+      "anchor_quote": "Another way in which economic inequality is weakening democracy is that it creates great hurdles in they way of people becoming \"equals\") in the society.",
+      "comment": "Paragraph mixes illiteracy and social equality ideas; split into focused paragraphs with topic sentences.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "frequent grammar errors (e.g., 'fainequality', 'econ-comically deprived', 'reinstate' misused)",
+      "anchor_quote": "Hence, the role of education in this scenario can not be reinstated enough.",
+      "comment": "'Reinstated' misused for emphasis; replace with 'emphasized' or 'understated'; fix 'they way' to 'the way'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "democratic form of government can not slide in.",
+      "correction": "democratic form of government cannot tolerate.",
+      "comment": "Awkward phrasing; revise to 'cannot tolerate' for idiomatic clarity and correctness.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "cryonism, and nepotism.",
+      "correction": "cronyism, and nepotism.",
+      "comment": "Misspelling of 'cronyism'; correct to standard term for political favoritism.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "there would be very less chances",
+      "correction": "there would be very few chances",
+      "comment": "'Less' incorrect for countables; use 'few' with 'very few chances'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Injustices and inequalities of these kinds polarize the societies and n further upset the social cohesion. It, additionally, hinders the progress of a state as polarized societies are rarely united to work for common fre good.",
+      "correction": "",
+      "comment": "Descriptive narrative on polarization; add critical cause-effect analysis with evidence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Hence, economic inequality furthers a state from being S. trudy democratic one. Similarly, economic inequality pr",
+      "correction": "",
+      "comment": "Repeats 'economic inequality' consecutively; vary wording to reduce redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "Abiding the law will eventually lead to frequent circulation of wealth in CS CamScanner",
+      "correction": "",
+      "comment": "Abrupt ending; add summarizing sentence tying rule of law back to democracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "USA has the most successful Social Safety programs introduced Since the 1930s.",
+      "correction": "",
+      "comment": "Unverifiable claim lacks source attribution; cite reliable source or use Scandinavian model as per grading notes.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "Social Safety nets are basically introduced to protect the vulnerable strata of the Society from entreme hardships of poverty. It is democratic ideal to create such set yps in order to realize betterment of the people that are most prone to economic hardships.",
+      "correction": "",
+      "comment": "Descriptive definition lacks critical analysis through cause-effect; explain how absence undermines democratic participation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "In the same way, economic equality breeds from the unavailability of essential social safetynets",
+      "correction": "In the same way, economic inequality breeds from the unavailability of essential social safety nets",
+      "comment": "Logical/typo error 'equality' should be 'inequality', 'safetynets' to 'safety nets'; correct for accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "Hence, it proves to be a significant way in which economic inequality is weakening democracy.",
+      "correction": "",
+      "comment": "Repeats thesis phrasing; integrate unique evidence instead of restating.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus (Adherence to Topic)",
+      "anchor_quote": "Last but not least, the democratic slogan,\"Life, Liberty, and Property\", looses its meaning when there is no economic equality.",
+      "comment": "Tangential slogan digresses from direct analysis of inequality weakening democracy; tie explicitly to prompt or remove.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 9,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "the democratic slogan,\"Life, Liberty, and Property\"",
+      "comment": "Slogan unattributed and contextually imprecise (Lockean, not standard US); attribute source and verify relevance.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "looses its meaning",
+      "correction": "loses its meaning",
+      "comment": "'Looses' incorrect spelling/usage; change to 'loses'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "The word \"Proporty\"",
+      "correction": "The word \"Property\"",
+      "comment": "'Proporty' misspelled; correct to 'Property'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "SY is, indeed, bound to falter as IMOOR BUKHARI BY Economic inequality is not too much of an unalterable reality.",
+      "comment": "Abrupt jump from weakening argument to measures; add connector recapping prior points.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 10,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Similarly in USA there is free education untill college.",
+      "correction": "",
+      "comment": "USA offers free public K-12 education but not college; correct scope and cite source for democratic impact.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "The National Education Policy 2020, India is a relevant example here: Owing to this venture, the overall literacy rate there would exceed 80% They are also going to make it quite affordable especially for the rural masses.",
+      "correction": "",
+      "comment": "Descriptive policy mention lacks analysis of cause-effect on inequality/democracy; add evidence and critical depth.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Hence rule of low needs to be well- established",
+      "correction": "rule of law",
+      "comment": "Spelling error 'low' for 'law'; correct and ensure consistent terminology throughout.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "These measure have made USA a thriving democracy.",
+      "correction": "",
+      "comment": "USA example digresses as it has high inequality despite education; directly link to inequality mitigation or replace.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Transparency International has declared Pakistan among \"Authorian Regimes\".",
+      "correction": "Verify and correct: Transparency International reports corruption perceptions, not regime classifications; use accurate phrasing.",
+      "comment": "Unverifiable attribution and misspelling; cite reliable source confirming claim.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Economic inequality, that weakens democracy, usually breeds from political instability.",
+      "correction": "",
+      "comment": "Descriptive claim lacks evidence or cause-effect analysis; add data showing mechanisms.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Frequent changes in government, corruption · no accountability ,and nepotism",
+      "correction": "Frequent changes in government, corruption, lack of accountability, and nepotism",
+      "comment": "Fix punctuation, spacing, and phrasing for parallel structure and clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "Third, political stability 1 is essentially important for ensuring economic equality.",
+      "correction": "",
+      "comment": "Add transitional phrase from prior measure to improve flow between points.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "Political stability, transparency and accountability are prerequisites. for economic equality, which further leads to strengthened democracy.",
+      "correction": "",
+      "comment": "Strengthen direct tie to prompt by explaining how stability addresses inequality's democratic weakening.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "A great deal of work has been dome by Bangladesh's government, producing 3 million+ skilled workforce per anum.",
+      "correction": "",
+      "comment": "Factual claim lacks source attribution; cite reliable source to verify.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "The Scandinavian model of social safety nets can be a great model which has let to only 11% economic inequality, poverty left in the their countries.",
+      "correction": "",
+      "comment": "Unverifiable statistic on inequality; attribute to reliable source or remove.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This is a significant way of reducing economic inequality and strengthing democracy.",
+      "correction": "",
+      "comment": "Descriptive assertion lacks critical analysis; add cause-effect explanation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "strengthing",
+      "correction": "strengthening",
+      "comment": "Misspelling 'strengthing'; correct to 'strengthening'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion Quality",
+      "anchor_quote": "To conclude, it canbe said that economic inequality is a fundamental reason that democracy ends up underperforming. Economic inequality weakens democracy owing to literacy brought by economic deprivation, death of rule of law and absence of equality.",
+      "comment": "Conclusion restates thesis and body points repetitively without synthesis or strong close; add unifying insight and impactful final statement.",
+      "correction": "Revise to synthesize arguments and end thoughtfully.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Economic inequality weakens democracy owing to literacy brought by economic deprivation, death of rule of law and absence of equality.",
+      "comment": "Repeats body arguments verbatim without new analysis; rephrase to summarize concisely or integrate novel perspective.",
+      "correction": "Condense list into synthesized overview.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "However, there are ways to curb economic inequality such as increased employments, provision of education, rule of law and political stability If these measure are taken ( whole heartedy, there is a great possibility for economic inequality to shrinken, and democracy to widen.",
+      "comment": "Measures listed descriptively without analytical links to democracy; add cause-effect explanations showing revitalization.",
+      "correction": "Elaborate briefly on how each measure strengthens democracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Economic inequality weakens democracy owing to literacy brought by economic deprivation",
+      "comment": "'Literacy brought by economic deprivation' factually incorrect (implies positive effect); correct to 'illiteracy caused by economic deprivation'.",
+      "correction": "Change to 'illiteracy resulting from economic deprivation'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "If these measure are taken ( whole heartedy, there is a great possibility for economic inequality to shrinken, and democracy to widen.",
+      "comment": "Grammatical errors in subject-verb agreement, adverb spelling, and verb form; correct to 'If these measures are taken wholeheartedly, there is great possibility for economic inequality to shrink, and democracy to thrive.",
+      "correction": "Fix plurals, spelling, and verb tenses.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    }
+  ],
+  "page_suggestions": [
+    {
+      "page": 1,
+      "suggestions": []
+    },
+    {
+      "page": 3,
+      "suggestions": [
+        "Revise sub-point 5 in III to directly link economic inequality to specific weakening effects on democracy",
+        "Add analytical subpoints under IV measures explaining their role in revitalizing democracy",
+        "Balance outline by expanding underdeveloped sections like II with comparable detail to III and IV",
+        "Develop Conclusion section with key summary points mirroring body arguments"
+      ]
+    },
+    {
+      "page": 2,
+      "suggestions": [
+        "Expand II. The Interrelation between Economic Inequality and Democracy with subpoints to balance detailed III.",
+        "Sharpen thesis in I to a concise one-sentence stance directly addressing prompt.",
+        "Add cause-effect analysis to III subpoints like illiterate masses for argumentative depth.",
+        "Explicitly link point 4 economic decline to democracy weakening beyond description."
+      ]
+    },
+    {
+      "page": 5,
+      "suggestions": [
+        "Condense verbose thesis into one clear sentence stating stance and main arguments.",
+        "Link USA-Pakistan comparison directly to how inequality weakens democracy.",
+        "Provide structured overview of essay sections after thesis.",
+        "Integrate Lincoln quote to frame economic equality relevance without digression."
+      ]
+    },
+    {
+      "page": 4,
+      "suggestions": [
+        "State a clear one-sentence thesis explicitly outlining that economic inequality weakens democracy but can be mitigated through measures.",
+        "Provide a roadmap previewing main sections on interrelation, weakening effects, and suggested measures.",
+        "Sharpen stance by removing hedging language and directly addressing prompt's key terms from first sentence."
+      ]
+    },
+    {
+      "page": 6,
+      "suggestions": [
+        "Deepen analysis of illiteracy's impact on electing leaders by explaining cause-effect mechanisms with specific evidence",
+        "Explicitly link Canada's equality and literacy to how it prevents democracy weakening",
+        "Introduce topic sentence for social equality idea to improve paragraph unity",
+        "Add transition from education example to social equality discussion"
+      ]
+    },
+    {
+      "page": 7,
+      "suggestions": [
+        "Elaborate on cause-effect between social polarization and democratic weakening with specific examples",
+        "Strengthen rule of law argument by linking corruption directly to inequality's impact on democracy",
+        "Add evidence for how abiding law circulates wealth and revitalizes democracy",
+        "Improve flow by adding topic sentence for rule of law subsection"
+      ]
+    },
+    {
+      "page": 8,
+      "suggestions": [
+        "Deepen analysis of how lack of social safety nets weakens democracy with specific cause-effect examples",
+        "Provide evidence or data linking rule of law absence directly to economic inequality's impact on democracy",
+        "Qualify or source the claim about USA's social safety programs for credibility",
+        "Improve transition between rule of law and social safety nets discussion for smoother flow"
+      ]
+    },
+    {
+      "page": 9,
+      "suggestions": [
+        "Link slogan to specific mechanism of inequality weakening democracy, e.g., economic deprivation undermining property rights.",
+        "Add transitional sentence summarizing weakening effects before introducing measures.",
+        "Support education urgency with evidence like literacy rates impacting democratic stability.",
+        "Explicitly connect first measure (education) to revitalizing democracy via reduced inequality."
+      ]
+    },
+    {
+      "page": 10,
+      "suggestions": [
+        "Explicitly link education policies in India/USA to reducing economic inequality and revitalizing democracy with causal analysis",
+        "Provide evidence or data showing how rule of law reduces economic deprivation across social strata",
+        "Strengthen measures section by tying each point (education, rule of law) back to outline's revitalization goals",
+        "Add transitions between education and rule of law measures for smoother flow"
+      ]
+    },
+    {
+      "page": 11,
+      "suggestions": [
+        "Provide specific data or metrics on Pakistan's political instability to substantiate its link to economic inequality.",
+        "Deepen analysis of how political stability leads to economic equality and democracy revitalization with cause-effect explanation.",
+        "Expand fourth point on skills development with concrete examples tied to democracy.",
+        "Explicitly connect prerequisites like transparency to mitigating inequality's weakening effects on democracy."
+      ]
+    },
+    {
+      "page": 12,
+      "suggestions": [
+        "Cite reliable source for Bangladesh's 3 million+ skilled workforce claim",
+        "Verify and source 11% economic inequality statistic for Scandinavian model",
+        "Elaborate cause-effect analysis on how training centers strengthen democracy",
+        "Explicitly link social safety nets to revitalizing democracy with evidence"
+      ]
+    },
+    {
+      "page": 13,
+      "suggestions": [
+        "Synthesize weakening factors and measures into a new insightful statement instead of restating lists",
+        "Explicitly link listed measures to revitalizing democracy with brief explanations",
+        "End with a forward-looking statement on the broader implications for democracy"
+      ]
+    }
+  ],
+  "errors": [],
+  "completed_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ]
+}

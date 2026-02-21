@@ -31,6 +31,7 @@ import re
 import time
 from typing import Any, Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 import requests
 from dotenv import load_dotenv
@@ -867,6 +868,9 @@ def call_grok_for_essay_structure_paragraphs_only(
             "First part is Outline, then Intro/Body/Conclusion as paragraph blocks.\n"
             "Primary truth = page images. OCR is only helper; ignore OCR errors and never mention them.\n"
             "When returning the topic/title, use the exact wording written in the answer—no rephrasing or additions.\n"
+            "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+            "If you encounter dates/events you don't have knowledge about, simply ignore them and focus on content detection. "
+            "Never comment on whether content is speculative based on your knowledge cutoff.\n"
             "Return JSON only."
         ),
     }
@@ -1050,6 +1054,9 @@ def call_grok_for_essay_grading_strict_range(
         "content": (
             "You are a strict CSS English Essay examiner (FPSC style). "
             "Be conservative: strong essays seldom exceed ~38-40/100 (guideline, not a hard cap). "
+            "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+            "If you encounter dates/events you don't have knowledge about, simply ignore them and focus on the essay's structure and argumentation. "
+            "Never comment on whether an event is speculative or not based on your knowledge cutoff. "
             "Return VALID JSON only; no markdown or commentary."
         ),
     }
@@ -1340,6 +1347,102 @@ def _save_partial_annotations(path: str, data: Dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _process_annotation_page(
+    page: Dict[str, Any],
+    page_num: int,
+    payload: Dict[str, Any],
+    system: Dict[str, Any],
+    instructions: str,
+    grok_api_key: str,
+    debug_dir: str,
+    lock: threading.Lock,
+) -> Tuple[int, Optional[Dict[str, Any]], Optional[str]]:
+    """Process a single page for annotations (used for parallel processing)."""
+    ocr_page_text = (page.get("ocr_page_text") or "").strip()
+    if not ocr_page_text:
+        return page_num, None, "Missing ocr_page_text (fix run_ocr_on_pdf output)."
+    
+    max_page_attempts = 3
+    last_err = None
+    parsed = None
+    
+    for attempt in range(1, max_page_attempts + 1):
+        try:
+            data = _grok_chat(
+                grok_api_key,
+                messages=[system, {"role": "user", "content": instructions + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False)}],
+                temperature=0.12,
+                timeout=200,
+                max_retries=4,
+            )
+            content = data["choices"][0]["message"]["content"]
+            parsed = parse_json_with_repair(
+                grok_api_key, 
+                content, 
+                debug_tag=f"essay_annotations_p{page_num}",
+                debug_dir_override=debug_dir
+            )
+            if not isinstance(parsed, dict):
+                raise ValueError("Annotation JSON is not an object")
+            if not isinstance(parsed.get("annotations"), list):
+                raise ValueError("Annotation JSON missing annotations list")
+            if not isinstance(parsed.get("page_suggestions"), list):
+                raise ValueError("Annotation JSON missing page_suggestions list")
+            
+            # VALIDATE ANCHORS: ensure they exist in OCR text
+            ann = parsed.get("annotations") or []
+            valid_ann = []
+            invalid_count = 0
+            
+            for a in ann:
+                if not isinstance(a, dict):
+                    continue
+                aq = a.get("anchor_quote", "")
+                atype = (a.get("type") or "").strip()
+                
+                # Allow outline_quality and introduction_quality even without perfect anchors
+                if atype in ["outline_quality", "introduction_quality"]:
+                    valid_ann.append(a)
+                    continue
+                
+                # For other annotation types, validate anchor
+                if not aq or not _anchor_is_valid(aq, ocr_page_text):
+                    invalid_count += 1
+                
+                valid_ann.append(a)
+            
+            # Log validation result for debugging
+            if invalid_count > 0:
+                with lock:
+                    print(f"    [Page {page_num}] Warning: {invalid_count}/{len(ann)} annotations missing valid anchor_quote")
+            
+            parsed["annotations"] = valid_ann
+            
+            # Light cleanup to keep output consistent
+            cleaned = []
+            for a in valid_ann:
+                if not isinstance(a.get("page"), int):
+                    a["page"] = page_num
+                for k in ["type", "rubric_point", "anchor_quote", "target_word_or_sentence", "context_before", "context_after", "correction", "comment"]:
+                    if k not in a:
+                        a[k] = ""
+                cleaned.append(a)
+            
+            sugg = parsed.get("page_suggestions") or []
+            if not isinstance(sugg, list):
+                sugg = []
+            
+            return page_num, {"annotations": cleaned, "page_suggestions": sugg}, None
+            
+        except Exception as e:
+            last_err = str(e)
+            if attempt == max_page_attempts:
+                return page_num, None, last_err
+            continue
+    
+    return page_num, None, last_err
+
+
 def call_grok_for_essay_annotations(
     grok_api_key: str,
     annotations_rubric_text: str,
@@ -1361,6 +1464,9 @@ def call_grok_for_essay_annotations(
         "content": (
             "You generate pinpoint annotations for handwritten CSS essays.\n"
             "Primary truth = page images; OCR is helper. Ignore OCR errors and never mention them.\n"
+            "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+            "If you encounter dates/events you don't have knowledge about, ignore them and focus on essay structure and argumentation. "
+            "Never comment on whether an event is speculative based on your knowledge cutoff.\n"
             "Return JSON only."
         ),
     }
@@ -1412,6 +1518,8 @@ def call_grok_for_essay_annotations(
         "- These annotations should appear on the FIRST relevant page (outline on page 1-2, intro on early essay pages).\n"
         "\n"
         "- page_suggestions: 2-4 short bullets for this page only; make them specific and actionable (e.g., 'state thesis in first paragraph', 'replace repeated phrase X', 'add evidence for claim Y'), not generic.\n"
+        "- IMPORTANT: Do NOT include grammar or spelling errors in page_suggestions. Grammar and spelling corrections are handled separately.\n"
+        "- page_suggestions should focus on content, structure, argumentation, evidence, and relevance only.\n"
         "- Never mention OCR/scan/handwriting/legibility.\n"
         "Return JSON only matching schema."
     )
@@ -1460,13 +1568,17 @@ def call_grok_for_essay_annotations(
     except Exception:
         outline_pages_set = set()
 
+    # PARALLEL PROCESSING: Process multiple pages concurrently for faster annotations
+    print(f"  Processing {len(ocr_pages)} pages with parallel annotation generation...")
+    
+    pages_to_process = []
     for page in ocr_pages:
         page_num = page.get("page_number")
         if not isinstance(page_num, int):
             continue
         if page_num in completed_pages:
             continue
-
+        
         payload = {
             "annotations_rubric_text": (annotations_rubric_text or ""),
             "grading_summary": grading_summary,
@@ -1477,119 +1589,57 @@ def call_grok_for_essay_annotations(
             "allowed_outline_pages": sorted(outline_pages_set),
             "output_schema": schema_hint,
         }
-
-        ocr_page_text = (page.get("ocr_page_text") or "").strip()
-        if not ocr_page_text:
-            errors.append({"page": page_num, "error": "Missing ocr_page_text (fix run_ocr_on_pdf output)."})
-            _save_partial_annotations(partial_path, {
-                "annotations": annotations,
-                "page_suggestions": page_suggestions,
-                "errors": errors,
-                "completed_pages": sorted(completed_pages),
-            })
-            continue
-
-        max_page_attempts = 3
-        last_err = None
-        parsed = None
+        pages_to_process.append((page, page_num, payload))
+    
+    # Process pages in parallel (up to 3 concurrent pages)
+    lock = threading.Lock()
+    max_workers = min(3, len(pages_to_process))
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_annotation_page,
+                page,
+                page_num,
+                payload,
+                system,
+                instructions,
+                grok_api_key,
+                debug_dir,
+                lock
+            ): page_num
+            for page, page_num, payload in pages_to_process
+        }
         
-        for attempt in range(1, max_page_attempts + 1):
+        for future in as_completed(futures):
+            page_num = futures[future]
             try:
-                data = _grok_chat(
-                    grok_api_key,
-                    messages=[system, {"role": "user", "content": instructions + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False)}],
-                    temperature=0.12,
-                    timeout=200,
-                    max_retries=4,
-                )
-                content = data["choices"][0]["message"]["content"]
-                parsed = parse_json_with_repair(
-                    grok_api_key, 
-                    content, 
-                    debug_tag=f"essay_annotations_p{page_num}",
-                    debug_dir_override=debug_dir
-                )
-                if not isinstance(parsed, dict):
-                    raise ValueError("Annotation JSON is not an object")
-                if not isinstance(parsed.get("annotations"), list):
-                    raise ValueError("Annotation JSON missing annotations list")
-                if not isinstance(parsed.get("page_suggestions"), list):
-                    raise ValueError("Annotation JSON missing page_suggestions list")
+                result_page_num, result, error = future.result()
                 
-                # VALIDATE ANCHORS: ensure they exist in OCR text
-                ann = parsed.get("annotations") or []
-                valid_ann = []
-                invalid_count = 0
+                if error:
+                    with lock:
+                        errors.append({"page": result_page_num, "error": error})
+                        print(f"    ✗ Page {result_page_num} failed: {error}")
+                elif result:
+                    with lock:
+                        annotations.extend(result["annotations"])
+                        page_suggestions.append({"page": result_page_num, "suggestions": result["page_suggestions"]})
+                        completed_pages.add(result_page_num)
+                        print(f"    ✓ Page {result_page_num} done ({len(result['annotations'])} annotations)")
                 
-                for a in ann:
-                    if not isinstance(a, dict):
-                        continue
-                    aq = a.get("anchor_quote", "")
-                    atype = (a.get("type") or "").strip()
-                    
-                    # Allow outline_quality and introduction_quality even without perfect anchors
-                    # (they should appear even if section is missing)
-                    if atype in ["outline_quality", "introduction_quality"]:
-                        valid_ann.append(a)
-                        continue
-                    
-                    # For other annotation types, validate anchor
-                    if not aq or not _anchor_is_valid(aq, ocr_page_text):
-                        invalid_count += 1
-                        # Still add it, but log that it's missing anchor
-                    
-                    valid_ann.append(a)
-                
-                # Log validation result for debugging
-                if invalid_count > 0:
-                    print(f"    [Page {page_num}] Warning: {invalid_count}/{len(ann)} annotations missing valid anchor_quote")
-                
-                parsed["annotations"] = valid_ann
-                break  # success - accept all annotations (anchor or not)
-                
-            except Exception as e:
-                last_err = e
-                if attempt == max_page_attempts:
-                    errors.append({"page": page_num, "error": str(e)})
+                # Save progress after each page completes
+                with lock:
                     _save_partial_annotations(partial_path, {
                         "annotations": annotations,
                         "page_suggestions": page_suggestions,
                         "errors": errors,
                         "completed_pages": sorted(completed_pages),
                     })
-                    parsed = None
-                continue
-        
-        if parsed is None:
-            continue
-
-        # Light cleanup per page to keep output consistent
-        ann = parsed.get("annotations") or []
-        cleaned = []
-        for a in ann:
-            if not isinstance(a, dict):
-                continue
-            if not isinstance(a.get("page"), int):
-                a["page"] = page_num
-            for k in ["type", "rubric_point", "anchor_quote", "target_word_or_sentence", "context_before", "context_after", "correction", "comment"]:
-                if k not in a:
-                    a[k] = ""
-            cleaned.append(a)
-
-        sugg = parsed.get("page_suggestions") or []
-        if not isinstance(sugg, list):
-            sugg = []
-
-        annotations.extend(cleaned)
-        page_suggestions.append({"page": page_num, "suggestions": sugg})
-        completed_pages.add(page_num)
-
-        _save_partial_annotations(partial_path, {
-            "annotations": annotations,
-            "page_suggestions": page_suggestions,
-            "errors": errors,
-            "completed_pages": sorted(completed_pages),
-        })
+            
+            except Exception as e:
+                with lock:
+                    errors.append({"page": page_num, "error": str(e)})
+                    print(f"    ✗ Page {page_num} exception: {e}")
 
     if not annotations and errors:
         raise RuntimeError(f"All annotation requests failed. See {partial_path} for details.")
@@ -1684,13 +1734,15 @@ def render_essay_report_pages_range(
     
     print(f"Essay report font sizes: title={title_size}pt, header={header_size}pt, cell={cell_size}pt")
     
-    # Margins and layout
+    # Margins and layout - increased right padding
     margin = W_pt * 0.055
+    right_margin = W_pt * 0.08  # More padding from right
     y = margin
     
     # Column widths (proportional to page width) - only Criterion and Key Comments
-    col_criterion = W_pt * 0.35
-    col_comments = W_pt - margin * 2 - col_criterion
+    table_width = W_pt - margin - right_margin
+    col_criterion = table_width * 0.35
+    col_comments = table_width - col_criterion
     
     # Get grading data
     topic = grading.get("topic", "")
@@ -1726,6 +1778,9 @@ def render_essay_report_pages_range(
         page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         y += header_size * 1.4
     
+    # Add proper gap between Topic and Total Marks
+    y += 15  # Extra spacing
+    
     # Total marks - bigger font and red color
     total_marks_size = header_size * 1.5  # 50% bigger
     page.insert_text(
@@ -1735,12 +1790,12 @@ def render_essay_report_pages_range(
         fontsize=total_marks_size,
         color=(1, 0, 0)  # Red color
     )
-    y += total_marks_size * 1.5
+    y += total_marks_size * 1.8  # More spacing after total marks
     
     # Table header - only Criterion and Key Comments
     table_x = margin
-    table_w = W_pt - 2 * margin
-    row_h = 36
+    table_w = table_width
+    row_h = 42  # Increased row height for better readability
     
     headers = ["Criterion", "Key Comments"]
     header_rect = fitz.Rect(table_x, y, table_x + table_w, y + row_h)
@@ -1760,7 +1815,7 @@ def render_essay_report_pages_range(
         crit = c.get("criterion", "")
         comments = str(c.get("key_comments", ""))
         
-        # Estimate row height based on text wrapping
+        # Estimate row height based on text wrapping - increased for better spacing
         # Simple approximation: count characters and estimate lines
         comment_chars_per_line = int((col_comments - 10) / (cell_size * 0.5))
         comment_lines = max(1, (len(comments) + comment_chars_per_line - 1) // comment_chars_per_line)
@@ -1768,7 +1823,7 @@ def render_essay_report_pages_range(
         crit_chars_per_line = int((col_criterion - 10) / (cell_size * 0.5))
         crit_lines = max(1, (len(crit) + crit_chars_per_line - 1) // crit_chars_per_line)
         
-        row_h = max(35, max(comment_lines, crit_lines) * cell_size * 1.55)
+        row_h = max(45, max(comment_lines, crit_lines) * cell_size * 1.7)  # Taller rows with more spacing
         
         # Alternating row color
         fill_color = (0.8, 0.8, 0.8) if idx % 2 == 0 else (1, 1, 1)
@@ -1822,36 +1877,49 @@ def render_essay_report_pages_range(
     
     def draw_bullet_section(title: str, bullets: List[str]) -> None:
         nonlocal y
-        page.insert_text((margin, y), title, fontname="hebo", fontsize=title_size, color=(0, 0, 0))
-        y += title_size * 1.5
+        page.insert_text((margin, y), title, fontname="hebo", fontsize=title_size, color=(0.2, 0.2, 0.2))
+        y += title_size * 1.6
         
         if not bullets:
             bullets = ["(Not provided)"]
         
+        bullet_indent = margin + 15
+        text_indent = bullet_indent + 20
+        
         for bullet in bullets:
-            bullet_text = f"- {bullet}"
-            bullet_words = bullet_text.split()
+            # Draw beautiful bullet point (circle)
+            bullet_y = y - 4
+            page.draw_circle((bullet_indent + 4, bullet_y), 3, color=(0, 0, 0), fill=(0, 0, 0))
+            
+            # Word wrap the bullet text
+            bullet_words = bullet.split()
             bullet_line = ""
             first_line = True
+            line_y = y
+            
             for word in bullet_words:
                 test_line = bullet_line + word + " "
                 text_width = fitz.get_text_length(test_line, fontname="helv", fontsize=header_size)
-                max_width = W_pt - 2 * margin - 30 if first_line else W_pt - 2 * margin - 50
+                max_width = W_pt - text_indent - right_margin - 10
+                
                 if text_width > max_width:
                     if bullet_line:
-                        prefix = "" if not first_line else ""
-                        page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
-                        y += header_size * 1.35
+                        x_pos = text_indent if first_line else text_indent
+                        page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0.1, 0.1, 0.1))
+                        line_y += header_size * 1.4
                         first_line = False
                     bullet_line = word + " "
                 else:
                     bullet_line = test_line
+            
             if bullet_line:
-                prefix = "" if not first_line else ""
-                page.insert_text((margin + 20, y), prefix + bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0, 0, 0))
-                y += header_size * 1.35
-            y += 10
-        y += 18
+                x_pos = text_indent if first_line else text_indent
+                page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0.1, 0.1, 0.1))
+                line_y += header_size * 1.4
+            
+            y = line_y + 12  # Extra spacing between bullets
+        
+        y += 22  # Extra spacing after section
     
     draw_bullet_section("Reasons for Low Score", grading.get("reasons_for_low_score", []))
     draw_bullet_section("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus", []))

@@ -1,0 +1,42 @@
+{
+  "page": 1,
+  "page_suggestions": [
+    "Rephrase II. header to clearly state 'How education ends blind obedience' and outline main benefits",
+    "Add explicit one-sentence thesis in I. Introduction previewing arguments, impediments, and measures",
+    "Expand point 3 to link rights awareness directly to ending obedience with brief evidence"
+  ],
+  "annotations": [
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "Outline & Topic Interpretation/Clarity",
+      "anchor_quote": "Godsends blind obedience:",
+      "correction": "",
+      "comment": "Misphrased header 'Godsends blind obedience' obscures stance; rephrase to 'ends blind obedience' for clear thesis alignment."
+    },
+    {
+      "page": 1,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "It is an undeniable reality that by enlarging the female mind with education, there will be end to blind obedience, yet there are Various reasons which inhibit the process; consequently women across the globe suffer detrimental impacts.",
+      "correction": "",
+      "comment": "Introduction restates topic without explicit thesis or argument overview; add concise thesis previewing structure and stance."
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "stream line women education",
+      "correction": "streamline women's education",
+      "comment": "Awkward phrasing and missing possessive 'stream line women education'; revise to 'streamline women's education'."
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "lencew their rights",
+      "correction": "know their rights",
+      "comment": "Spelling error 'lencew' disrupts readability; correct to 'know their rights'."
+    }
+  ]
+}

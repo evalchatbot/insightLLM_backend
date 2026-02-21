@@ -1467,7 +1467,10 @@ def build_grok_payload_for_grading(
                 "role": "system",
                 "content": (
                     "You are an expert CSS examiner. "
-                    "You produce detailed, rubric-based marking reports and respond in JSON only."
+                    "You produce detailed, rubric-based marking reports and respond in JSON only. "
+                    "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+                    "If you encounter dates/events you don't have knowledge about, ignore them and focus on grading based on the rubric criteria. "
+                    "Never comment on whether information is speculative based on your knowledge cutoff."
                 ),
             },
             {
@@ -1597,7 +1600,10 @@ def call_grok_for_refined_rubric_annotations(
             "- Be especially thorough for:\n"
             "    * incorrect or weak headings (missing clarity / relevance), and\n"
             "    * factual inaccuracies (wrong dates, wrong names, wrong causal claims, etc.).\n"
-            "- It is acceptable to be conservative for spelling/grammar due to OCR noise.\n\n"
+            "- It is acceptable to be conservative for spelling/grammar due to OCR noise.\n"
+            "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+            "If you encounter dates/events you don't have knowledge about, ignore them and focus on structural/heading/factual issues. "
+            "Never comment on whether information is speculative based on your knowledge cutoff.\n\n"
             "STRICT OUTPUT FORMAT (IMPORTANT):\n"
             "- Return ONLY valid JSON (no markdown, no commentary).\n"
             "- Top-level keys allowed: 'annotations' and 'refined_rubric_summary'.\n"
@@ -1902,7 +1908,12 @@ def call_grok_for_page_wise_suggestions(
             "- Section structure (headings detected)\n\n"
             "YOUR GOAL:\n"
             "For each page, provide 3-6 specific, actionable suggestions for improvement.\n"
-            "Focus on VALUE ADDITIONS that would strengthen the answer.\n\n"
+            "Focus on VALUE ADDITIONS that would strengthen the answer.\n"
+            "IMPORTANT: Do NOT include grammar or spelling suggestions. These are handled separately.\n"
+            "Focus only on content additions: theories, facts, evidence, comparisons, critical perspectives, and contemporary relevance.\n"
+            "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
+            "If you encounter dates/events you don't have knowledge about, simply ignore them and focus on what the student can add to improve the answer. "
+            "Never comment on whether content is speculative based on your knowledge cutoff.\n\n"
             "TYPES OF SUGGESTIONS TO PROVIDE:\n"
             "1. Theoretical additions: 'Add comparison with X philosopher/theorist'\n"
             "2. Factual additions: 'Include the date: [specific event] occurred in [year]'\n"

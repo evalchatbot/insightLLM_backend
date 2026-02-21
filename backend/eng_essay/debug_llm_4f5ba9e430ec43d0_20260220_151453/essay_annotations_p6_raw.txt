@@ -1,0 +1,42 @@
+{
+  "page": 6,
+  "page_suggestions": [
+    "Add cause-effect analysis explaining how KKH and Gwadar upgrades boost GDP or trade volumes.",
+    "Elaborate connectivity's role in regional trade with evidence like projected revenue figures.",
+    "Focus first paragraph on infrastructure only, moving trade facilitation to a separate paragraph."
+  ],
+  "annotations": [
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "The infrastructure projects it has been handling includes Karakoram Highway (KKH), Gawadar Port and Gawadar International Airport.",
+      "correction": "include",
+      "comment": "Subject-verb disagreement ('projects...includes'); change to 'include' for agreement."
+    },
+    {
+      "page": 6,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Hence, CPFC is a game changer from the infrastructure point of new. Secondly, CPEC is a game- changer",
+      "correction": "",
+      "comment": "Repetition of 'game changer'; rephrase second instance to vary wording and reduce redundancy."
+    },
+    {
+      "page": 6,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "These infrastructural project will Change the fate of Pakistan and ensure connectivity from Gilgit Baltistan to Arabian Sea without any inconvenience.",
+      "correction": "",
+      "comment": "Descriptive claim lacks analysis; add cause-effect links showing how projects transform economy."
+    },
+    {
+      "page": 6,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "This will essentially help trade in Pakistan which is the ultimate goal of CPEC project to facilitate trade via Pakistan.",
+      "correction": "",
+      "comment": "Multiple ideas (connectivity, trade goal) overload paragraph; split into distinct focused paragraphs."
+    }
+  ]
+}

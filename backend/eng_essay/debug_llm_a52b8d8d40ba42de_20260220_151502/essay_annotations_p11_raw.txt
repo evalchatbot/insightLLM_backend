@@ -1,0 +1,43 @@
+{
+  "page": 11,
+  "page_suggestions": [
+    "Cite reliable source (e.g., WAPDA report) for Pakistan's 13 dams and 13.7 MAF storage vs. 30 MAF need.",
+    "Deepen analysis of reservoir shortage by explaining cause-effect on wastage during floods/glacier melts.",
+    "Link lack of storage explicitly to proverb via 'running stream' wastage scenario in Pakistan rivers.",
+    "Compare Pakistan's storage deficit to other developing countries for stronger evidence."
+  ],
+  "annotations": [
+    {
+      "page": 11,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "where there are only 13 major dams having only 13.7 MAF live Storage, which is far less as compared to the needed SOMAF according to an estimate.",
+      "correction": "where there are only 13 major dams having only 13.7 MAF live storage (per WAPDA), far less than the needed 30 MAF (government estimate).",
+      "comment": "Source for dam statistics not mentioned; attribute to reliable source like WAPDA report."
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Another factur in line is the lack in the number of water Storage reservoirs.",
+      "correction": "Another factor contributing is the lack of water storage reservoirs.",
+      "comment": "'Factur' misspelled as 'factor'; awkward phrasing 'in line' and 'in the number of'; use consistent lowercase 'storage'."
+    },
+    {
+      "page": 11,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This lack of the storage capacity impacts every thing - from daily lives; to industrial; to agricultural outcomes.",
+      "correction": "This storage deficit causes flood wastage and shortages, disrupting daily lives via rationing, industry via power gaps, and agriculture via irrigation failure.",
+      "comment": "Descriptive list lacks critical cause-effect analysis; explain mechanisms of impact for depth."
+    },
+    {
+      "page": 11,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "Hence it pases to be a huge cause for keeping the Status of water as a",
+      "correction": "Hence, it poses a major cause of water's finite status despite apparent abundance.",
+      "comment": "Abrupt ending mid-sentence; add concluding summary tying back to finite resource theme."
+    }
+  ]
+}

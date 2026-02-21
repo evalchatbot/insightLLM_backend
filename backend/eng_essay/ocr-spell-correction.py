@@ -53,7 +53,27 @@ NOISE_PATTERNS = [
     r"\bscanned with\b.*?(?=\n|$)",
     r"\bcamscanner\b",
     r"\bcs camscanner\b",
+    r"\bcs\s+camscanner\b",
     r"\bPage \d+\b",
+    r"\bpage\s*\d+\b",
+    r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}",  # Dates like 12/31/2025, 31-12-25
+    r"\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4}\b",  # Dates like "25 Dec 2025"
+    r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b",  # Dates like "Dec 25, 2025"
+    r"\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b",  # Day names
+    r"\bRoll\s*No\.?\s*:?\s*\d+\b",  # Roll numbers
+    r"\bName\s*:.*?(?=\n|$)",  # Name headers
+    r"\bDate\s*:.*?(?=\n|$)",  # Date headers
+    r"\bExam\s*:.*?(?=\n|$)",  # Exam headers
+    r"\bSubject\s*:.*?(?=\n|$)",  # Subject headers
+    r"\bClass\s*:.*?(?=\n|$)",  # Class headers
+    r"\bSection\s*:.*?(?=\n|$)",  # Section headers
+    r"\bTotal\s*Marks\s*:.*?(?=\n|$)",  # Marks headers
+    r"\bObtained\s*Marks\s*:.*?(?=\n|$)",  # Obtained marks headers
+    r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+Academy\b",  # Academy names
+    r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+School\b",  # School names
+    r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+College\b",  # College names
+    r"\bwww\.\S+\b",  # Websites
+    r"\bhttp[s]?://\S+\b",  # URLs
 ]
 
 
