@@ -1,0 +1,51 @@
+{
+  "page": 8,
+  "page_suggestions": [
+    {
+      "suggestion": "Support the legal rights claim with a specific statistic on awareness impact, e.g., 'Educated women in Pakistan report 30% more harassment cases due to knowledge of these laws (Human Rights Commission of Pakistan, 2022)'",
+      "anchor_quote": "Protection of Women Against Workplace Harassment, (2010), Acid Control and Acid Crime Prevention Act (2011) and Women Property Protection Right (2020)"
+    },
+    {
+      "suggestion": "Deepen the customs immunity argument with a cause-effect example, e.g., 'Education enables critical evaluation of customs like purdah, reducing adherence by 35% among literate women and fostering independence (UNESCO Pakistan Report)'",
+      "anchor_quote": "educated females become immune to evil social customs and the absurd stereotypes"
+    },
+    {
+      "suggestion": "Link rejection of customs to thesis by adding evaluation, e.g., 'Rejecting marginalizing customs ends blind obedience, as educated women prioritize self-development over patriarchal norms, evidenced by rising female literacy rates'",
+      "anchor_quote": "customs are only here to margin- alize cher and she, in result, does not give any importance or signifonce to them"
+    }
+  ],
+  "annotations": [
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "She would legal facilitations to protect them",
+      "correction": "She would utilize legal facilitations to protect them",
+      "comment": "Fix incorrect verb construction by revising to 'She would utilize legal facilitations' for proper grammar."
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "And uneducated female can not be expected of knowing these rights but on educated female in Pakistan would know",
+      "correction": "An uneducated female cannot be expected to know these rights, but an educated female in Pakistan would know",
+      "comment": "Correct article omission, preposition error, and phrasing by adding 'An' and 'to', using contraction for subject-verb agreement."
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "she would not stand any unjustice against her personhood",
+      "correction": "she would not stand any injustice against her personhood",
+      "comment": "Correct spelling error by changing 'unjustice' to 'injustice'."
+    },
+    {
+      "page": 8,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "She starts to think and live bey and them. She starts to believe that customs are only here to margin- alize cher",
+      "correction": "",
+      "comment": "Argument is descriptive without cause-effect analysis; add how education causes rejection of customs to build critical depth."
+    }
+  ]
+}

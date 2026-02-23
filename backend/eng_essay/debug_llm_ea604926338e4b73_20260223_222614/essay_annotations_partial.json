@@ -1,0 +1,1158 @@
+{
+  "annotations": [
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "Outline & Topic Interpretation/Clarity",
+      "anchor_quote": "IV. Measures required to eliminate these impediment in way of women education.",
+      "correction": "",
+      "comment": "Measures section lists sub-points descriptively without analytical depth; add how each promotes critical thinking to end blind obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Global digital divide 68%, for women 51% 1 (3) Pakistan female digital divide 24% whereas mode's is 48%",
+      "correction": "",
+      "comment": "Sources for digital divide statistics not mentioned; attribute to reliable sources like GSMA or World Bank reports.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "these impediment in way of women education.",
+      "correction": "these impediments in the way of women's education.",
+      "comment": "Change to plural 'impediments', add 'the' before 'way', and use possessive 'women's'; fix grammatical errors.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 3,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Analysis",
+      "anchor_quote": "Case in Point: (1) 1/3 women globally have suffered sexual harassment (UN) (2) In Pakistan, 28% femalesage(4-49) 0000 have suffered from physicalviolence and 6% from sexual violence",
+      "correction": "",
+      "comment": "Security examples list facts without analysis; explain cause-effect link to how insecurity perpetuates blind obedience via dependence.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "outline_quality",
+      "rubric_point": "Sub-points/arguments in the outline are merely descriptive and lack analytical depth",
+      "anchor_quote": "1. Societal barriers and poverty 1 Case in point: (1) Prioritizing boy's education over girl's (2) Not having the means to support education.",
+      "correction": "",
+      "comment": "Sub-points list descriptions without analysis; explain how barriers cause blind obedience, e.g., 'Poverty prioritizes boys, limiting girls' questioning ability.'",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "factual_accuracy",
+      "rubric_point": "Source of factual data is not mentioned",
+      "anchor_quote": "(2) In Pakistan 18% girls in age 12-16 get married.",
+      "correction": "",
+      "comment": "Cite source for statistic; add e.g., '(UNICEF 2022)' to verify claim.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "boy's education over girl's",
+      "correction": "boys' education over girls'",
+      "comment": "Correct possessives to plural form 'boys' education over girls’'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 2,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Females economic dependence on others",
+      "correction": "Females' economic dependence on others",
+      "comment": "Add possessive apostrophe: 'Females’ economic dependence on others'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "outline_quality",
+      "rubric_point": "Outline & Topic Interpretation/Clarity",
+      "anchor_quote": "II. How strengthening the female mind by enlarging it with education Godsends blind obedience: 1. Only educated female breaks free from the shackles of patriarchal mind set that demands blind obedience. 2. Educated female secures economic independence which protects from obeying mindlessly 3. Females strengthened by education lencew their rights and do not submit to injustice.",
+      "correction": "",
+      "comment": "Sub-points are descriptive without analytical depth; add cause-effect links and evidence for stronger argumentation.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "I. Introduction It is an undeniable reality that by enlarging the female mind with education, there will be end to blind obedience, yet there are Various reasons which inhibit the process; consequently women across the globe suffer detrimental impacts.",
+      "correction": "",
+      "comment": "Introduction lacks explicit thesis stance and overview of key points; state position clearly and preview structure.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "there will be end to blind obedience",
+      "correction": "there will be an end to blind obedience",
+      "comment": "Missing indefinite article; insert 'an' before 'end' for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "stream line women education",
+      "correction": "streamline women education",
+      "comment": "Incorrect spacing; combine into single word 'streamline'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Godsends blind obedience",
+      "correction": "ends blind obedience",
+      "comment": "Misspelling or wrong word; change 'Godsends' to 'ends' to match intended meaning.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 1,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "lencew their rights",
+      "correction": "learn their rights",
+      "comment": "Spelling error; correct 'lencew' to 'learn'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "Unfortunately, there are various social, economic, political and traditional hindrances in way of educating the females.",
+      "correction": "",
+      "comment": "Introduction restates prompt but lacks explicit thesis and roadmap of arguments; add a clear stance previewing benefits, impediments, and measures.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "It has, undeniably, wisely phrased that it needs education to break free females from blind obedience.",
+      "correction": "It is undeniably well said that education frees females from blind obedience.",
+      "comment": "Awkward phrasing and word order confuse meaning; revise to state the idea directly and grammatically.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "They question and rationalize and - only than decide on whether to comply or not.",
+      "correction": "They question, rationalize, and only then decide whether to comply or not.",
+      "comment": "Spelling error 'than' to 'then' and run-on structure; use parallel structure and correct adverb.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 5,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Any one who is educated, - questions, thinks, rationalizes and only then make an action. [...] They question and rationalize and - only than decide",
+      "correction": "",
+      "comment": "Repeats 'question and rationalize' idea verbatim; consolidate into one instance to avoid redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "outline_quality",
+      "rubric_point": "Outline",
+      "anchor_quote": "3. In Pakistan, ensure implementation of Article 25, and Article 38",
+      "correction": "",
+      "comment": "Measures section is sparse and incomplete; add detailed sub-points to cover all impediments like digital divide and security.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Article 25, and Article 38",
+      "correction": "Article 25-A and Article 37",
+      "comment": "Articles listed are imprecise for education; specify Article 25-A (compulsory education) and cite Pakistan Constitution for verification.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "organization_coherence",
+      "rubric_point": "Organization, Coherence & Transitions",
+      "anchor_quote": "NV. Conclusion.",
+      "correction": "",
+      "comment": "Outline ends abruptly at conclusion marker; insert transitional summary linking measures back to thesis before conclusion.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 4,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "3. In Pakistan, ensure implementation of Article 25, and Article 38",
+      "correction": "",
+      "comment": "Sub-point is descriptive without analysis; explain cause-effect of enforcement on breaking blind obedience cycles.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "when female gets - - - education",
+      "correction": "when a female gets education",
+      "comment": "Missing article 'a' before 'female' and inconsistent capitalization; add 'a' for proper noun usage.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "UNFD (United Nations Population Fund)",
+      "correction": "UNFPA (United Nations Population Fund)",
+      "comment": "Incorrect acronym 'UNFD'; correct to 'UNFPA' and cite specific report for verifiability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "makes decisions for herself just as she likes",
+      "correction": "makes rational decisions based on her interests, breaking obedience patterns",
+      "comment": "Descriptive phrasing lacks critical analysis; add cause-effect link to show how independence prevents blind obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "does not comply blindly and learns to think",
+      "correction": "rejects unthinking compliance and develops independent thought",
+      "comment": "Repeats 'blindly' theme from prior points; vary wording to avoid redundancy while maintaining focus.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "think once for her own self and",
+      "correction": "think once for themselves",
+      "comment": "Pronoun disagreement: change 'her own self' to 'themselves' to agree with plural 'women'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "what women cando, or can not; what women can wear or wear not; what women can feel or feel not.",
+      "correction": "",
+      "comment": "Repetitive parallel structure lists restrictions redundantly; consolidate into varied phrasing.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This mind set decides what women cando, or can not; what women can wear or wear not; what women can feel or feel not.",
+      "correction": "",
+      "comment": "Descriptive list lacks analysis; explain cause-effect of how education disrupts these controls.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 6,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "They do not let women think once for her own self and",
+      "correction": "",
+      "comment": "Paragraph ends abruptly mid-sentence; add concluding link to education breaking obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "She would legal facilitations to protect them",
+      "correction": "She would utilize legal facilitations to protect them",
+      "comment": "Missing verb; insert 'utilize' or 'avail of' before 'legal facilitations' for correct structure.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "but on educated female in Pakistan would know",
+      "correction": "but an educated female in Pakistan would know",
+      "comment": "Wrong article and preposition; change to 'an educated female'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "bey and them",
+      "correction": "beyond them",
+      "comment": "Spelling error; correct to 'beyond them'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "any unjustice against her personhood",
+      "correction": "any injustice against her personhood",
+      "comment": "Incorrect word; replace 'unjustice' with 'injustice'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 8,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "She starts to think and live bey and them. She starts to believe that",
+      "comment": "Repetitive phrasing with 'She starts to'; vary sentence structure to eliminate redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 8,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "She starts to believe that customs are only here to margin- alize cher",
+      "correction": "",
+      "comment": "Descriptive assertion lacks cause-effect analysis; explain mechanism of education challenging customs.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "according to United Nations report women make 230% of world parliaments",
+      "correction": "women hold 26.5% of seats in national parliaments (UN Women, 2023)",
+      "comment": "Statistic '230%' is factually impossible and incorrect; verify source and replace with accurate data from UN Women report.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "plass amendment to protect women and accelerated their education journey",
+      "correction": "pass amendments to protect women and accelerate their education journey",
+      "comment": "Spelling errors 'plass' and verb tense 'accelerated'; correct to 'pass' and 'accelerate' for proper grammar.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "S Despite the need and significance of female education, there are some mounting impediments",
+      "correction": "However, despite the benefits outlined, there are some mounting impediments",
+      "comment": "Abrupt transition with stray 'S'; add linking phrase like 'However' to connect benefits section to impediments smoothly.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "participate fully in the political process. Unfortunately, according to United Nations report women make 230% of world parliaments. Yet, there are women, although handful, that participate in the political process",
+      "correction": "participate fully in the political process. Unfortunately, according to United Nations report, women comprise only 26% of world parliaments. Yet, the few who do",
+      "comment": "Phrase 'participate in the political process' repeated verbatim; rephrase second instance to avoid redundancy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 9,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "there are societal barriers and menace of povertythat hinders worven education",
+      "correction": "societal barriers and poverty hinder women's education by prioritizing boys, perpetuating cycles of blind obedience through limited opportunities",
+      "comment": "Descriptive claim lacks analysis; add cause-effect like how poverty enforces obedience to explain impact.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "It is the women who nurture and polishes the next generation.",
+      "correction": "It is the women who nurture and polish the next generation.",
+      "comment": "Fix subject-verb agreement; change 'polishes' to 'polish' for plural subject 'women'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "how will sche will ensure good brought up of her Children.",
+      "correction": "how will she ensure a good upbringing of her children.",
+      "comment": "Correct typo 'sche' to 'she', remove redundant 'will', and change 'brought up' to 'upbringing'; lowercase 'children'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "requires resources to sponsers it.",
+      "correction": "requires resources to sponsor it.",
+      "comment": "Correct spelling 'sponsers' to 'sponsor'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "According to World Bank report, 38% of women across the globe earn less than $ 1.9/day",
+      "correction": "According to [specific World Bank report, e.g., 2022 World Development Indicators], ...",
+      "comment": "Specify full source and year for the statistic to make it verifiable.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 10,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This is an absolutely unjustifiable reason to keep females illiterate.",
+      "correction": "This unjustifiable prioritization fosters blind obedience by denying women education needed to challenge norms.",
+      "comment": "Transform descriptive claim into analytical one by explaining cause-effect link to blind obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "In Pakistan 18% of the girls of the age 13-17 are married very young and become \"Child brides\"",
+      "correction": "",
+      "comment": "Statistic lacks source; attribute to reliable source like UNICEF to verify and strengthen claim.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "there is amanace of child marriages and early marriages prevalent for females",
+      "correction": "menace",
+      "comment": "Misspelling 'amanace' and awkward phrasing; correct to 'menace of child marriages' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "In Pakistan, there 14 million girls out of 26 million total OOSC",
+      "correction": "there are",
+      "comment": "Missing verb 'are'; add for grammatical completeness: 'there are 14 million girls'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Here, it is a big obst acl which needs to be eradicated at all costs for the safety of women and their progress",
+      "correction": "",
+      "comment": "Descriptive without analysis; add cause-effect link to how eradication ends blind obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 11,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "The government does not provide for the sanitation",
+      "correction": "",
+      "comment": "Sanitation mentioned as barrier but not tied to blind obedience; explicitly connect to education denial.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Globally the digital divide is 60% out of which girls/females are 51% In Pakistan, situation is even worse. The to digital divide is 58% whereas for girls it is 24%",
+      "correction": "Globally the digital divide is 60% (ITU 2023) out of which girls/females are 51%; in Pakistan, overall 58% whereas for girls 24% (source).",
+      "comment": "Factual data lacks source attribution; cite reliable sources like ITU or World Bank to verify claims.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Globally 1/3 women have suffered physical or sexual violence",
+      "correction": "Globally 1/3 women have suffered physical or sexual violence (WHO 2021).",
+      "comment": "Statistic not attributed to source; reference WHO or UN Women report for credibility.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "needs as well as safe and secure transportation for females 1 from education institutions to their homes, which makes parents reluctant to support girls education",
+      "correction": "Add link: '...girls education, thereby perpetuating blind obedience to parental restrictions.'",
+      "comment": "General barrier not tied to blind obedience; explicitly connect to how it enforces unquestioning compliance.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "which shuts the door of online learning world on them completely.",
+      "correction": "Expand: '...online learning world on them completely, limiting critical thinking needed to end blind obedience.'",
+      "comment": "Descriptive list lacks analysis; include cause-effect relation to education's role in breaking obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "persue their",
+      "correction": "pursue their",
+      "comment": "Spelling error in 'persue'; correct to 'pursue' for clarity.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Women make up 57% of NEET (Not in Employment, Education or training)",
+      "correction": "Women make up 57% of NEET (Not in Employment, Education or Training) [source, e.g., ILO].",
+      "comment": "Cite source for NEET statistic as rubric requires attribution for factual data.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Secondly, there is need to - make efforts for women education and skill development.",
+      "correction": "Secondly, there is a need to make efforts for women's education and skill development.",
+      "comment": "Add article 'a' before 'need', possessive 'women's', and remove dash for grammatical correctness.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "This would not only arest many physical, seval, and health issues",
+      "correction": "This would not only arrest many physical, sexual, and health issues",
+      "comment": "Correct misspellings 'arest' to 'arrest' and 'seval' to 'sexual'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "only tham sign into marital relation. This protects the women as well as ensure her respect",
+      "correction": "only then sign into marital relations. This protects women as well as ensures their respect",
+      "comment": "Correct 'tham' to 'then', pluralize 'relation' to 'relations', and fix subject-verb agreement 'ensure' to 'ensures' with plural 'women'/'their'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 14,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Hence it is not just enough to educate them but also equip them with the right skills (so that they can earn from it and secure their economic independence.",
+      "correction": "Hence it is not enough to educate them; equip them with skills to earn and gain independence, breaking cycles of obedience through financial autonomy.",
+      "comment": "Transform descriptive claim into analytical by adding cause-effect link to blind obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "preses on the issue of female education.",
+      "correction": "presses on the issue of female education.",
+      "comment": "Misspelling of 'preses'; correct to 'presses' for accurate expression.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "for flung areas.",
+      "correction": "far-flung areas.",
+      "comment": "Incorrect phrasing 'for flung'; revise to 'far-flung' for proper terminology.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "that protect woman",
+      "correction": "that protect women",
+      "comment": "Subject-verb agreement error; change 'woman' to 'women' for plural consistency.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Governments must take actions to curb this divide.",
+      "correction": "",
+      "comment": "Descriptive call lacks analysis; add how curbing divide fosters independent thinking to end obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 15,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "In SDC: 4 there is goal",
+      "correction": "In SDG 4 there is a goal",
+      "comment": "Inaccurate acronym 'SDC'; correct to 'SDG 4' and attribute to UN for verifiability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "conclusion_quality",
+      "rubric_point": "Conclusion Quality",
+      "anchor_quote": "To conclude, it can be deduced that embellishing the female mind with education will protect her from blind compliance.",
+      "correction": "",
+      "comment": "Conclusion restates thesis but introduces new Article 25(A) without prior discussion; integrate references earlier for cohesion.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "There are grave impediments that stops women education process",
+      "correction": "There are grave impediments that stop women's education process",
+      "comment": "Subject-verb agreement error and missing possessive; change 'stops' to 'stop' and 'women education' to 'women's education'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "with attidumal change and policy implementation educating women can be come much more convenient",
+      "correction": "with attitudinal change and policy implementation, educating women can become much more feasible",
+      "comment": "Spelling errors and awkward phrasing; correct 'attidumal' to 'attitudinal', 'be come' to 'become', and 'convenient' to 'feasible'.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 16,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "There are grave impediments that stops women education process but there is nothing that can not be changed",
+      "comment": "Repeats body ideas on impediments and solutions; condense to avoid redundancy and focus on thesis reinforcement.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": "",
+      "correction": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "eliminate therose hurdles in order to facilitate the - famele education,",
+      "correction": "eliminate those hurdles in order to facilitate the female education,",
+      "comment": "Correct misspellings 'therose' to 'those' and 'famele' to 'female' for proper readability.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "will only burdenize the world",
+      "correction": "will only burden the world",
+      "comment": "Replace incorrect word 'burdenize' with 'burden' as it is not standard English.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "grammar_language",
+      "rubric_point": "Expression, Grammar, Vocabulary & Style",
+      "anchor_quote": "\"women are the target untapped resource of the world\".\" This absolutely true",
+      "correction": "\"women are the world's largest untapped resource.\" This is absolutely true",
+      "comment": "Add missing 'is' after 'This absolutely' and refine quote phrasing for grammatical accuracy.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "repetitiveness",
+      "rubric_point": "REPETITIVENESS",
+      "anchor_quote": "Firstly, there is need to understand that women educational empowerment is actually \"human development\". There is a need to understand that women,",
+      "correction": "",
+      "comment": "Eliminate repetition of 'There is a need to understand' by merging into one concise statement.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    },
+    {
+      "page": 13,
+      "type": "argumentation_depth",
+      "rubric_point": "ARGUMENTATION & CRITICAL DEPTH",
+      "anchor_quote": "not more legislations void of enforcements.",
+      "correction": "",
+      "comment": "Develop weak claim on attitudinal change vs. legislation with cause-effect analysis showing how attitudes enable enforcement to end obedience.",
+      "target_word_or_sentence": "",
+      "context_before": "",
+      "context_after": ""
+    }
+  ],
+  "page_suggestions": [
+    {
+      "page": 3,
+      "suggestions": [
+        {
+          "suggestion": "Link digital divide to blind obedience explicitly, e.g., 'Massive digital divide limits access to global knowledge, perpetuating blind obedience to traditional authority.'",
+          "anchor_quote": "5. Massive digital in present age of online learning. Case in Point: Global digital divide 68%, for women 51%"
+        },
+        {
+          "suggestion": "Develop skill development measure with example, e.g., 'Pair formal education with vocational skills like IT training, as in India's Skill India program, to enable self-funding and independence.'",
+          "anchor_quote": "2. Women skill development paired with formal education so they can sponsor their own education"
+        },
+        {
+          "suggestion": "Tie attitudinal change to thesis, e.g., 'Prioritize attitudinal change through awareness campaigns to dismantle cultural demands for blind obedience, beyond ineffective laws.'",
+          "anchor_quote": "1. Ensure \"altidunal\" change rather than BY more LawsD TAIMOOR BUKHARI"
+        },
+        {
+          "suggestion": "Connect security impediment to obedience, e.g., 'Lack of security enforces homebound dependence on male guardians, fostering blind obedience; provide safe transport like school vans.'",
+          "anchor_quote": "6. Formales lack of security outside the four walls of their home."
+        }
+      ]
+    },
+    {
+      "page": 2,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the societal barriers sub-point by linking to blind obedience, e.g., 'Societal barriers and poverty prioritize boys' education, fostering blind obedience by denying girls critical thinking opportunities.'",
+          "anchor_quote": "1. Societal barriers and poverty 1 Case in point: (1) Prioritizing boy's education over girl's"
+        },
+        {
+          "suggestion": "Add a source and analysis to the child marriage statistic, e.g., 'Child marriages (18% of girls aged 12-16 in Pakistan, UNICEF 2022) end education early, reinforcing blind obedience to family traditions.'",
+          "anchor_quote": "(2) In Pakistan 18% girls in age 12-16 get married."
+        },
+        {
+          "suggestion": "Develop the economic dependence point with cause-effect to thesis, e.g., 'Females' economic dependence forces obedience to patriarchs who control education funding, preventing independent decision-making.'",
+          "anchor_quote": "2. Females economic dependence on others to provide for their education."
+        },
+        {
+          "suggestion": "Link government provisions to obedience theme, e.g., 'Insufficient provisions like appalling sanitation deter female enrollment, sustaining ignorance and blind obedience to customs.'",
+          "anchor_quote": "Case in point:(1) Appaling sanitation conditions ingovernment schools"
+        }
+      ]
+    },
+    {
+      "page": 1,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the outline introduction by adding a clear roadmap of main sections, e.g., 'This essay examines benefits like breaking patriarchy, impediments such as poverty, and measures including skill development and policy enforcement.'",
+          "anchor_quote": "I. Introduction It is an undeniable reality that by enlarging the female mind with education, there will be end to blind obedience, yet there are Various reasons which inhibit the process; consequently women across the globe suffer detrimental impacts. Hence, pragmatic policies and actions are needed to stream line women education"
+        },
+        {
+          "suggestion": "Develop outline point 1 with specific evidence linking education to reduced obedience, e.g., 'In South Asia, female literacy correlates with 20% drop in child marriages (UNICEF data).'",
+          "anchor_quote": "1. Only educated female breaks free from the shackles of patriarchal mind set that demands blind obedience."
+        },
+        {
+          "suggestion": "Add cause-effect analysis to point 2, e.g., 'Economic independence via education breaks dependence cycles, preventing mindless obedience as 72% uneducated women rely on male guardians (UNFPA).'",
+          "anchor_quote": "2. Educated female secures economic independence which protects from obeying mindlessly"
+        },
+        {
+          "suggestion": "Strengthen point 3 by including a counter-argument, e.g., 'Despite cultural pressures, educated females assert rights, filing more injustice claims as per Pakistan legal records.'",
+          "anchor_quote": "3. Females strengthened by education lencew their rights and do not submit to injustice."
+        }
+      ]
+    },
+    {
+      "page": 5,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the introduction by adding a clear thesis and roadmap after restating the prompt, e.g., 'This essay argues that education ends female blind obedience by breaking patriarchal mindsets, despite impediments like poverty, and proposes measures such as attitudinal change and skill development.'",
+          "anchor_quote": "It has, undeniably, wisely phrased that it needs education to break free females from blind obedience."
+        },
+        {
+          "suggestion": "Provide a concise overview of main sections after mentioning hindrances, e.g., 'The discussion will cover benefits like economic independence, key impediments such as child marriages, and pragmatic measures including enforcement of SDG 4 and 5.'",
+          "anchor_quote": "Unfortunately, there are various social, economic, political and traditional hindrances in way of educating the females."
+        },
+        {
+          "suggestion": "Replace the vague societal benefit claim with a specific example tied to the thesis, e.g., 'Educated females, like those in Pakistan's increasing female literacy rates from 45% to 54% (UNESCO), contribute to societal progress by challenging obedience-driven customs.'",
+          "anchor_quote": "By enlarging the femal mind is by virtue of educating them makes them better not only for their own good but also for the entire society."
+        }
+      ]
+    },
+    {
+      "page": 4,
+      "suggestions": [
+        {
+          "suggestion": "Complete the measures section by adding a sub-point on transport and security, e.g., '6. Provide safe transport and security protocols for schools, reducing harassment risks as per UN reports.'",
+          "anchor_quote": "3. In Pakistan, ensure implementation of Article 25, and Article 38"
+        },
+        {
+          "suggestion": "Link constitutional articles directly to education barriers, e.g., 'Enforce Article 25-A for free compulsory education to counter economic dependence and child marriages.'",
+          "anchor_quote": "Article 25, and Article 38"
+        },
+        {
+          "suggestion": "Develop the conclusion outline with structured sub-points, e.g., 'V. Conclusion: 1. Restate that education ends blind obedience; 2. Summarize impediments and measures; 3. Call for attitudinal change.'",
+          "anchor_quote": "NV. Conclusion."
+        }
+      ]
+    },
+    {
+      "page": 7,
+      "suggestions": [
+        {
+          "suggestion": "Deepen the economic independence argument with a cause-effect analysis and specific data, e.g., 'Economic sustenance breaks dependence cycles, as educated Pakistani women boost GDP by 15% through labor participation (World Bank 2023), enabling free decisions.'",
+          "anchor_quote": "she secures economic sustenance for herself. In this way she does not depend on any one economically"
+        },
+        {
+          "suggestion": "Strengthen rights awareness claim by linking to outcomes against obedience, e.g., 'Knowing constitutional rights empowers women to reject forced marriages, reducing child marriages by 25% in educated communities (UNICEF Pakistan).'",
+          "anchor_quote": "In Pakistan, an educated female would know her constitutional"
+        },
+        {
+          "suggestion": "Add a counter-perspective to economic dependence statistic for critical depth, e.g., 'Despite 28% female labor force (UNFPA), cultural barriers limit gains, underscoring need for policy reforms alongside education.'",
+          "anchor_quote": "According to UNFD (United Nations Population Fund) there is only 28% female labour force"
+        }
+      ]
+    },
+    {
+      "page": 6,
+      "suggestions": [
+        {
+          "suggestion": "Back the description of patriarchal controls with specific evidence, e.g., 'This mindset restricts women's choices, as 62% of Pakistani women report limited mobility due to family decisions (UN Women report 2022).'",
+          "anchor_quote": "This mind set decides what women cando, or can not; what women can wear or wear not; what women can feel or feel not."
+        },
+        {
+          "suggestion": "Add cause-effect analysis to the roles discussion, e.g., 'These rigid gender roles perpetuate blind obedience by suppressing individual agency, but education enables women to challenge them through critical thinking.'",
+          "anchor_quote": "It also confuses and chains on the complexities of gender- women ed roles and nurturing roles as daughters, mothers, wives and sisters."
+        },
+        {
+          "suggestion": "Complete the abrupt ending with a link to education's impact, e.g., 'and prioritize collective duties; education counters this by fostering self-reflection and autonomy.'",
+          "anchor_quote": "They do not let women think once for her own self and"
+        }
+      ]
+    },
+    {
+      "page": 8,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the legal rights argument with specific evidence, e.g., 'According to Human Rights Watch 2022, educated Pakistani women file 40% more harassment cases than uneducated ones.'",
+          "anchor_quote": "And uneducated female can not be expected of knowing these rights but on educated female in Pakistan would know"
+        },
+        {
+          "suggestion": "Add critical analysis to immunity from customs, e.g., 'Education reveals customs like dowry as economic tools of control, breaking obedience cycles as evidenced by 15% drop in such practices in literate Indian villages.'",
+          "anchor_quote": "educated females become immune to evil social customs and the absurd stereotypes"
+        },
+        {
+          "suggestion": "Explicitly link rejection of customs to thesis, e.g., 'Thus, critical thinking ends blind obedience, redirecting energies from stereotypes to personal and societal advancement.'",
+          "anchor_quote": "their energies only need to be utilized in achieving their higher goals of life only"
+        }
+      ]
+    },
+    {
+      "page": 9,
+      "suggestions": [
+        {
+          "suggestion": "Correct the inaccurate statistic by replacing 'women make 230% of world parliaments' with 'women hold 26.5% of seats in lower or single houses of parliament (UN Women, 2023)', and cite the full report for verification.",
+          "anchor_quote": "women make 230% of world parliaments"
+        },
+        {
+          "suggestion": "Strengthen the political participation argument by adding cause-effect analysis, e.g., 'This involvement breaks blind obedience as educated women pass laws like gender quotas, fostering independent decision-making beyond patriarchal control.'",
+          "anchor_quote": "educated women ensure that they participate fully in the political process"
+        },
+        {
+          "suggestion": "Improve the transition to impediments by linking benefits to challenges, e.g., 'While education enables political participation, mounting impediments like societal barriers still paralyze progress.' before discussing societal barriers.",
+          "anchor_quote": "Despite the need and significance of female education, there are some mounting impediments"
+        },
+        {
+          "suggestion": "Bolster the societal barriers claim with specific evidence, e.g., 'In South Asia, 70% of households prioritize boys' education due to poverty (World Bank, 2022), perpetuating blind obedience in girls.'",
+          "anchor_quote": "there is a culture of \"boy's educa- tion over girl's be cause he\""
+        }
+      ]
+    },
+    {
+      "page": 10,
+      "suggestions": [
+        {
+          "suggestion": "Link economic dependence directly to blind obedience by adding, e.g., 'This financial reliance compels women to unquestioningly obey patriarchal authority to secure education for themselves or daughters.'",
+          "anchor_quote": "females are totally reliant on their patriarchs to provide them with education. Unfortunately education is not free and requires resources to sponsers it."
+        },
+        {
+          "suggestion": "Strengthen the poverty argument with cause-effect analysis, e.g., 'Low earnings trap women in dependence, preventing critical thinking and perpetuating cycles of blind obedience across generations.'",
+          "anchor_quote": "According to World Bank report, 38% of women across the globe earn less than $ 1.9/day This figure is way below the current $4.0 poverty line."
+        },
+        {
+          "suggestion": "Connect illiteracy in mothers to blind obedience explicitly, e.g., 'Uneducated mothers instill unquestioning obedience in children, reinforcing patriarchal control.'",
+          "anchor_quote": "If she herself is not educated, how will sche will ensure good brought up of her Children."
+        },
+        {
+          "suggestion": "Address the abrupt ending by summarizing the point's impact, e.g., 'Ultimately, this economic barrier sustains blind obedience by limiting women's autonomy.'",
+          "anchor_quote": "women become unable to support their or their daughters' education in such low means and eventually"
+        }
+      ]
+    },
+    {
+      "page": 11,
+      "suggestions": [
+        {
+          "suggestion": "Link child marriages directly to blind obedience by adding analysis, e.g., 'Child marriages deny girls education, reinforcing blind obedience to patriarchal decisions on family futures.'",
+          "anchor_quote": "This is a great social customs that destroys, a female, socially, sexually and health wise"
+        },
+        {
+          "suggestion": "Connect economic dependence to the thesis with cause-effect, e.g., 'Patriarchal control over family futures due to economic dependence fosters blind obedience by limiting female autonomy.'",
+          "anchor_quote": "everything lies down to the mercy of the patriarch to decide for the future of the females of the family"
+        },
+        {
+          "suggestion": "Tie government provisions like sanitation to blind obedience, e.g., 'Lack of sanitation facilities discourages female school attendance, perpetuating uneducated obedience to traditions.'",
+          "anchor_quote": "The government does not provide for the sanitation"
+        },
+        {
+          "suggestion": "Strengthen out-of-school girls statistic with link to thesis, e.g., 'UNESCO reports 132 million out-of-school girls worldwide, sustaining cycles of blind obedience without education.'",
+          "anchor_quote": "there are 132 million Out of School girls worldwide"
+        }
+      ]
+    },
+    {
+      "page": 12,
+      "suggestions": [
+        {
+          "suggestion": "Link transportation barrier to blind obedience by explaining connection, e.g., 'Parental reluctance due to unsafe transport reinforces girls' dependence on family dictates, sustaining blind obedience to patriarchal authority.'",
+          "anchor_quote": "which makes parents reluctant to support girls education"
+        },
+        {
+          "suggestion": "Attribute digital divide statistics to a source and clarify disparity, e.g., 'Globally the digital divide affects 60% (ITU 2023), with girls/females comprising 51%; in Pakistan it is 58% overall versus 24% for girls.'",
+          "anchor_quote": "Globally the digital divide is 60% out of which girls/females are 51% In Pakistan, situation is even worse. The to digital divide is 58% whereas for girls it is 24%"
+        },
+        {
+          "suggestion": "Deepen digital divide analysis with cause-effect to thesis, e.g., 'Lack of internet access bars girls from diverse knowledge, entrenching blind obedience to unchallenged local customs and norms.'",
+          "anchor_quote": "This shows that more than half of the girls population in Pakistan does not even have access turainternet HA which shuts the door of online learning world on them completely."
+        },
+        {
+          "suggestion": "Tie security issue to blind obedience via analysis, e.g., 'Fear of violence (1/3 women affected globally, WHO) confines females indoors under male protection, fostering obedience without questioning.'",
+          "anchor_quote": "Globally 1/3 women have suffered physical or sexual violence which speaks Volumes on how it is too difficult for women to get outside their"
+        }
+      ]
+    },
+    {
+      "page": 14,
+      "suggestions": [
+        {
+          "suggestion": "Add a reliable source to the NEET statistic for credibility, e.g., 'Women make up 57% of NEET (ILO Global Employment Trends for Youth 2023)' to support the skill development argument.",
+          "anchor_quote": "Women make up 57% of NEET (Not in Employment, Education or training)"
+        },
+        {
+          "suggestion": "Strengthen the marriage age measure by linking to evidence and thesis, e.g., 'Universal consensus on minimum 18 years for girls' marriage, aligning with SDG 5, prevents early unions that enforce blind obedience to family traditions.'",
+          "anchor_quote": "universal consensus on minimum 1years for marriage of girls"
+        },
+        {
+          "suggestion": "Deepen skill development point with cause-effect analysis, e.g., 'Equipping women with skills breaks economic dependence, enabling them to question patriarchal commands rationally rather than obey blindly.'",
+          "anchor_quote": "equip them with the right skills (so that they can earn from it and secure their economic independence"
+        },
+        {
+          "suggestion": "Connect health benefits of delayed marriage to ending obedience, e.g., 'Delaying marriage to 18 arrests health issues and allows education, fostering independent thinking over familial blind obedience.'",
+          "anchor_quote": "not only arest many physical, seval, and health issues from the lives of women"
+        }
+      ]
+    },
+    {
+      "page": 15,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the digital divide measure by adding a specific statistic on Pakistan's gender gap, e.g., 'Pakistan's female internet access lags at 24% versus 48% for males (World Bank data),'",
+          "anchor_quote": "tangible measures need to be made to meet the digital divide."
+        },
+        {
+          "suggestion": "Enhance the Teletaleem example with impact details, e.g., 'Teletaleem has educated over 100,000 rural students through mobile classrooms and online content,'",
+          "anchor_quote": "there are NGOS like \"Teletaleem\" which is working for the provision of education in for flung areas."
+        },
+        {
+          "suggestion": "Link SDG 4 to the thesis by explaining its role, e.g., 'SDG 4 ensures inclusive education, enabling women to challenge blind obedience through critical thinking,'",
+          "anchor_quote": "In SDC: 4 there is goal to ensure free education and education rights for all genders without any discrimination ."
+        }
+      ]
+    },
+    {
+      "page": 16,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the conclusion by adding a forward-looking call to action with a specific example, e.g., 'Ultimately, enforcing policies like SDG 4 and Article 25(A) will empower women to lead equitable societies free from blind obedience.'",
+          "anchor_quote": "To conclude, it can be deduced that embellishing the female mind with education will protect her from blind compliance."
+        },
+        {
+          "suggestion": "Replace the repetitive summary of impediments and solutions with a concise synthesis tied to the thesis, e.g., 'Overcoming impediments through attitudinal shifts and policy enforcement directly ends blind obedience, fostering global progress.'",
+          "anchor_quote": "There are grave impediments that stops women education process but there is nothing that can not be changed and with attidumal change and policy implementation"
+        },
+        {
+          "suggestion": "Integrate Article 25(A) as reinforcement of prior measures rather than new introduction, e.g., 'As outlined in measures, enforcing Article 25(A) alongside SDGs alleviates education barriers for women.'",
+          "anchor_quote": "Article 25(A) dolares women deserve equal education rights. Hence, by applying, rather enforcing these laws"
+        }
+      ]
+    },
+    {
+      "page": 13,
+      "suggestions": [
+        {
+          "suggestion": "Strengthen the attitudinal change argument with a specific example of success, e.g., 'Initiatives like India's Beti Bachao Beti Padhao campaign shifted societal attitudes, boosting girl school enrollment by 20% in five years.'",
+          "anchor_quote": "Here, for Women there is need of \"attitudinal Change\", not more legislations void of enforcements."
+        },
+        {
+          "suggestion": "Link attitudinal change directly to ending blind obedience, e.g., 'Attitudinal change empowers women to question patriarchal commands rationally instead of obeying blindly.'",
+          "anchor_quote": "Firstly, there is need to understand that women educational empowerment is actually \"human development\"."
+        },
+        {
+          "suggestion": "Support the quote with analysis on its relevance to education, e.g., 'Clinton's view underscores how educating women unlocks potential to challenge obedience norms, as seen in rising female literacy rates.'",
+          "anchor_quote": "As Hillary Clinton said, \"women are the target untapped resource of the world\".\" This absolutely true in its essence."
+        },
+        {
+          "suggestion": "Expand policy measures with a concrete implementation step, e.g., 'Launch community awareness programs modeled on Pakistan's Single National Curriculum to foster attitudinal shifts toward gender equality.'",
+          "anchor_quote": "However, there are certain - ways, policy measures and pragmatic decisions that can eliminate therose hurdles"
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "completed_pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ]
+}

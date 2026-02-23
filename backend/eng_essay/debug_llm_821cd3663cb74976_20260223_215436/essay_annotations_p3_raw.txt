@@ -1,0 +1,63 @@
+{
+  "page": 3,
+  "page_suggestions": [
+    {
+      "suggestion": "Deepen the digital divide point by linking it to online learning access, e.g., 'Massive digital divide prevents 51% of women globally from accessing free online courses like Coursera, exacerbating educational gaps.'",
+      "anchor_quote": "5. Massive digital in present age of online learning. Case in Point: Global digital divide 68%, for women 51%"
+    },
+    {
+      "suggestion": "Expand security lack measure with enforcement example, e.g., 'Enforce protection laws by increasing patrols near schools, as in India's Nirbhaya Fund model which improved female school attendance by 20%.'",
+      "anchor_quote": "6. Formales lack of security outside the four walls of their home."
+    },
+    {
+      "suggestion": "Strengthen attitudinal change measure by tying to specific impediment, e.g., 'Attitudinal change counters poverty prioritization of boys via awareness campaigns showing educated mothers produce higher GDP contributions.'",
+      "anchor_quote": "1. Ensure \"altidunal\" change rather than BY more LawsD TAIMOOR BUKHARI"
+    },
+    {
+      "suggestion": "Add analytical link for SDG points to thesis, e.g., 'SDG 5 promotes gender equality to end blind obedience by empowering women politically and economically.'",
+      "anchor_quote": "Case in Point: (1) SDG (5) Gender Equality (2) SDG (4) Equal Education Rights"
+    }
+  ],
+  "annotations": [
+    {
+      "page": 3,
+      "type": "outline_quality",
+      "rubric_point": "OUTLINE",
+      "anchor_quote": "IV. Measures required to eliminate these impediment in way of women education.",
+      "correction": "",
+      "comment": "Sub-points in IV list measures descriptively without analytical depth on how they end blind obedience; add cause-effect links to specific impediments."
+    },
+    {
+      "page": 3,
+      "type": "factual_accuracy",
+      "rubric_point": "FACTUAL ACCURACY",
+      "anchor_quote": "Global digital divide 68%, for women 51% 1 (3) Pakistan female digital divide 24% whereas mode's is 48%",
+      "correction": "",
+      "comment": "Digital divide statistics lack reliable sources; attribute to verifiable reports like GSMA or World Bank."
+    },
+    {
+      "page": 3,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "\"altidunal\" change rather than BY more LawsD TAIMOOR BUKHARI",
+      "correction": "\"attitudinal\" change rather than by more laws.",
+      "comment": "Correct misspelling 'altidunal' to 'attitudinal' and fix capitalization/fragment for clarity."
+    },
+    {
+      "page": 3,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Formale lack of security outside the four walls of their home.",
+      "correction": "Females lack of security outside the four walls of their home.",
+      "comment": "Correct 'Formale' to 'Females' for proper spelling."
+    },
+    {
+      "page": 3,
+      "type": "relevance_focus",
+      "rubric_point": "Relevance & Focus",
+      "anchor_quote": "mitigate digital divide so that women from for flung areas can educate themselves.",
+      "correction": "",
+      "comment": "Measure repeats digital divide from III without new tie to thesis; connect explicitly to breaking obedience via remote learning."
+    }
+  ]
+}

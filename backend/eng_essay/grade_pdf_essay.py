@@ -924,6 +924,7 @@ def call_grok_for_essay_structure_paragraphs_only(
                 "Do NOT invent headings or sections; only report if visible.",
                 "Outline is typically a numbered/roman list or bullet plan early (often page 1) spanning ~3-4 pages; may include headings and short paragraphs.",
                 "If outline is missing or weak, say so strongly.",
+                "Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention used. Focus only on content quality.",
                 "role_guess is best-effort: outline, intro, body, conclusion, mixed.",
                 "Ignore OCR errors; do not mention OCR quality, legibility, scanning, handwriting, blurring, or smudging anywhere.",
                 "Topic must be verbatim as written in the essay; never expand or paraphrase.",
@@ -1046,14 +1047,15 @@ def call_grok_for_essay_grading_strict_range(
     STRICT range grading:
       - DO NOT output exact marks
       - output "marks_awarded_range": "x-y"
-      - keep total ranges very conservative (exceptional rarely above 38-40)
+      - keep total ranges very conservative (excellent essays 38-42, lesser accordingly)
     """
 
     system = {
         "role": "system",
         "content": (
             "You are a strict CSS English Essay examiner (FPSC style). "
-            "Be conservative: strong essays seldom exceed ~38-40/100 (guideline, not a hard cap). "
+            "Be conservative: excellent essays should score in the 38-42 range out of 100. "
+            "Good essays should score 30-37, Average essays 20-29, Weak essays below 20. "
             "IMPORTANT: Do NOT treat events from 2025 or later years as speculation. "
             "If you encounter dates/events you don't have knowledge about, simply ignore them and focus on the essay's structure and argumentation. "
             "Never comment on whether an event is speculative or not based on your knowledge cutoff. "
@@ -1142,16 +1144,19 @@ def call_grok_for_essay_grading_strict_range(
     "Objective:\n"
     "- Identify ONLY the specific issues that caused loss of marks under each rubric criterion.\n"
     "- Do NOT praise, summarize, reinterpret, or rewrite any part of the essay.\n"
+    "- For output, use simple and complete sentences to increase readability.\n"
     "Rules:\n"
     "- Output only mark ranges per criterion (e.g., \"6–8\"); width ≤ 3 points.\n"
-    "- Hard cap: the total_awarded_range upper bound MUST NOT exceed 45; scale ranges down to stay under this cap.\n"
-    "- Keep totals conservative; strong essays rarely exceed ~38–40/100.\n"
+    "- Hard cap: the total_awarded_range upper bound MUST NOT exceed 42; scale ranges down to stay under this cap.\n"
+    "- Keep totals conservative; excellent essays score 38-42/100, good essays 30-37, average 20-29, weak below 20.\n"
     "- Overall rating must be one of: Excellent, Good, Average, Weak.\n"
     "- total_awarded_range = sum of all low bounds and high bounds across criteria.\n"
     "- Topic must be verbatim from the essay; do not rephrase or shorten.\n"
     "- Judge only what is written; do not assume intent or missing content.\n"
     "- Do not mention OCR/scan/legibility/handwriting; critique clarity, relevance, logic, and language only.\n"
     "- Headings/section markers may exist; evaluate only what is visible; do not invent content.\n"
+    "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention used in the outline or essay body. "
+    "Focus only on the substance and content quality, not how points are numbered or listed.\n"
     "Issue Identification Rules (Strict):\n"
     "- For EACH criterion, list ONLY concrete deficiencies observed in the essay.\n"
     "- Each issue must clearly explain why marks were lost.\n"
@@ -1161,6 +1166,16 @@ def call_grok_for_essay_grading_strict_range(
     "'claims unsupported by evidence', 'irrelevant paragraphs', 'repetition of same example', "
     "'frequent grammar errors in introduction and conclusion').\n"
     "- Reasons for low score must be directly drawn from the essay (structure, argument gaps, evidence, relevance, language).\n"
+    "Reasons for Low Score (ELABORATE):\n"
+    "- Each reason in 'reasons_for_low_score' MUST be a detailed, well-explained sentence (2-3 lines minimum).\n"
+    "- Do NOT write short or vague reasons like 'weak introduction' or 'lack of depth'.\n"
+    "- Instead, explain specifically WHAT is wrong and WHY it costs marks. For example:\n"
+    "  'The introduction fails to present a clear thesis statement or define the scope of discussion, "
+    "which means the reader has no roadmap for the essay and the examiner cannot assess topic interpretation.'\n"
+    "  'Body paragraphs repeat the same example of economic impact three times without introducing "
+    "new evidence or perspectives, which shows limited research and reduces content depth marks.'\n"
+    "- Each reason must reference specific parts of the essay (introduction, body paragraph, conclusion, outline) "
+    "and explain the exact deficiency with its impact on the score.\n"
     "Suggested Improvements (if required by schema):\n"
     "- Provide ONLY targeted, actionable fixes directly linked to the identified issues.\n"
     "- Keep suggestions specific and exam-oriented (e.g., 'state a one-sentence thesis in the introduction', "
@@ -1224,9 +1239,9 @@ def call_grok_for_essay_grading_strict_range(
     def _enforce_range_rules(parsed: Dict[str, Any]) -> Dict[str, Any]:
         """
         Convert mark ranges to single values per criterion, then compute total with 4-point range.
-        - For each criterion: pick single value (70% chance of minimum, 30% chance of maximum)
+        - For each criterion: pick single value (50% chance of minimum, 50% chance of maximum)
         - Sum all single values to get total
-        - Apply 45 cap if needed (scale down proportionally)
+        - Apply 42 cap if needed (scale down proportionally) - excellent essays max 38-42
         - Set total range as (total-2) to (total+2) - a 4-point range
         """
         crit_list = parsed.get("criteria") or []
@@ -1256,9 +1271,9 @@ def call_grok_for_essay_grading_strict_range(
         # Calculate total from single values
         total = sum(c.get("marks_awarded", 0) for c in crit_list)
         
-        # Apply 45 cap if total exceeds 45
-        if total > 45 and crit_list:
-            scale = 45.0 / float(total)
+        # Apply 42 cap if total exceeds 42 (excellent essays max 38-42)
+        if total > 42 and crit_list:
+            scale = 42.0 / float(total)
             # Scale down all marks_awarded proportionally
             for c in crit_list:
                 original = c.get("marks_awarded", 0)
@@ -1432,7 +1447,21 @@ def _process_annotation_page(
             if not isinstance(sugg, list):
                 sugg = []
             
-            return page_num, {"annotations": cleaned, "page_suggestions": sugg}, None
+            # Normalize suggestions to always be objects with 'suggestion' and 'anchor_quote' keys
+            normalized_sugg = []
+            for s in sugg:
+                if isinstance(s, str):
+                    # Legacy format: plain string, no anchor
+                    normalized_sugg.append({"suggestion": s.strip(), "anchor_quote": ""})
+                elif isinstance(s, dict):
+                    normalized_sugg.append({
+                        "suggestion": str(s.get("suggestion", "")).strip(),
+                        "anchor_quote": str(s.get("anchor_quote", "")).strip()
+                    })
+                else:
+                    normalized_sugg.append({"suggestion": str(s).strip(), "anchor_quote": ""})
+            
+            return page_num, {"annotations": cleaned, "page_suggestions": normalized_sugg}, None
             
         except Exception as e:
             last_err = str(e)
@@ -1473,7 +1502,12 @@ def call_grok_for_essay_annotations(
 
     schema_hint = {
         "page": 1,
-        "page_suggestions": ["..."],
+        "page_suggestions": [
+            {
+                "suggestion": "Replace the vague claim with a specific example...",
+                "anchor_quote": "EXACT substring from OCR_PAGE_TEXT that this suggestion refers to"
+            }
+        ],
         "annotations": [
             {
                 "page": 1,
@@ -1489,10 +1523,13 @@ def call_grok_for_essay_annotations(
     instructions = (
         "Using the ANNOTATIONS RUBRIC, generate actionable annotations for ONE PAGE only.\n"
         "Rules (MUST FOLLOW):\n"
+        "- For output, use simple and complete sentences to increase readability.\n"
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
         "- Page suggestions are a separate list of quick fixes for the same page.\n"
+        "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention "
+        "used in the outline or essay body. Focus only on the substance and content quality, not how points are numbered or listed.\n"
         "\n"
         "ANCHOR RULE (CRITICAL):\n"
         "- You are given OCR_PAGE_TEXT below.\n"
@@ -1517,9 +1554,22 @@ def call_grok_for_essay_annotations(
         "  with thesis statement would strengthen the essay opening').\n"
         "- These annotations should appear on the FIRST relevant page (outline on page 1-2, intro on early essay pages).\n"
         "\n"
-        "- page_suggestions: 2-4 short bullets for this page only; make them specific and actionable (e.g., 'state thesis in first paragraph', 'replace repeated phrase X', 'add evidence for claim Y'), not generic.\n"
+        "PAGE SUGGESTIONS RULES (CRITICAL):\n"
+        "- page_suggestions: 2-4 items for this page only.\n"
+        "- Each suggestion MUST be an object with two fields: 'suggestion' (the improvement text) and 'anchor_quote' (EXACT substring from OCR_PAGE_TEXT that this suggestion refers to).\n"
+        "- The anchor_quote for each suggestion MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT, just like annotation anchors.\n"
+        "- This anchor_quote links the suggestion to the specific part of the essay text it addresses.\n"
+        "- Each suggestion MUST include a SPECIFIC IMPROVEMENT with a concrete EXAMPLE.\n"
+        "- Do NOT write generic suggestions like 'improve argumentation' or 'add more detail'.\n"
+        "- Instead, write suggestions with examples like:\n"
+        "  'Replace the vague claim \"technology has changed everything\" with a specific statistic, e.g., \"Internet penetration in Pakistan grew from 15% to 54% between 2015-2023\"'\n"
+        "  'Strengthen the weak topic sentence in paragraph 3 by stating the argument directly, e.g., \"Economic diversification is essential because reliance on single sectors creates vulnerability\"'\n"
+        "  'Add a counter-argument to the section on education reform, e.g., \"Critics argue that curriculum changes without teacher training yield minimal results\"'\n"
+        "- Each suggestion must reference the specific part of the essay it applies to.\n"
+        "- For page_suggestions output, use simple and complete sentences to increase readability.\n"
         "- IMPORTANT: Do NOT include grammar or spelling errors in page_suggestions. Grammar and spelling corrections are handled separately.\n"
         "- page_suggestions should focus on content, structure, argumentation, evidence, and relevance only.\n"
+        "- Do NOT comment on numbering format, numeral structure, or point-listing style in suggestions.\n"
         "- Never mention OCR/scan/handwriting/legibility.\n"
         "Return JSON only matching schema."
     )
@@ -1872,24 +1922,99 @@ def render_essay_report_pages_range(
         
         y += row_h
     
-    # Add bullet sections
-    y += 28
+    # Add bullet sections - fit within remaining page space
+    y += 20
+    
+    # Calculate available space for bullet sections
+    bottom_margin = W_pt * 0.06  # Bottom margin padding
+    available_height = H_pt - y - bottom_margin
+    
+    # Collect all bullet section data
+    reasons = grading.get("reasons_for_low_score", []) or ["(Not provided)"]
+    improvements = grading.get("suggested_improvements_for_higher_score_70_plus", []) or ["(Not provided)"]
+    
+    # Estimate total content lines to determine if we need to shrink fonts
+    def _count_bullet_lines(bullets: List[str], font_name: str, font_sz: float, max_w: float) -> int:
+        total = 0
+        for b in bullets:
+            words = b.split()
+            line = ""
+            lines = 0
+            for word in words:
+                test = line + word + " "
+                tw = fitz.get_text_length(test, fontname=font_name, fontsize=font_sz)
+                if tw > max_w:
+                    if line:
+                        lines += 1
+                    line = word + " "
+                else:
+                    line = test
+            if line:
+                lines += 1
+            total += max(1, lines)
+        return total
+    
+    # Try progressively smaller font sizes until content fits
+    # Start with ideal sizes and shrink if needed
+    section_title_size = min(22, title_size - 4)
+    bullet_font_size = min(13, header_size - 2)
+    bullet_line_spacing = 1.35
+    bullet_gap = 8  # Between bullets
+    section_gap = 16  # Between sections
+    
+    text_max_w = W_pt - margin - right_margin - 45  # Account for indent
+    
+    for shrink_attempt in range(8):
+        # Calculate estimated height for both sections
+        reasons_lines = _count_bullet_lines(reasons, "helv", bullet_font_size, text_max_w)
+        improvements_lines = _count_bullet_lines(improvements, "helv", bullet_font_size, text_max_w)
+        
+        est_height = (
+            (section_title_size * 1.5) +  # First section title
+            reasons_lines * (bullet_font_size * bullet_line_spacing) +
+            len(reasons) * bullet_gap +
+            section_gap +
+            (section_title_size * 1.5) +  # Second section title
+            improvements_lines * (bullet_font_size * bullet_line_spacing) +
+            len(improvements) * bullet_gap +
+            section_gap
+        )
+        
+        if est_height <= available_height:
+            break
+        # Shrink fonts
+        section_title_size = max(12, section_title_size - 1.5)
+        bullet_font_size = max(8.5, bullet_font_size - 0.8)
+        bullet_line_spacing = max(1.2, bullet_line_spacing - 0.02)
+        bullet_gap = max(4, bullet_gap - 1)
+        section_gap = max(8, section_gap - 2)
+        text_max_w = W_pt - margin - right_margin - 40
+    
+    print(f"  Report bullet sections: title={section_title_size:.1f}pt, bullet={bullet_font_size:.1f}pt, available={available_height:.0f}pt, est={est_height:.0f}pt")
     
     def draw_bullet_section(title: str, bullets: List[str]) -> None:
         nonlocal y
-        page.insert_text((margin, y), title, fontname="hebo", fontsize=title_size, color=(0.2, 0.2, 0.2))
-        y += title_size * 1.6
+        # Check if we're too close to bottom
+        if y + section_title_size * 2 > H_pt - bottom_margin:
+            return
+        
+        page.insert_text((margin, y), title, fontname="hebo", fontsize=section_title_size, color=(0.2, 0.2, 0.2))
+        y += section_title_size * 1.5
         
         if not bullets:
             bullets = ["(Not provided)"]
         
-        bullet_indent = margin + 15
-        text_indent = bullet_indent + 20
+        bullet_indent = margin + 12
+        text_indent = bullet_indent + 16
         
         for bullet in bullets:
-            # Draw beautiful bullet point (circle)
-            bullet_y = y - 4
-            page.draw_circle((bullet_indent + 4, bullet_y), 3, color=(0, 0, 0), fill=(0, 0, 0))
+            # Stop if we're running out of page space
+            if y + bullet_font_size * 2 > H_pt - bottom_margin:
+                break
+            
+            # Draw bullet point (circle)
+            bullet_y = y - 3
+            page.draw_circle((bullet_indent + 3, bullet_y), 2.5, color=(0, 0, 0), fill=(0, 0, 0))
             
             # Word wrap the bullet text
             bullet_words = bullet.split()
@@ -1899,30 +2024,32 @@ def render_essay_report_pages_range(
             
             for word in bullet_words:
                 test_line = bullet_line + word + " "
-                text_width = fitz.get_text_length(test_line, fontname="helv", fontsize=header_size)
-                max_width = W_pt - text_indent - right_margin - 10
+                tw = fitz.get_text_length(test_line, fontname="helv", fontsize=bullet_font_size)
                 
-                if text_width > max_width:
+                if tw > text_max_w:
                     if bullet_line:
-                        x_pos = text_indent if first_line else text_indent
-                        page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0.1, 0.1, 0.1))
-                        line_y += header_size * 1.4
+                        # Stop if next line would overflow page
+                        if line_y + bullet_font_size * bullet_line_spacing > H_pt - bottom_margin:
+                            break
+                        x_pos = text_indent
+                        page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=bullet_font_size, color=(0.1, 0.1, 0.1))
+                        line_y += bullet_font_size * bullet_line_spacing
                         first_line = False
                     bullet_line = word + " "
                 else:
                     bullet_line = test_line
             
-            if bullet_line:
-                x_pos = text_indent if first_line else text_indent
-                page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=header_size, color=(0.1, 0.1, 0.1))
-                line_y += header_size * 1.4
+            if bullet_line and line_y + bullet_font_size < H_pt - bottom_margin:
+                x_pos = text_indent
+                page.insert_text((x_pos, line_y), bullet_line.strip(), fontname="helv", fontsize=bullet_font_size, color=(0.1, 0.1, 0.1))
+                line_y += bullet_font_size * bullet_line_spacing
             
-            y = line_y + 12  # Extra spacing between bullets
+            y = line_y + bullet_gap
         
-        y += 22  # Extra spacing after section
+        y += section_gap
     
-    draw_bullet_section("Reasons for Low Score", grading.get("reasons_for_low_score", []))
-    draw_bullet_section("Suggested Improvements for Higher Score", grading.get("suggested_improvements_for_higher_score_70_plus", []))
+    draw_bullet_section("Reasons for Low Score", reasons)
+    draw_bullet_section("Suggested Improvements for Higher Score", improvements)
     
     # Convert PDF page to PIL Image
     # Render at original pixel dimensions
@@ -2040,27 +2167,46 @@ def add_spelling_annotations_to_pdf(
         box_width = text_width + padding_x * 2 + 4
         box_height = text_height + padding_y * 2
         
-        # Determine best position: try above, below, left, right
+        # Determine best position: try above first, then below - with overlap detection
+        # Check if placing above would overlap with another word/correction
+        above_candidate = fitz.Rect(
+            rect.x0, rect.y0 - box_height - 5,
+            rect.x0 + box_width, rect.y0 - 5
+        )
+        above_overlaps = False
+        for wr in wordrects:
+            wr_rect = wr[0]  # index 0 = fitz.Rect, index 1 = confidence float, index 2 = word text
+            # Scale wr_rect the same way as error rect for proper comparison
+            if page_w > 0 and page_h > 0:
+                wr_rect_scaled = wr_rect * fitz.Matrix(sx, sy)
+            else:
+                wr_rect_scaled = wr_rect
+            # Check intersection
+            if (wr_rect_scaled.x0 < above_candidate.x1 and wr_rect_scaled.x1 > above_candidate.x0 and
+                wr_rect_scaled.y0 < above_candidate.y1 and wr_rect_scaled.y1 > above_candidate.y0):
+                above_overlaps = True
+                break
+        
         positions = []
         
-        # Try above
-        if rect.y0 >= box_height + 8:
+        if not above_overlaps and rect.y0 >= box_height + 8:
+            # Above is clear - use it (priority 1)
             positions.append({
                 'x': rect.x0,
                 'y': rect.y0 - box_height - 5,
                 'width': box_width,
                 'height': box_height,
-                'priority': 1  # Best option
+                'priority': 1
             })
         
-        # Try below
+        # Try below (priority 2 if above has no overlap, priority 1 if above overlaps)
         if rect.y1 + box_height + 8 < page.rect.height:
             positions.append({
                 'x': rect.x0,
                 'y': rect.y1 + 5,
                 'width': box_width,
                 'height': box_height,
-                'priority': 2
+                'priority': 1 if above_overlaps else 2
             })
         
         if not positions:

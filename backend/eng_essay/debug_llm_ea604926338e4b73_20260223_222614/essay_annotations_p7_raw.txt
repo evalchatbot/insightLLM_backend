@@ -1,0 +1,51 @@
+{
+  "page": 7,
+  "page_suggestions": [
+    {
+      "suggestion": "Deepen the economic independence argument with a cause-effect analysis and specific data, e.g., 'Economic sustenance breaks dependence cycles, as educated Pakistani women boost GDP by 15% through labor participation (World Bank 2023), enabling free decisions.'",
+      "anchor_quote": "she secures economic sustenance for herself. In this way she does not depend on any one economically"
+    },
+    {
+      "suggestion": "Strengthen rights awareness claim by linking to outcomes against obedience, e.g., 'Knowing constitutional rights empowers women to reject forced marriages, reducing child marriages by 25% in educated communities (UNICEF Pakistan).'",
+      "anchor_quote": "In Pakistan, an educated female would know her constitutional"
+    },
+    {
+      "suggestion": "Add a counter-perspective to economic dependence statistic for critical depth, e.g., 'Despite 28% female labor force (UNFPA), cultural barriers limit gains, underscoring need for policy reforms alongside education.'",
+      "anchor_quote": "According to UNFD (United Nations Population Fund) there is only 28% female labour force"
+    }
+  ],
+  "annotations": [
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "when female gets - - - education",
+      "correction": "when a female gets education",
+      "comment": "Missing article 'a' before 'female' and inconsistent capitalization; add 'a' for proper noun usage."
+    },
+    {
+      "page": 7,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "UNFD (United Nations Population Fund)",
+      "correction": "UNFPA (United Nations Population Fund)",
+      "comment": "Incorrect acronym 'UNFD'; correct to 'UNFPA' and cite specific report for verifiability."
+    },
+    {
+      "page": 7,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "makes decisions for herself just as she likes",
+      "correction": "makes rational decisions based on her interests, breaking obedience patterns",
+      "comment": "Descriptive phrasing lacks critical analysis; add cause-effect link to show how independence prevents blind obedience."
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "does not comply blindly and learns to think",
+      "correction": "rejects unthinking compliance and develops independent thought",
+      "comment": "Repeats 'blindly' theme from prior points; vary wording to avoid redundancy while maintaining focus."
+    }
+  ]
+}

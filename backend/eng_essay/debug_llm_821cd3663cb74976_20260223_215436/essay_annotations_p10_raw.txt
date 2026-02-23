@@ -1,0 +1,51 @@
+{
+  "page": 10,
+  "page_suggestions": [
+    {
+      "suggestion": "Deepen the analysis of poverty's impact by linking it to cause-effect, e.g., 'Prioritizing boys' education due to poverty traps girls in illiteracy cycles, as UNESCO data shows 132 million out-of-school girls globally.'",
+      "anchor_quote": "Societal barriers and povertythat hinders worven education. Unfortunately there is a culture of \"boy's educa- tion over girl's be cause he"
+    },
+    {
+      "suggestion": "Strengthen the economic dependence argument with specific evidence, e.g., 'Female earnings below $1.90/day prevent funding education costs like books and transport, perpetuating reliance on patriarchs per World Bank analysis.'",
+      "anchor_quote": "females are totally reliant on their patriarchs to provide them with education. Unfortunately education is not free and requires resources to sponsers it."
+    },
+    {
+      "suggestion": "Add counter-argument to economic hurdle, e.g., 'While scholarships exist, low wages still hinder access since 72% of women remain economically dependent (UNFPA).'",
+      "anchor_quote": "Even those women who work, earn very meagerly. According to World Bank report, 38% of women across the globe earn less than $ 1.9/day"
+    }
+  ],
+  "annotations": [
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "nurture and polishes the next generation",
+      "correction": "nurture and polish the next generation",
+      "comment": "Subject-verb agreement error; change 'polishes' to 'polish' for plural subject 'women'."
+    },
+    {
+      "page": 10,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "how will sche will ensure good brought up of her Children",
+      "correction": "how will she ensure a good upbringing of her children",
+      "comment": "Typo, redundancy, and word choice issue; fix 'sche will' to 'she', 'brought up' to 'upbringing', and lowercase 'Children'."
+    },
+    {
+      "page": 10,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "According to World Bank report, 38% of women across the globe earn less than $ 1.9/day This figure is way below the current $4.0 poverty line",
+      "correction": "",
+      "comment": "Vague source lacks specific report title, year, or link; add precise attribution for verifiability."
+    },
+    {
+      "page": 10,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "This is an absolutely unjustifiable reason to keep females illiterate",
+      "correction": "",
+      "comment": "Descriptive claim lacks analysis; add cause-effect like impact of educated mothers on child education outcomes."
+    }
+  ]
+}

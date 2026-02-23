@@ -1,0 +1,51 @@
+{
+  "page": 7,
+  "page_suggestions": [
+    {
+      "suggestion": "Strengthen the economic independence argument by adding cause-effect analysis with a specific example, e.g., 'Education provides vocational skills leading to employment, raising female labor participation from 28% (UNFPA data) and breaking economic dependence on male guardians.'",
+      "anchor_quote": "when female gets - - - education, she secures economic sustenance for herself. In this way she does not depend on any one economically"
+    },
+    {
+      "suggestion": "Deepen the rights awareness point with a concrete constitutional reference, e.g., 'In Pakistan, an educated female knows Article 25A guarantees free compulsory education and invokes it against denial of schooling.'",
+      "anchor_quote": "In Pakistan, an educated female would know her constitutional"
+    },
+    {
+      "suggestion": "Enhance analysis of decision-making freedom by including a counter-perspective, e.g., 'While economic dependence forces compliance, education counters this as seen in rising female entrepreneurship rates in urban Pakistan per World Bank reports.'",
+      "anchor_quote": "Hence, when the female is educated, she comes out of this vicious cycle of dependence and makes decisions for herself just as she likes."
+    }
+  ],
+  "annotations": [
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Secondly, when female gets - - - education, she secures economic sustenance for herself.",
+      "correction": "Secondly, when a female gets education, she secures economic sustenance for herself.",
+      "comment": "Add 'a' before 'female' to correct missing indefinite article; remove dashes for smooth phrasing."
+    },
+    {
+      "page": 7,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "can make impartial, out of free will decision for the future.",
+      "correction": "can make impartial decisions of her own free will for the future.",
+      "comment": "Rephrase awkward 'out of free will decision' to 'decisions of her own free will' for idiomatic accuracy and plural agreement."
+    },
+    {
+      "page": 7,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "she does not comply blindly and learns to think and care for herself too in the same way.",
+      "correction": "she questions commands independently and prioritizes her own needs.",
+      "comment": "Avoid repeating 'blindly' theme from prior points by varying wording to reduce redundancy."
+    },
+    {
+      "page": 7,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "According to UNFD (United Nations Population Fund) there is only 28% female labour force which means the other 72% women are economi- cally dependent on their male guardian.",
+      "correction": "According to UNFPA, female labor force participation is only 28%, meaning 72% depend on male guardians, perpetuating obedience cycles unless education intervenes via skill-building.",
+      "comment": "Elevate descriptive statistic to analysis by linking to cause-effect on obedience and education's role."
+    }
+  ]
+}

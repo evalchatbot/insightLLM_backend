@@ -1152,23 +1152,48 @@ def _add_spelling_annotations_to_pdf(
         # Draw red rectangle around error
         page.draw_rect(rect, color=(0.8, 0, 0), width=2.0)
         
-        # Draw correction text above the error
+        # Draw correction text - check for overlap with content above first
         correction_text = _sanitize_text_for_render(f"→ {correction}")
         if not correction_text:
             continue
         text_width = fitz.get_text_length(correction_text, fontname="hebo", fontsize=10)
+        text_height = 14  # Approximate height for fontsize 10
+        
+        # Check if placing above would overlap with another word/correction
+        # Look for any word rect that occupies the space above the error
+        above_rect = fitz.Rect(rect.x0 - 2, rect.y0 - 18, rect.x0 + text_width + 4, rect.y0 - 2)
+        place_below = False
+        for wr in wordrects:
+            wr_rect = wr[0]  # index 0 = fitz.Rect, index 1 = confidence float, index 2 = word text
+            # Check if any word rect intersects with where we'd place the correction above
+            if (wr_rect.x0 < above_rect.x1 and wr_rect.x1 > above_rect.x0 and
+                wr_rect.y0 < above_rect.y1 and wr_rect.y1 > above_rect.y0):
+                place_below = True
+                break
+        
+        if place_below:
+            # Place correction below the error word
+            bg_rect = fitz.Rect(
+                rect.x0 - 2,
+                rect.y1 + 2,
+                rect.x0 + text_width + 4,
+                rect.y1 + 2 + text_height + 2
+            )
+            text_point = fitz.Point(rect.x0, rect.y1 + text_height)
+        else:
+            # Place correction above the error word (default)
+            bg_rect = fitz.Rect(
+                rect.x0 - 2,
+                rect.y0 - 16,
+                rect.x0 + text_width + 4,
+                rect.y0 - 2
+            )
+            text_point = fitz.Point(rect.x0, rect.y0 - 4)
         
         # White background for correction text
-        bg_rect = fitz.Rect(
-            rect.x0 - 2,
-            rect.y0 - 16,
-            rect.x0 + text_width + 4,
-            rect.y0 - 2
-        )
         page.draw_rect(bg_rect, color=(0.8, 0, 0), fill=(1, 1, 1), width=1.0)
         
         # Insert correction text
-        text_point = fitz.Point(rect.x0, rect.y0 - 4)
         page.insert_text(
             text_point,
             correction_text,
@@ -1234,13 +1259,22 @@ def annotate_pdf_essay_pages(
         if isinstance(pn, int):
             ocr_pages_by_num[pn] = p
 
-    # Suggestions per page
-    suggestions_by_page: Dict[int, List[str]] = {}
+    # Suggestions per page - store as objects with 'suggestion' and 'anchor_quote'
+    suggestions_by_page: Dict[int, List[Dict[str, str]]] = {}
     for s in page_suggestions:
         pno = s.get("page")
         sug = s.get("suggestions") or []
         if isinstance(pno, int) and pno >= 1:
-            suggestions_by_page[pno] = [str(x) for x in sug if str(x).strip()]
+            parsed_suggs = []
+            for x in sug:
+                if isinstance(x, dict):
+                    text = str(x.get("suggestion", "")).strip()
+                    anchor = str(x.get("anchor_quote", "")).strip()
+                    if text:
+                        parsed_suggs.append({"suggestion": text, "anchor_quote": anchor})
+                elif isinstance(x, str) and str(x).strip():
+                    parsed_suggs.append({"suggestion": str(x).strip(), "anchor_quote": ""})
+            suggestions_by_page[pno] = parsed_suggs
 
     # Build normalized OCR page text index for exact matching
     page_text_norm_by_num: Dict[int, str] = {}
@@ -1320,6 +1354,21 @@ def annotate_pdf_essay_pages(
         canvas[y_offset:y_offset + orig_h, left_width:left_width + orig_w] = orig_cv
 
         # ------------------------------------------------------------
+        # BOX LINES on both sides of the essay page body
+        # Draw vertical border lines along the left and right edges of the essay body
+        # ------------------------------------------------------------
+        border_color = (80, 80, 80)  # Dark gray for clean borders
+        border_thickness = 3
+        # Left border of essay body
+        cv2.line(canvas, (left_width, y_offset), (left_width, y_offset + orig_h), border_color, border_thickness)
+        # Right border of essay body
+        cv2.line(canvas, (left_width + orig_w, y_offset), (left_width + orig_w, y_offset + orig_h), border_color, border_thickness)
+        # Top border of essay body
+        cv2.line(canvas, (left_width, y_offset), (left_width + orig_w, y_offset), border_color, border_thickness)
+        # Bottom border of essay body
+        cv2.line(canvas, (left_width, y_offset + orig_h - 1), (left_width + orig_w, y_offset + orig_h - 1), border_color, border_thickness)
+
+        # ------------------------------------------------------------
         # RED TICK MARK (on essay body) - one per page, near lower area
         # ------------------------------------------------------------
         tick_size = max(26, int(orig_w * 0.05))
@@ -1355,19 +1404,46 @@ def annotate_pdf_essay_pages(
         col_idx = 0
         y_cur = y_offset + 120
 
-        for bullet in suggestions_by_page.get(page_number, [])[:6]:
-            bullet_text = str(bullet).strip()
+        for bullet_obj in suggestions_by_page.get(page_number, [])[:6]:
+            # Handle both old string format and new object format
+            if isinstance(bullet_obj, dict):
+                bullet_text = str(bullet_obj.get("suggestion", "")).strip()
+                bullet_anchor = str(bullet_obj.get("anchor_quote", "")).strip()
+            else:
+                bullet_text = str(bullet_obj).strip()
+                bullet_anchor = ""
             if not bullet_text:
                 continue
+            # Truncate very long suggestions to prevent overflow
+            if len(bullet_text) > 300:
+                bullet_text = bullet_text[:297] + "..."
             bullet_full = "- " + bullet_text
 
+            # Try to match the anchor_quote to find the target text rect in the essay
+            suggestion_match_rect = None
+            if bullet_anchor:
+                # Try PDF text matching first (same as right-side annotations)
+                pdf_rect = _find_exact_rect_in_pdf_text(page_obj, orig_w, orig_h, bullet_anchor)
+                if pdf_rect:
+                    suggestion_match_rect = pdf_rect
+                elif page_ocr:
+                    # Try OCR matching
+                    ocr_rect = _find_exact_rect_from_ocr(page_ocr, bullet_anchor, orig_w, orig_h)
+                    if ocr_rect:
+                        suggestion_match_rect = ocr_rect
+                    else:
+                        # Try fuzzy OCR match as fallback
+                        fuzzy_rect = _find_best_match_rect_from_ocr(page_ocr, bullet_anchor, orig_w, orig_h)
+                        if fuzzy_rect:
+                            suggestion_match_rect = fuzzy_rect
+
             thick = 2
-            line_g = 18
-            top_pad = 20
-            bottom_pad = 20
+            line_g = 22
+            top_pad = 24
+            bottom_pad = 24
 
             remaining_h = (orig_h - margin_px) - y_cur
-            if remaining_h < 160:
+            if remaining_h < 200:
                 col_idx += 1
                 if col_idx >= max_cols:
                     col_idx = max_cols - 1
@@ -1378,12 +1454,12 @@ def annotate_pdf_essay_pages(
                 bullet_full,
                 max_width_px=col_w - 2 * left_pad,
                 max_height_px=min((orig_h - margin_px) - y_cur, 1200),
-                start_scale=1.55,
+                start_scale=0.95,
                 thickness=thick,
                 line_gap=line_g,
                 top_pad=top_pad,
                 bottom_pad=bottom_pad,
-                min_scale=1.00,
+                min_scale=0.60,
             )
 
             if y_cur + box_h > (orig_h - margin_px):
@@ -1415,7 +1491,22 @@ def annotate_pdf_essay_pages(
                 )
                 y_text += th + line_g
 
-            y_cur += box_h + 18
+            # Draw pointer line from suggestion box to matched text (if found)
+            if suggestion_match_rect is not None:
+                # Shift the match rect into canvas coords (essay body has left_width offset)
+                target_canvas_rect = _shift_rect(suggestion_match_rect, left_width, y_offset)
+                # Clip to essay body bounds
+                target_canvas_rect = _clip_rect(target_canvas_rect, new_w, orig_h)
+                # Draw line from right edge of suggestion box to left edge of target text
+                suggestion_box = (bx1, by1, bx2, by2)
+                # For left-side: line goes from right side of box to left side of target
+                start_x = bx2
+                start_y = (by1 + by2) // 2
+                end_x = target_canvas_rect[0]
+                end_y = (target_canvas_rect[1] + target_canvas_rect[3]) // 2
+                cv2.line(canvas, (start_x, start_y), (end_x, end_y), (0, 0, 0), 2, cv2.LINE_AA)
+
+            y_cur += box_h + 28
 
         # OPTIONAL DEBUG: draw OCR line boxes
         if debug_draw_ocr_boxes and page_ocr and page_ocr.get("lines"):

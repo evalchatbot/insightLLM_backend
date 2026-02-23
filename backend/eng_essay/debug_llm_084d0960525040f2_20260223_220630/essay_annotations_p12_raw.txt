@@ -1,0 +1,63 @@
+{
+  "page": 12,
+  "page_suggestions": [
+    {
+      "suggestion": "Attribute the global digital divide statistic to a source for credibility, e.g., 'Globally, according to ITU, the digital divide is 60% out of which girls/females are 51%.'",
+      "anchor_quote": "Globally the digital divide is 60% out of which girls/females are 51%"
+    },
+    {
+      "suggestion": "Source the Pakistan digital divide figures and clarify comparison, e.g., 'In Pakistan, the overall digital divide is 58% whereas for girls it is 24% (PTA 2023 report), excluding over half from online education.'",
+      "anchor_quote": "The to digital divide is 58% whereas for girls it is 24%"
+    },
+    {
+      "suggestion": "Add cause-effect analysis to security point linking to thesis, e.g., 'This violence forces women indoors, compelling blind obedience to family restrictions on mobility and education.'",
+      "anchor_quote": "Globally 1/3 women have suffered physical or sexual violence which speaks Volumes on how it is too difficult for women to get outside their"
+    },
+    {
+      "suggestion": "Deepen digital divide argument with counterpoint evaluation, e.g., 'While NGOs bridge gaps, government inaction widens it, as seen in Pakistan where 24% girl exclusion hinders economic independence.'",
+      "anchor_quote": "This shows that more than half of the girls population in Pakistan does not even have access turainternet HA which shuts the door of online learning world on them completely."
+    }
+  ],
+  "annotations": [
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Globally the digital divide is 60% out of which girls/females are 51%",
+      "correction": "",
+      "comment": "Factual data lacks source; attribute to reliable source like ITU to verify and strengthen claim."
+    },
+    {
+      "page": 12,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Globally 1/3 women have suffered physical or sexual violence",
+      "correction": "",
+      "comment": "Statistic requires source attribution; cite UN Women or WHO for credibility."
+    },
+    {
+      "page": 12,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "which makes parents reluctant to support girls education",
+      "correction": "which makes parents reluctant to support girls' education",
+      "comment": "Missing possessive apostrophe; change to 'girls' education' for correct grammar."
+    },
+    {
+      "page": 12,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "Sixthly females lack the required security outside of their homes.",
+      "correction": "",
+      "comment": "Point is descriptive list; add critical analysis via cause-effect on how security links to blind obedience."
+    },
+    {
+      "page": 12,
+      "type": "paragraph_flow",
+      "rubric_point": "Logical Flow of a Paragraph",
+      "anchor_quote": "in order to persue their",
+      "correction": "",
+      "comment": "Paragraph ends abruptly mid-sentence; add concluding transition linking impediments to measures."
+    }
+  ]
+}
