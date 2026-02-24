@@ -1,0 +1,27 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment/config secrets
+.env
+
+debug/
+debug_llm/
+debug_llm/precis_*.txt
+debug_llm/precis_*.json
+
+precis_result.json
+
+Reference/
+# Generated artifacts
+*.pdf
+*.json
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
