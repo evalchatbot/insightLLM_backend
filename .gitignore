@@ -28,6 +28,12 @@ Thumbs.db
 *.log
 logs/
 
+# Debug and temporary output
+debug_llm/
+debug/
+
+backend/eng_essay/outline*.pdf
+backend/eng_essay/outline*.json
 # Temporary essay processing folders (inside eng_essay)
 backend/eng_essay/debug_llm/
 backend/eng_essay/grok_images_essay/
