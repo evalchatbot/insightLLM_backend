@@ -1,0 +1,45 @@
+{
+  "page": 5,
+  "annotations": [
+    {
+      "page": 5,
+      "type": "introduction_quality",
+      "rubric_point": "Introduction",
+      "anchor_quote": "It has, undeniably, wisely phrased that it needs education to break free females from blind obedience.",
+      "correction": "It has been undeniably and wisely phrased that education is needed to free females from blind obedience.",
+      "comment": "Introduction is lengthy and repetitive without concise overview of main arguments; shorten, state clear thesis, and preview benefits, impediments, and measures."
+    },
+    {
+      "page": 5,
+      "type": "repetitiveness",
+      "rubric_point": "Repetitiveness",
+      "anchor_quote": "Same is the case with Women. When female are educated, they do not act blindly or follow mindlessly. They question and rationalize and only than decide on whether to comply or not.",
+      "correction": "The same applies to women: educated females do not act blindly but question and rationalize before deciding to comply.",
+      "comment": "Repeats idea of educated women avoiding blind obedience; consolidate into one statement to avoid redundancy."
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "Any one who is educated, questions, thinks, rationalizes and only then make an action.",
+      "correction": "Anyone who is educated questions, thinks, rationalizes, and only then makes an action.",
+      "comment": "Subject-verb agreement and parallelism errors; change to singular 'makes' and consistent structure for clarity."
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "By enlarging the femal mind is by virtue of educating them makes them better not only for their own good but also for the entire society.",
+      "correction": "Enlarging the female mind through education makes them better not only for their own good but also for the entire society.",
+      "comment": "Run-on sentence with grammatical errors and typos; restructure for proper syntax and correct 'femal' to 'female'."
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "They make more than 50% of the world population yet their plight gets crushed intiname of traditions and cultures-",
+      "correction": "They make up more than 50% of the world population, yet their plight gets crushed in the name of traditions and cultures.",
+      "comment": "Subject-verb agreement, preposition error, and typo; change 'make' to 'make up', fix 'intiname' to 'in the name', and add commas."
+    }
+  ]
+}

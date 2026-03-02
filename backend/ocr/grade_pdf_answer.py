@@ -1888,10 +1888,10 @@ def call_grok_for_page_wise_suggestions(
           {
             "page": 1,
             "suggestions": [
-              "Add comparison with Kant's categorical imperative",
-              "Include the 1945 UN Charter establishment date",
-              "Reference Rawls' theory of justice for stronger argumentation",
-              "Add empirical evidence from 2020 Climate Summit"
+                            {
+                                "suggestion": "Add comparison with Kant's categorical imperative to strengthen ethical evaluation.",
+                                "anchor_quote": "EXACT contiguous substring from OCR page text"
+                            }
             ]
           },
           ...
@@ -1924,7 +1924,9 @@ def call_grok_for_page_wise_suggestions(
             "STRICT OUTPUT FORMAT:\n"
             "- Return ONLY valid JSON\n"
             "- Top-level key: 'page_suggestions' with array of page objects\n"
-            "- Each page object has: 'page' (integer) and 'suggestions' (array of strings)\n"
+            "- Each page object has: 'page' (integer) and 'suggestions' (array of objects)\n"
+            "- Each suggestion object MUST have: 'suggestion' and 'anchor_quote'\n"
+            "- anchor_quote MUST be an EXACT contiguous substring from that page's OCR text\n"
             "- Each suggestion must be a single, specific, actionable statement\n"
             "- No markdown, no commentary, just JSON\n"
         ),
@@ -1952,17 +1954,10 @@ def call_grok_for_page_wise_suggestions(
         "    {\n"
         "      \"page\": 1,\n"
         "      \"suggestions\": [\n"
-        "        \"Add comparison with Locke's social contract theory (Two Treatises, 1689)\",\n"
-        "        \"Include the Magna Carta signing date (1215) as historical precedent\",\n"
-        "        \"Reference the 1948 Universal Declaration of Human Rights\"\n"
-        "      ]\n"
-        "    },\n"
-        "    {\n"
-        "      \"page\": 2,\n"
-        "      \"suggestions\": [\n"
-        "        \"Add Amartya Sen's capability approach for economic analysis\",\n"
-        "        \"Include World Bank poverty data (2021 report)\",\n"
-        "        \"Compare with China's economic reforms post-1978\"\n"
+        "        {\n"
+        "          \"suggestion\": \"Add comparison with Locke's social contract theory (Two Treatises, 1689) to sharpen the political-philosophy framing.\",\n"
+        "          \"anchor_quote\": \"EXACT contiguous substring from page 1 OCR text\"\n"
+        "        }\n"
         "      ]\n"
         "    }\n"
         "  ]\n"
@@ -1988,7 +1983,12 @@ def call_grok_for_page_wise_suggestions(
             "page_suggestions": [
                 {
                     "page": 1,
-                    "suggestions": ["string", "string"]
+                    "suggestions": [
+                        {
+                            "suggestion": "string",
+                            "anchor_quote": "EXACT contiguous substring from OCR page text"
+                        }
+                    ]
                 }
             ]
         },
@@ -4082,7 +4082,38 @@ def grade_pdf_answer(
         total_input_tokens += page_suggestions_token_usage.get("input_tokens", 0)
         total_output_tokens += page_suggestions_token_usage.get("output_tokens", 0)
 
-        page_suggestions = page_suggestions_result.get("page_suggestions", []) or []
+        raw_page_suggestions = page_suggestions_result.get("page_suggestions", []) or []
+        page_text_by_num: Dict[int, str] = {
+            int((p.get("page") or 0)): str(p.get("text") or "")
+            for p in (ocr_data.get("pages") or [])
+            if isinstance(p.get("page"), int) or str(p.get("page", "")).isdigit()
+        }
+
+        page_suggestions: List[Dict[str, Any]] = []
+        for ps in raw_page_suggestions:
+            if not isinstance(ps, dict):
+                continue
+            pno_raw = ps.get("page")
+            try:
+                pno = int(pno_raw)
+            except Exception:
+                continue
+            page_text = page_text_by_num.get(pno, "")
+            normalized_suggestions: List[Dict[str, str]] = []
+            for s in (ps.get("suggestions") or []):
+                if isinstance(s, dict):
+                    suggestion = str(s.get("suggestion", "")).strip()
+                    anchor = str(s.get("anchor_quote", "")).strip()
+                else:
+                    suggestion = str(s).strip()
+                    anchor = ""
+                if not suggestion:
+                    continue
+                if anchor and page_text and anchor not in page_text:
+                    continue
+                normalized_suggestions.append({"suggestion": suggestion, "anchor_quote": anchor})
+
+            page_suggestions.append({"page": pno, "suggestions": normalized_suggestions})
 
         print("Step 11: Annotating answer pages with improvement suggestions...")
         if progress_tracker:

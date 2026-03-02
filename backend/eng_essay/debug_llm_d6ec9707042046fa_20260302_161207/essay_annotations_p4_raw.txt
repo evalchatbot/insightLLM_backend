@@ -1,0 +1,29 @@
+{
+  "page": 4,
+  "annotations": [
+    {
+      "page": 4,
+      "type": "outline_quality",
+      "rubric_point": "Outline Quality",
+      "anchor_quote": "Conclusion.",
+      "correction": "Expand with summary of main arguments, restatement of thesis, and forward-looking statement.",
+      "comment": "Conclusion section in outline lacks detail compared to body sections; add structured points to balance and preview essay closure."
+    },
+    {
+      "page": 4,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "3. In Pakistan, ensure implementation of Article 25, and Article 38 NV.",
+      "correction": "Analyze how implementation addresses specific impediments like poverty or child marriages via cause-effect.",
+      "comment": "Outline sub-point lists measure descriptively without analytical depth; include reasoning on impact to strengthen argument."
+    },
+    {
+      "page": 4,
+      "type": "factual_accuracy",
+      "rubric_point": "Factual Accuracy",
+      "anchor_quote": "Article 25, and Article 38 NV",
+      "correction": "Article 25-A (right to education) and Article 38 (social justice) of the Constitution of Pakistan.",
+      "comment": "References to articles lack full source attribution and unclear 'NV'; specify reliable source for verifiability."
+    }
+  ]
+}

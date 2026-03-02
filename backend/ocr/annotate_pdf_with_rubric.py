@@ -1057,9 +1057,19 @@ def annotate_pdf_answer_pages(
 
                 # Draw each suggestion as a numbered bullet with blue box
                 for idx, suggestion in enumerate(suggestions[:MAX_SUGGESTIONS_PER_PAGE], 1):  # Max suggestions per page
-                    bullet = f"{idx}. {suggestion}"
+                    if isinstance(suggestion, dict):
+                        suggestion_text = str(suggestion.get("suggestion", "")).strip()
+                        suggestion_anchor = str(suggestion.get("anchor_quote", "")).strip()
+                    else:
+                        suggestion_text = str(suggestion).strip()
+                        suggestion_anchor = ""
+
+                    if not suggestion_text:
+                        continue
+
+                    bullet = f"{idx}. {suggestion_text}"
                     wrapped_lines = _wrap_text_cv2(
-                        bullet, suggestion_max_width, font_face, font_scale * 1.0, text_thickness  # Increased font scale and thickness
+                        bullet, suggestion_max_width, font_face, font_scale * 0.85, text_thickness
                     )
 
                     # Calculate box height for this suggestion
@@ -1085,13 +1095,39 @@ def annotate_pdf_answer_pages(
                             line,
                             (suggestion_x1, suggestion_y),
                             font_face,
-                            font_scale * 1.0,  # Increased from 0.75
+                            font_scale * 0.85,
                             BLUE,
-                            text_thickness,  # Increased from text_thickness - 1
+                            text_thickness,
                             cv2.LINE_AA,
                         )
                         suggestion_y += int(line_height * 1.2)
                     suggestion_y += int(line_height * 1.2)  # Increased gap between suggestion boxes
+
+                    # Match left-side suggestion anchor to answer text and draw connector to the suggestion box.
+                    if suggestion_anchor and page_ocr:
+                        matched = _find_word_or_line_rect(
+                            page_ocr=page_ocr,
+                            target_text=suggestion_anchor,
+                            w=orig_w,
+                            h=orig_h,
+                        )
+                        if matched:
+                            m_x1 = matched[0] + left_width
+                            m_y1 = matched[1] + y_offset
+                            m_x2 = matched[2] + left_width
+                            m_y2 = matched[3] + y_offset
+                            text_y = (m_y1 + m_y2) // 2
+                            box_target_x = suggestion_box[2]
+                            box_target_y = (suggestion_box[1] + suggestion_box[3]) // 2
+                            text_start_x = max(left_width + 4, m_x1 - 8)
+                            cv2.line(
+                                cv_img,
+                                (text_start_x, text_y),
+                                (box_target_x, box_target_y),
+                                BLUE,
+                                3,
+                                cv2.LINE_AA,
+                            )
 
             suggestion_end_y = max(suggestion_y, margin)
 

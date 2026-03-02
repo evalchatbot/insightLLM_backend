@@ -1347,6 +1347,116 @@ def _compact_ocr_page(page: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+ESSAY_PAGE_SUGGESTIONS_PROMPT = (
+    "PAGE SUGGESTIONS RULES (CRITICAL):\n\n"
+    "- page_suggestions: 2-4 items for this page only.\n"
+    "- Each suggestion MUST be an object with two fields:\n"
+    "    1) \"suggestion\" (the improvement text)\n"
+    "    2) \"anchor_quote\" (EXACT contiguous substring from OCR_PAGE_TEXT that this suggestion refers to).\n\n"
+    "ANCHOR REQUIREMENTS:\n"
+    "- The anchor_quote MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT.\n"
+    "- Do NOT paraphrase the anchor.\n"
+    "- The anchor_quote links the suggestion directly to the specific part of the essay being improved.\n\n"
+    "CORE REQUIREMENT (MANDATORY REWRITE RULE):\n"
+    "- Each suggestion MUST include a FULLY WRITTEN improved version of the referenced text.\n"
+    "- Do NOT only describe the problem or explain how to improve it.\n"
+    "- You MUST demonstrate the improved version exactly as it should appear in the essay.\n"
+    "- The improved version must be written in full sentences and in formal academic tone.\n"
+    "- The improved version must preserve the original intent but increase analytical depth, specificity, precision, and argument strength.\n\n"
+    "SUGGESTION STRUCTURE:\n"
+    "Each suggestion must:\n"
+    "1) Briefly identify the issue (1–2 clear sentences).\n"
+    "2) Provide the improved version in quotation marks, clearly introduced as:\n"
+    "   Improved version: \"...\"\n\n"
+    "WHAT TO IMPROVE:\n"
+    "- If the thesis is vague → Rewrite it into a clear, analytical, arguable thesis.\n"
+    "- If an outline point is broad → Rewrite it into a precise, argument-driven claim.\n"
+    "- If a claim lacks evidence → Replace it with a more specific and evidence-based version.\n"
+    "- If a topic sentence is weak → Rewrite it as a strong argumentative topic sentence.\n"
+    "- If reasoning lacks causation or evaluation → Rewrite it to include analytical depth (cause, consequence, qualification, comparison, or evaluation).\n\n"
+    "QUALITY STANDARD:\n"
+    "- The improved version must demonstrate higher-order thinking (analysis, causation, evaluation, or qualification), not just clearer wording.\n"
+    "- Avoid generic advice such as \"add more detail\" or \"improve clarity.\"\n"
+    "- Every suggestion must contain a concrete rewritten sample.\n"
+    "- Suggestions must focus only on content, structure, argumentation, evidence, and relevance.\n\n"
+    "RESTRICTIONS:\n"
+    "- Do NOT include grammar or spelling corrections (handled separately).\n"
+    "- Do NOT comment on numbering format, numeral structure, or point-listing style.\n"
+    "- Do NOT mention OCR, scan quality, handwriting, or legibility.\n"
+    "- Do NOT produce generic or repetitive suggestions.\n"
+    "- Ensure variation in suggestions (e.g., thesis strength, argument depth, evidence precision, structural coherence).\n\n"
+    "STYLE:\n"
+    "- Use clear, complete sentences for readability.\n"
+    "- Maintain academic tone appropriate for high-level competitive examinations.\n\n"
+    "LENGTH RULE (MANDATORY):\n"
+    "- Keep each suggestion concise: 22 to 45 words total.\n"
+    "- Do not exceed 45 words in a single suggestion.\n"
+    "- Keep the 'Improved version' compact but complete.\n\n"
+    "Return JSON only matching schema."
+)
+
+
+def _word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)?", text or ""))
+
+
+_EXTRA_LINE_PATTERNS = [
+    re.compile(r"\bcamscanner\b", re.IGNORECASE),
+    re.compile(r"\bcs\s*camscanner\b", re.IGNORECASE),
+    re.compile(r"\bdate\s*[:\-]", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", re.IGNORECASE),
+    re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b", re.IGNORECASE),
+]
+
+
+def _is_extra_artifact_line(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    for pat in _EXTRA_LINE_PATTERNS:
+        if pat.search(t):
+            return True
+    return False
+
+
+def filter_essay_extra_text(ocr_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    cleaned_pages: List[Dict[str, Any]] = []
+    extras_pages: List[Dict[str, Any]] = []
+
+    for page in (ocr_data.get("pages") or []):
+        page_no = int(page.get("page_number") or 0)
+        kept_lines: List[Dict[str, Any]] = []
+        removed_lines: List[Dict[str, Any]] = []
+
+        for ln in (page.get("lines") or []):
+            txt = (ln.get("text") or "").strip()
+            if _is_extra_artifact_line(txt):
+                removed_lines.append({"text": txt, "bbox": ln.get("bbox") or []})
+            else:
+                kept_lines.append(ln)
+
+        rebuilt_text = " ".join((x.get("text") or "").strip() for x in kept_lines if (x.get("text") or "").strip()).strip()
+
+        new_page = dict(page)
+        new_page["lines"] = kept_lines
+        new_page["ocr_page_text"] = rebuilt_text
+        cleaned_pages.append(new_page)
+
+        if removed_lines:
+            extras_pages.append({"page_number": page_no, "removed_lines": removed_lines})
+
+    cleaned = {
+        "pages": cleaned_pages,
+        "full_text": "\n".join((p.get("ocr_page_text") or "").strip() for p in cleaned_pages if (p.get("ocr_page_text") or "").strip()).strip(),
+    }
+    extras = {
+        "removed_line_count": sum(len(x.get("removed_lines", [])) for x in extras_pages),
+        "pages": extras_pages,
+    }
+    return cleaned, extras
+
+
 def _load_partial_annotations(path: str) -> Dict[str, Any]:
     if not os.path.isfile(path):
         return {}
@@ -1401,8 +1511,8 @@ def _process_annotation_page(
                 raise ValueError("Annotation JSON is not an object")
             if not isinstance(parsed.get("annotations"), list):
                 raise ValueError("Annotation JSON missing annotations list")
-            if not isinstance(parsed.get("page_suggestions"), list):
-                raise ValueError("Annotation JSON missing page_suggestions list")
+            if "page_suggestions" in parsed:
+                parsed.pop("page_suggestions", None)
             
             # VALIDATE ANCHORS: ensure they exist in OCR text
             ann = parsed.get("annotations") or []
@@ -1443,25 +1553,7 @@ def _process_annotation_page(
                         a[k] = ""
                 cleaned.append(a)
             
-            sugg = parsed.get("page_suggestions") or []
-            if not isinstance(sugg, list):
-                sugg = []
-            
-            # Normalize suggestions to always be objects with 'suggestion' and 'anchor_quote' keys
-            normalized_sugg = []
-            for s in sugg:
-                if isinstance(s, str):
-                    # Legacy format: plain string, no anchor
-                    normalized_sugg.append({"suggestion": s.strip(), "anchor_quote": ""})
-                elif isinstance(s, dict):
-                    normalized_sugg.append({
-                        "suggestion": str(s.get("suggestion", "")).strip(),
-                        "anchor_quote": str(s.get("anchor_quote", "")).strip()
-                    })
-                else:
-                    normalized_sugg.append({"suggestion": str(s).strip(), "anchor_quote": ""})
-            
-            return page_num, {"annotations": cleaned, "page_suggestions": normalized_sugg}, None
+            return page_num, {"annotations": cleaned}, None
             
         except Exception as e:
             last_err = str(e)
@@ -1482,11 +1574,10 @@ def call_grok_for_essay_annotations(
     debug_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Returns:
-    {
-      "page_suggestions":[{"page":1,"suggestions":["..."]}],
-      "annotations":[ ... ]
-    }
+        Returns:
+        {
+            "annotations":[ ... ]
+        }
     """
     system = {
         "role": "system",
@@ -1502,12 +1593,6 @@ def call_grok_for_essay_annotations(
 
     schema_hint = {
         "page": 1,
-        "page_suggestions": [
-            {
-                "suggestion": "Replace the vague claim with a specific example...",
-                "anchor_quote": "EXACT substring from OCR_PAGE_TEXT that this suggestion refers to"
-            }
-        ],
         "annotations": [
             {
                 "page": 1,
@@ -1527,7 +1612,6 @@ def call_grok_for_essay_annotations(
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
-        "- Page suggestions are a separate list of quick fixes for the same page.\n"
         "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention "
         "used in the outline or essay body. Focus only on the substance and content quality, not how points are numbered or listed.\n"
         "\n"
@@ -1537,6 +1621,7 @@ def call_grok_for_essay_annotations(
         "- Use the full relevant sentence/phrase (no upper word cap); do NOT paraphrase.\n"
         "- Do NOT correct spelling inside anchor_quote.\n"
         "- If you cannot find a suitable quote in OCR_PAGE_TEXT, set anchor_quote to empty and SKIP that annotation.\n"
+        "- Ignore camera/date/watermark artifacts (e.g., CamScanner/date stamps) completely.\n"
         "\n"
         "- Use these types exactly:\n"
         "  outline_quality, introduction_quality, paragraph_flow, factual_accuracy,\n"
@@ -1553,24 +1638,6 @@ def call_grok_for_essay_annotations(
         "  If introduction is NOT present or weak, use suggestive tone (e.g., 'A clear introduction\n"
         "  with thesis statement would strengthen the essay opening').\n"
         "- These annotations should appear on the FIRST relevant page (outline on page 1-2, intro on early essay pages).\n"
-        "\n"
-        "PAGE SUGGESTIONS RULES (CRITICAL):\n"
-        "- page_suggestions: 2-4 items for this page only.\n"
-        "- Each suggestion MUST be an object with two fields: 'suggestion' (the improvement text) and 'anchor_quote' (EXACT substring from OCR_PAGE_TEXT that this suggestion refers to).\n"
-        "- The anchor_quote for each suggestion MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT, just like annotation anchors.\n"
-        "- This anchor_quote links the suggestion to the specific part of the essay text it addresses.\n"
-        "- Each suggestion MUST include a SPECIFIC IMPROVEMENT with a concrete EXAMPLE.\n"
-        "- Do NOT write generic suggestions like 'improve argumentation' or 'add more detail'.\n"
-        "- Instead, write suggestions with examples like:\n"
-        "  'Replace the vague claim \"technology has changed everything\" with a specific statistic, e.g., \"Internet penetration in Pakistan grew from 15% to 54% between 2015-2023\"'\n"
-        "  'Strengthen the weak topic sentence in paragraph 3 by stating the argument directly, e.g., \"Economic diversification is essential because reliance on single sectors creates vulnerability\"'\n"
-        "  'Add a counter-argument to the section on education reform, e.g., \"Critics argue that curriculum changes without teacher training yield minimal results\"'\n"
-        "- Each suggestion must reference the specific part of the essay it applies to.\n"
-        "- For page_suggestions output, use simple and complete sentences to increase readability.\n"
-        "- IMPORTANT: Do NOT include grammar or spelling errors in page_suggestions. Grammar and spelling corrections are handled separately.\n"
-        "- page_suggestions should focus on content, structure, argumentation, evidence, and relevance only.\n"
-        "- Do NOT comment on numbering format, numeral structure, or point-listing style in suggestions.\n"
-        "- Never mention OCR/scan/handwriting/legibility.\n"
         "Return JSON only matching schema."
     )
 
@@ -1591,7 +1658,7 @@ def call_grok_for_essay_annotations(
     
     partial = _load_partial_annotations(partial_path)
     annotations: List[Dict[str, Any]] = partial.get("annotations") or []
-    page_suggestions: List[Dict[str, Any]] = partial.get("page_suggestions") or []
+    page_suggestions: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = partial.get("errors") or []
     completed_pages = set(partial.get("completed_pages") or [])
 
@@ -1673,7 +1740,6 @@ def call_grok_for_essay_annotations(
                 elif result:
                     with lock:
                         annotations.extend(result["annotations"])
-                        page_suggestions.append({"page": result_page_num, "suggestions": result["page_suggestions"]})
                         completed_pages.add(result_page_num)
                         print(f"    ✓ Page {result_page_num} done ({len(result['annotations'])} annotations)")
                 
@@ -1681,7 +1747,6 @@ def call_grok_for_essay_annotations(
                 with lock:
                     _save_partial_annotations(partial_path, {
                         "annotations": annotations,
-                        "page_suggestions": page_suggestions,
                         "errors": errors,
                         "completed_pages": sorted(completed_pages),
                     })
@@ -1694,7 +1759,160 @@ def call_grok_for_essay_annotations(
     if not annotations and errors:
         raise RuntimeError(f"All annotation requests failed. See {partial_path} for details.")
 
-    return {"annotations": annotations, "page_suggestions": page_suggestions, "errors": errors}
+    return {"annotations": annotations, "errors": errors}
+
+
+def _process_suggestion_page(
+    page: Dict[str, Any],
+    page_num: int,
+    payload: Dict[str, Any],
+    system: Dict[str, Any],
+    instructions: str,
+    grok_api_key: str,
+    debug_dir: str,
+) -> Tuple[int, Optional[List[Dict[str, str]]], Optional[str]]:
+    ocr_page_text = (page.get("ocr_page_text") or "").strip()
+    if not ocr_page_text:
+        return page_num, None, "Missing ocr_page_text"
+
+    last_err: Optional[str] = None
+    for _ in range(3):
+        try:
+            data = _grok_chat(
+                grok_api_key,
+                messages=[system, {"role": "user", "content": instructions + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False)}],
+                temperature=0.10,
+                timeout=200,
+                max_retries=4,
+            )
+            content = data["choices"][0]["message"]["content"]
+            parsed = parse_json_with_repair(
+                grok_api_key,
+                content,
+                debug_tag=f"essay_suggestions_p{page_num}",
+                debug_dir_override=debug_dir,
+            )
+            raw_suggestions = parsed.get("page_suggestions")
+            if not isinstance(raw_suggestions, list):
+                raise ValueError("page_suggestions must be a list")
+
+            cleaned: List[Dict[str, str]] = []
+            for item in raw_suggestions:
+                if not isinstance(item, dict):
+                    continue
+                suggestion = str(item.get("suggestion", "")).strip()
+                anchor = str(item.get("anchor_quote", "")).strip()
+                if not suggestion or not anchor:
+                    continue
+                if not _anchor_is_valid(anchor, ocr_page_text):
+                    continue
+                wc = _word_count(suggestion)
+                if wc < 12 or wc > 50:
+                    continue
+                cleaned.append({"suggestion": suggestion, "anchor_quote": anchor})
+
+            return page_num, cleaned[:4], None
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    return page_num, None, last_err
+
+
+def call_grok_for_essay_page_suggestions(
+    grok_api_key: str,
+    ocr_data: Dict[str, Any],
+    structure: Dict[str, Any],
+    grading: Dict[str, Any],
+    page_images: List[Dict[str, Any]],
+    debug_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    system = {
+        "role": "system",
+        "content": (
+            "You generate high-quality page-wise rewrite suggestions for handwritten CSS essays.\n"
+            "Primary truth = page images; OCR is helper text.\n"
+            "Do NOT comment on numbering format, numeral structure, bullet style, or point-listing conventions.\n"
+            "Ignore camera/date/watermark artifacts (e.g., CamScanner/date stamps) completely.\n"
+            "Return JSON only."
+        ),
+    }
+
+    instructions = ESSAY_PAGE_SUGGESTIONS_PROMPT
+
+    schema_hint = {
+        "page": 1,
+        "page_suggestions": [
+            {
+                "suggestion": "Issue + rewrite guidance. Improved version: \"...\"",
+                "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT"
+            }
+        ],
+    }
+
+    if debug_dir is None:
+        eng_essay_dir = _get_eng_essay_dir()
+        debug_dir = os.path.join(eng_essay_dir, "debug_llm")
+    os.makedirs(debug_dir, exist_ok=True)
+
+    image_by_page = {p.get("page"): p for p in page_images}
+    ocr_pages = ocr_data.get("pages", [])
+    errors: List[Dict[str, Any]] = []
+    page_suggestions: List[Dict[str, Any]] = []
+
+    grading_summary = {
+        "overall_rating": grading.get("overall_rating"),
+        "total_awarded_range": grading.get("total_awarded_range"),
+        "criteria": grading.get("criteria", []),
+    }
+    structure_summary = {
+        "outline": structure.get("outline"),
+        "paragraph_map": structure.get("paragraph_map", []),
+    }
+
+    tasks: List[Tuple[Dict[str, Any], int, Dict[str, Any]]] = []
+    for page in ocr_pages:
+        page_num = page.get("page_number")
+        if not isinstance(page_num, int):
+            continue
+        payload = {
+            "grading_summary": grading_summary,
+            "structure_detected": structure_summary,
+            "ocr_page": _compact_ocr_page(page),
+            "ocr_full_text": (ocr_data.get("full_text") or ""),
+            "page_image": image_by_page.get(page_num),
+            "output_schema": schema_hint,
+        }
+        tasks.append((page, page_num, payload))
+
+    max_workers = min(3, max(1, len(tasks)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_suggestion_page,
+                page,
+                page_num,
+                payload,
+                system,
+                instructions,
+                grok_api_key,
+                debug_dir,
+            ): page_num
+            for page, page_num, payload in tasks
+        }
+        for future in as_completed(futures):
+            page_num = futures[future]
+            try:
+                result_page, suggestions, err = future.result()
+                if err:
+                    errors.append({"page": result_page, "error": err})
+                    continue
+                page_suggestions.append({"page": result_page, "suggestions": suggestions or []})
+            except Exception as e:
+                errors.append({"page": page_num, "error": str(e)})
+
+    page_suggestions.sort(key=lambda x: int(x.get("page") or 0))
+    return {"page_suggestions": page_suggestions, "errors": errors}
 
 
 
@@ -2354,12 +2572,13 @@ def run_essay_grading(
     
     print("Running OCR (Azure Document Intelligence)...")
     t0 = time.perf_counter()
-    ocr_data = run_ocr_on_pdf(
+    ocr_data_raw = run_ocr_on_pdf(
         doc_client,
         pdf_path,
         workers=ocr_workers,
         debug_pages_dir=debug_ocr_pages_dir or None,
     )
+    ocr_data, extra_things = filter_essay_extra_text(ocr_data_raw)
     timings["OCR extraction"] = time.perf_counter() - t0
     print(f"OCR done. Time: {_format_duration(timings['OCR extraction'])}")
     
@@ -2435,9 +2654,23 @@ def run_essay_grading(
     timings["Annotations"] = time.perf_counter() - t0
     print(f"Annotations done. Time: {_format_duration(timings['Annotations'])}")
 
+    print("Generating page suggestions (separate call)...")
+    t0 = time.perf_counter()
+    sugg_pack = call_grok_for_essay_page_suggestions(
+        grok_key,
+        ocr_data=ocr_data,
+        structure=structure,
+        grading=grading,
+        page_images=page_images,
+        debug_dir=debug_dir,
+    )
+    timings["Page suggestions"] = time.perf_counter() - t0
+    print(f"Page suggestions done. Time: {_format_duration(timings['Page suggestions'])}")
+
     annotations = ann_pack.get("annotations") or []
-    page_suggestions = ann_pack.get("page_suggestions") or []
+    page_suggestions = sugg_pack.get("page_suggestions") or []
     ann_errors = ann_pack.get("errors") or []
+    suggestion_errors = sugg_pack.get("errors") or []
     print(f"Annotations: {len(annotations)}")
     print(f"Spelling/Grammar errors: {len(spelling_errors)}")
 
@@ -2448,7 +2681,9 @@ def run_essay_grading(
         "annotations": annotations,
         "page_suggestions": page_suggestions,
         "annotation_errors": ann_errors,
+        "suggestion_errors": suggestion_errors,
         "spelling_grammar_errors": spelling_errors,
+        "extra_things": extra_things,
     }
     with open(output_json_path, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
@@ -2624,12 +2859,13 @@ def main():
 
     print("Running OCR (Azure Document Intelligence)...")
     t0 = time.perf_counter()
-    ocr_data = run_ocr_on_pdf(
+    ocr_data_raw = run_ocr_on_pdf(
         doc_client,
         args.pdf,
         workers=args.ocr_workers,
         debug_pages_dir=args.debug_ocr_pages_dir or None,
     )
+    ocr_data, extra_things = filter_essay_extra_text(ocr_data_raw)
     timings["OCR extraction"] = time.perf_counter() - t0
     print(f"OCR done. Time: {_format_duration(timings['OCR extraction'])}")
     if args.debug_ocr_json:
@@ -2685,9 +2921,22 @@ def main():
     timings["Annotations"] = time.perf_counter() - t0
     print(f"Annotations done. Time: {_format_duration(timings['Annotations'])}")
 
+    print("Calling Grok for page suggestions (separate call)...")
+    t0 = time.perf_counter()
+    sugg_pack = call_grok_for_essay_page_suggestions(
+        grok_key,
+        ocr_data=ocr_data,
+        structure=structure,
+        grading=grading,
+        page_images=page_images,
+    )
+    timings["Page suggestions"] = time.perf_counter() - t0
+    print(f"Page suggestions done. Time: {_format_duration(timings['Page suggestions'])}")
+
     annotations = ann_pack.get("annotations") or []
-    page_suggestions = ann_pack.get("page_suggestions") or []
+    page_suggestions = sugg_pack.get("page_suggestions") or []
     ann_errors = ann_pack.get("errors") or []
+    suggestion_errors = sugg_pack.get("errors") or []
     print(f"Annotations: {len(annotations)}")
     print(f"Spelling/Grammar errors: {len(spelling_errors)}")
 
@@ -2697,7 +2946,9 @@ def main():
         "annotations": annotations,
         "page_suggestions": page_suggestions,
         "annotation_errors": ann_errors,
+        "suggestion_errors": suggestion_errors,
         "spelling_grammar_errors": spelling_errors,
+        "extra_things": extra_things,
     }
     with open(args.output_json, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)

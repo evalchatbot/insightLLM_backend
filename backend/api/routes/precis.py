@@ -120,7 +120,7 @@ def _process_precis_job(
     try:
         logger.info(f"Starting precis job {job_id} for user {user_id}, file: {original_filename}")
         _job_manager.update_job_status(job_id, JobStatus.RUNNING, started_at=time.time())
-        progress_callback(0, "Starting Precis Grading...")
+        progress_callback(0, "Starting your precis evaluation...")
 
         output_json_path = _job_manager._get_result_json_path(job_id)
         output_pdf_path = _job_manager._get_result_pdf_path(job_id)
@@ -134,7 +134,7 @@ def _process_precis_job(
         os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
         os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
 
-        progress_callback(5, "Running OCR on precis pages...")
+        progress_callback(5, "Reading your uploaded pages...")
 
         # Resolve precis asset paths relative to the precis directory
         precis_dir = _get_precis_dir()
@@ -158,6 +158,7 @@ def _process_precis_job(
             colouring_scheme_image=colouring_scheme_image,
             extra_json_path=extra_json_path,
             ocr_workers=3,
+            progress_callback=progress_callback,
         )
 
         # Verify outputs

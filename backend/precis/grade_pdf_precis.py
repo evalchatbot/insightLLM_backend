@@ -5,10 +5,11 @@ import importlib.util
 import json
 import os
 import re
+import sys
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 try:
@@ -60,6 +61,32 @@ DEFAULT_MODELS: Dict[str, Dict[str, Any]] = {
     "annotations": {"model": "grok-4-1-fast-reasoning", "temperature": 0.15},
     "json_repair": {"model": "grok-4-1-fast-reasoning", "temperature": 0.00},
 }
+
+MAX_OBTAINABLE_PRECIS_SCORE = 12.0
+
+try:
+    _precis_dir = os.path.dirname(os.path.abspath(__file__))
+    _backend_dir = os.path.dirname(_precis_dir)
+    _spell_path = os.path.join(_backend_dir, "ocr", "ocr-spell-correction.py")
+    _spell_spec = importlib.util.spec_from_file_location("ocr_spell_correction", _spell_path)
+    if _spell_spec and _spell_spec.loader:
+        _spell_mod = importlib.util.module_from_spec(_spell_spec)
+        sys.modules["ocr_spell_correction"] = _spell_mod
+        _spell_spec.loader.exec_module(_spell_mod)
+        detect_spelling_grammar_errors = _spell_mod.detect_spelling_grammar_errors
+        _filter_errors = _spell_mod._filter_errors
+    else:
+        def detect_spelling_grammar_errors(grok_key: str, ocr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+            return []
+
+        def _filter_errors(errors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            return errors
+except Exception:
+    def detect_spelling_grammar_errors(grok_key: str, ocr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return []
+
+    def _filter_errors(errors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return errors
 
 # Keep report text aligned with annotation-style readable text size.
 REPORT_BASE_TEXT_SIZE = 12.0
@@ -638,37 +665,93 @@ def merge_report_and_annotated_answer(
     annotated_pages: List[Image.Image],
     output_pdf_path: str,
 ) -> None:
-    out_doc = fitz.open()
     target_w = 595.0
     target_h = 842.0
-    if os.path.exists(report_pdf_path):
-        rdoc = fitz.open(report_pdf_path)
-        if len(rdoc) > 0:
-            r0 = rdoc[0].rect
-            target_w, target_h = float(r0.width), float(r0.height)
-        out_doc.insert_pdf(rdoc)
-        rdoc.close()
 
-    # Keep annotated-answer pages on the SAME page size as report pages.
-    for img in annotated_pages:
-        page = out_doc.new_page(width=target_w, height=target_h)
+    def _encode_for_pdf(img: Image.Image, *, jpeg_quality: int, max_long_edge: int) -> Tuple[bytes, int, int]:
+        work = img.convert("RGB")
+        w, h = work.size
+        long_edge = max(w, h)
+        if long_edge > max_long_edge > 0:
+            scale = max_long_edge / float(long_edge)
+            nw = max(1, int(round(w * scale)))
+            nh = max(1, int(round(h * scale)))
+            work = work.resize((nw, nh), Image.LANCZOS)
         buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="PNG")
-        stream = buf.getvalue()
-        # Preserve aspect ratio; top-align to avoid empty space above annotations.
-        img_w, img_h = img.size
-        if img_w <= 0 or img_h <= 0:
-            continue
-        scale = min(target_w / img_w, target_h / img_h)
-        draw_w = img_w * scale
-        draw_h = img_h * scale
-        x0 = (target_w - draw_w) / 2.0
-        y0 = 0.0
-        rect = fitz.Rect(x0, y0, x0 + draw_w, y0 + draw_h)
-        page.insert_image(rect, stream=stream)
+        work.save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
+        return buf.getvalue(), work.width, work.height
 
-    out_doc.save(output_pdf_path)
-    out_doc.close()
+    def _build_pdf_bytes(jpeg_quality: int, max_long_edge: int) -> bytes:
+        out_doc = fitz.open()
+        tw, th = target_w, target_h
+
+        if os.path.exists(report_pdf_path):
+            rdoc = fitz.open(report_pdf_path)
+            if len(rdoc) > 0:
+                r0 = rdoc[0].rect
+                tw, th = float(r0.width), float(r0.height)
+            out_doc.insert_pdf(rdoc)
+            rdoc.close()
+
+        for img in annotated_pages:
+            stream, img_w, img_h = _encode_for_pdf(img, jpeg_quality=jpeg_quality, max_long_edge=max_long_edge)
+            if img_w <= 0 or img_h <= 0:
+                continue
+
+            page = out_doc.new_page(width=tw, height=th)
+            scale = min(tw / img_w, th / img_h)
+            draw_w = img_w * scale
+            draw_h = img_h * scale
+            x0 = (tw - draw_w) / 2.0
+            y0 = 0.0
+            rect = fitz.Rect(x0, y0, x0 + draw_w, y0 + draw_h)
+            page.insert_image(rect, stream=stream)
+
+        out = io.BytesIO()
+        out_doc.save(out, garbage=4, deflate=True, clean=True)
+        out_doc.close()
+        return out.getvalue()
+
+    target_size_bytes = 5 * 1024 * 1024
+    max_size_bytes = 10 * 1024 * 1024
+    candidates = [
+        (68, 1900),
+        (62, 1700),
+        (58, 1500),
+        (52, 1300),
+        (46, 1150),
+        (40, 1000),
+    ]
+
+    best_target: Optional[bytes] = None
+    best_under_max: Optional[bytes] = None
+    smallest_bytes: Optional[bytes] = None
+
+    for quality, long_edge in candidates:
+        built = _build_pdf_bytes(quality, long_edge)
+        size_b = len(built)
+
+        if smallest_bytes is None or size_b < len(smallest_bytes):
+            smallest_bytes = built
+        if size_b <= target_size_bytes and best_target is None:
+            best_target = built
+            break
+        if size_b <= max_size_bytes and best_under_max is None:
+            best_under_max = built
+
+    final_pdf = best_target or best_under_max or smallest_bytes or _build_pdf_bytes(40, 1000)
+
+    os.makedirs(os.path.dirname(output_pdf_path) or ".", exist_ok=True)
+    with open(output_pdf_path, "wb") as f:
+        f.write(final_pdf)
+
+    final_mb = len(final_pdf) / (1024 * 1024)
+    if final_mb <= 5:
+        print(f"Final precis PDF size: {final_mb:.2f} MB (target <= 5 MB)")
+    elif final_mb <= 10:
+        print(f"Final precis PDF size: {final_mb:.2f} MB (within max <= 10 MB)")
+    else:
+        print(f"Final precis PDF size: {final_mb:.2f} MB (could not reach <= 10 MB with current candidates)")
 
 
 def _normalize_rating(score: float, max_marks: float) -> str:
@@ -694,6 +777,362 @@ def _infer_length_status(original_words: int, required_words: int, student_words
     return "Too Long"
 
 
+def _count_words(text: str) -> int:
+    tokens = re.findall(r"[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)?", text or "")
+    return len(tokens)
+
+
+def _line_text(line: Dict[str, Any]) -> str:
+    return str((line or {}).get("text") or "").strip()
+
+
+def _is_instruction_line(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    keywords = [
+        "write a precis",
+        "suggest a suitable title",
+        "suggest title",
+        "précis",
+        "precis",
+        "exercise",
+        "question",
+        "words",
+        "summary",
+    ]
+    return any(k in t for k in keywords)
+
+
+def _bbox_bounds(bbox: List[Tuple[int, int]]) -> Optional[Tuple[float, float, float, float]]:
+    if not bbox:
+        return None
+    xs = [float(pt[0]) for pt in bbox if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+    ys = [float(pt[1]) for pt in bbox if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+    if not xs or not ys:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _line_in_main_text_band(line: Dict[str, Any], page_h: float) -> bool:
+    if page_h <= 0:
+        return True
+    bounds = _bbox_bounds((line or {}).get("bbox") or [])
+    if not bounds:
+        return True
+    _, y0, _, y1 = bounds
+    cy = (y0 + y1) / 2.0
+    return (page_h * 0.08) <= cy <= (page_h * 0.92)
+
+
+def _count_words_in_line_regions(page: Dict[str, Any], selected_lines: List[Dict[str, Any]]) -> int:
+    if not selected_lines:
+        return 0
+
+    regions: List[Tuple[float, float, float, float]] = []
+    for ln in selected_lines:
+        bounds = _bbox_bounds((ln or {}).get("bbox") or [])
+        if not bounds:
+            continue
+        x0, y0, x1, y1 = bounds
+        regions.append((x0 - 8.0, y0 - 5.0, x1 + 8.0, y1 + 5.0))
+
+    if not regions:
+        return sum(_count_words(_line_text(ln)) for ln in selected_lines)
+
+    total = 0
+    for w in (page.get("words") or []):
+        txt = str((w or {}).get("text") or "").strip()
+        if not txt:
+            continue
+        wb = _bbox_bounds((w or {}).get("bbox") or [])
+        if not wb:
+            continue
+        x0, y0, x1, y1 = wb
+        cx = (x0 + x1) / 2.0
+        cy = (y0 + y1) / 2.0
+        if any((rx0 <= cx <= rx1 and ry0 <= cy <= ry1) for rx0, ry0, rx1, ry1 in regions):
+            total += _count_words(txt)
+    return int(total)
+
+
+def _count_clean_words_in_page_band(page: Dict[str, Any]) -> int:
+    words = page.get("words") or []
+    if not words:
+        return 0
+
+    y_vals: List[float] = []
+    for w in words:
+        bounds = _bbox_bounds((w or {}).get("bbox") or [])
+        if bounds:
+            y_vals.extend([bounds[1], bounds[3]])
+    page_h = max(y_vals) if y_vals else 0.0
+
+    total = 0
+    for w in words:
+        txt = str((w or {}).get("text") or "").strip()
+        if not txt:
+            continue
+        if len(re.sub(r"[^A-Za-z0-9]", "", txt)) <= 1:
+            continue
+        bounds = _bbox_bounds((w or {}).get("bbox") or [])
+        if page_h > 0 and bounds:
+            _, y0, _, y1 = bounds
+            cy = (y0 + y1) / 2.0
+            if cy < (page_h * 0.08) or cy > (page_h * 0.92):
+                continue
+        total += _count_words(txt)
+    return int(total)
+
+
+def _char_based_word_estimate(text: str) -> int:
+    compact = re.sub(r"\s+", " ", text or " ").strip()
+    if not compact:
+        return 0
+    return max(0, int(round(len(compact) / 5.2)))
+
+
+def _robust_pick_word_count(candidates: List[int]) -> int:
+    vals = sorted([int(v) for v in candidates if int(v) > 0])
+    if not vals:
+        return 0
+    n = len(vals)
+    if n == 1:
+        return vals[0]
+    if n % 2 == 1:
+        return vals[n // 2]
+    return int(round((vals[n // 2 - 1] + vals[n // 2]) / 2.0))
+
+
+def _line_word_count(text: str) -> int:
+    return _count_words(text)
+
+
+def _is_prose_like_line(text: str) -> bool:
+    wc = _line_word_count(text)
+    if wc >= 5:
+        return True
+    if wc >= 3 and text.strip().endswith((".", ",", ";", ":")):
+        return True
+    return False
+
+
+def _best_prose_segment_word_count(lines: List[str]) -> int:
+    if not lines:
+        return 0
+    best = 0
+    cur = 0
+    short_gap_used = False
+    for raw in lines:
+        txt = (raw or "").strip()
+        if not txt:
+            best = max(best, cur)
+            cur = 0
+            short_gap_used = False
+            continue
+        wc = _line_word_count(txt)
+        if _is_prose_like_line(txt):
+            cur += wc
+            short_gap_used = False
+        else:
+            if cur > 0 and not short_gap_used and 0 < wc <= 2:
+                cur += wc
+                short_gap_used = True
+            else:
+                best = max(best, cur)
+                cur = 0
+                short_gap_used = False
+    best = max(best, cur)
+    return best
+
+
+def _estimate_precis_word_counts_from_ocr(ocr_data: Dict[str, Any]) -> Dict[str, Any]:
+    pages = sorted((ocr_data.get("pages") or []), key=lambda p: int(p.get("page_number") or 0))
+    if not pages:
+        return {
+            "original_passage_word_count": 0,
+            "required_precis_word_count": 0,
+            "student_precis_word_count": 0,
+            "count_debug": {},
+        }
+
+    def _preview(text: str, max_len: int = 140) -> str:
+        t = (text or "").strip().replace("\n", " ")
+        return t if len(t) <= max_len else (t[: max_len - 3] + "...")
+
+    def _classify_page1_line(text: str) -> str:
+        t = (text or "").strip()
+        if not t:
+            return "blank"
+        if _is_instruction_line(t):
+            return "instruction"
+        wc = _line_word_count(t)
+        if wc <= 2:
+            return "short_noise"
+        if _is_prose_like_line(t):
+            return "passage"
+        return "other"
+
+    def _classify_answer_line(text: str, line_idx: int, page_num: int) -> str:
+        t = (text or "").strip()
+        if not t:
+            return "blank"
+        if _is_instruction_line(t):
+            return "instruction_noise"
+        wc = _line_word_count(t)
+        if page_num == 2 and line_idx == 0 and 0 < wc <= 10:
+            return "title_candidate"
+        if wc <= 1:
+            return "short_noise"
+        if _is_prose_like_line(t):
+            return "student_body"
+        if wc >= 3:
+            return "student_body"
+        return "other"
+
+    page1 = pages[0]
+    p1_text = (page1.get("ocr_page_text") or "").strip()
+    p1_lines_raw = [ln for ln in (page1.get("lines") or []) if _line_text(ln)]
+    p1_h = 0.0
+    p1_words = page1.get("words") or []
+    if p1_words:
+        ys = []
+        for w in p1_words:
+            b = _bbox_bounds((w or {}).get("bbox") or [])
+            if b:
+                ys.extend([b[1], b[3]])
+        if ys:
+            p1_h = max(ys)
+
+    page1_classified: List[Dict[str, Any]] = []
+    passage_lines: List[str] = []
+    passage_line_objs: List[Dict[str, Any]] = []
+    for ln_obj in p1_lines_raw:
+        ln = _line_text(ln_obj)
+        if not _line_in_main_text_band(ln_obj, p1_h):
+            wc = _line_word_count(ln)
+            page1_classified.append({"label": "margin_noise", "word_count": wc, "text": _preview(ln)})
+            continue
+        label = _classify_page1_line(ln)
+        wc = _line_word_count(ln)
+        page1_classified.append({"label": label, "word_count": wc, "text": _preview(ln)})
+        if label == "passage":
+            passage_lines.append(ln)
+            passage_line_objs.append(ln_obj)
+
+    passage_text = " ".join(passage_lines).strip()
+
+    p1_prose_segment = _best_prose_segment_word_count(passage_lines)
+    p1_line_sum = sum(_line_word_count(x) for x in passage_lines)
+    p1_region_words = _count_words_in_line_regions(page1, passage_line_objs)
+    p1_words_band = _count_clean_words_in_page_band(page1)
+    p1_text_words = _count_words(p1_text)
+    p1_char_est = _char_based_word_estimate(passage_text or p1_text)
+
+    original_words = _robust_pick_word_count([
+        p1_prose_segment,
+        p1_line_sum,
+        p1_region_words,
+        int(round(p1_words_band * 0.80)),
+        int(round(p1_char_est * 0.90)),
+        int(round(p1_text_words * 0.75)),
+    ])
+    if original_words < 80 and p1_char_est >= 100:
+        original_words = max(original_words, int(round(p1_char_est * 0.85)))
+
+    answer_pages = [p for p in pages if int(p.get("page_number") or 0) >= 2]
+    answer_text = "\n".join((p.get("ocr_page_text") or "").strip() for p in answer_pages if (p.get("ocr_page_text") or "").strip())
+    student_words_text = _count_words(answer_text)
+
+    answer_lines_classified: List[Dict[str, Any]] = []
+    answer_lines_for_body: List[str] = []
+    answer_line_objs_by_page: Dict[int, List[Dict[str, Any]]] = {}
+    for p in answer_pages:
+        pno = int(p.get("page_number") or 0)
+        p_words = p.get("words") or []
+        p_h = 0.0
+        if p_words:
+            ys = []
+            for w in p_words:
+                b = _bbox_bounds((w or {}).get("bbox") or [])
+                if b:
+                    ys.extend([b[1], b[3]])
+            if ys:
+                p_h = max(ys)
+        page_lines_raw = [ln for ln in (p.get("lines") or []) if _line_text(ln)]
+        for idx, ln_obj in enumerate(page_lines_raw):
+            ln = _line_text(ln_obj)
+            if not _line_in_main_text_band(ln_obj, p_h):
+                label = "margin_noise"
+            else:
+                label = _classify_answer_line(ln, idx, pno)
+            wc = _line_word_count(ln)
+            answer_lines_classified.append({
+                "page": pno,
+                "label": label,
+                "word_count": wc,
+                "text": _preview(ln),
+            })
+            if label == "student_body":
+                answer_lines_for_body.append(ln)
+                answer_line_objs_by_page.setdefault(pno, []).append(ln_obj)
+
+    student_segment_words = _best_prose_segment_word_count(answer_lines_for_body)
+    student_line_sum = sum(_line_word_count(x) for x in answer_lines_for_body)
+    student_region_words = 0
+    for p in answer_pages:
+        pno = int(p.get("page_number") or 0)
+        student_region_words += _count_words_in_line_regions(p, answer_line_objs_by_page.get(pno, []))
+    student_words_band = sum(_count_clean_words_in_page_band(p) for p in answer_pages)
+    student_line_blob = " ".join(answer_lines_for_body).strip()
+    student_char_est = _char_based_word_estimate(student_line_blob or answer_text)
+
+    student_words = _robust_pick_word_count([
+        student_segment_words,
+        student_line_sum,
+        student_region_words,
+        int(round(student_words_band * 0.90)),
+        int(round(student_char_est * 0.90)),
+        student_words_text,
+    ])
+    if student_words <= 0 and student_words_text > 0:
+        student_words = student_words_text
+    if student_words < 20 and student_char_est >= 24:
+        student_words = max(student_words, int(round(student_char_est * 0.85)))
+    if student_char_est >= 30 and student_words < int(round(student_char_est * 0.40)):
+        student_words = int(round(student_char_est * 0.60))
+
+    required_words = int(round(original_words / 3.0)) if original_words > 0 else 0
+    return {
+        "original_passage_word_count": int(original_words),
+        "required_precis_word_count": int(required_words),
+        "student_precis_word_count": int(student_words),
+        "count_debug": {
+            "method": "line_classification_plus_word_region_fallbacks",
+            "original": {
+                "p1_prose_segment": int(p1_prose_segment),
+                "p1_line_sum": int(p1_line_sum),
+                "p1_region_words": int(p1_region_words),
+                "p1_words_band": int(p1_words_band),
+                "p1_text_words": int(p1_text_words),
+                "p1_char_est": int(p1_char_est),
+                "selected": int(original_words),
+                "classified_lines": page1_classified,
+            },
+            "student": {
+                "text_words": int(student_words_text),
+                "segment_words": int(student_segment_words),
+                "line_sum": int(student_line_sum),
+                "region_words": int(student_region_words),
+                "words_band": int(student_words_band),
+                "char_est": int(student_char_est),
+                "selected": int(student_words),
+                "classified_lines": answer_lines_classified,
+            },
+        },
+    }
+
+
 def call_grok_for_precis_grading(
     grok_api_key: str,
     rubric_text: str,
@@ -705,8 +1144,11 @@ def call_grok_for_precis_grading(
     temperature: float = 0.10,
     repair_model: str = "grok-4-1-fast-reasoning",
     repair_temperature: float = 0.0,
+    deterministic_counts: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     total_marks = int(round(sum(float(c.get("marks_allocated", 0)) for c in criteria_template)))
+    max_obtainable = min(float(total_marks), float(MAX_OBTAINABLE_PRECIS_SCORE))
+    estimated_counts = deterministic_counts or _estimate_precis_word_counts_from_ocr(ocr_data)
 
     schema_hint = {
         "topic": "",
@@ -755,6 +1197,7 @@ def call_grok_for_precis_grading(
         "- Also classify length_status using +/-5% tolerance around required length.\n"
         "Scoring rules:\n"
         "- Follow the provided rubric criteria and marks exactly.\n"
+        "- Overall obtainable score is capped at 12 out of 20.\n"
         "- For each criterion, give marks_awarded within [0, marks_allocated].\n"
         "- Add concise, evidence-based key_comments for each criterion.\n"
         "- Provide total_awarded as the sum of marks_awarded values.\n"
@@ -777,6 +1220,7 @@ def call_grok_for_precis_grading(
         "criteria_template": criteria_template,
         "ocr_pages": ocr_data.get("pages", []),
         "ocr_full_text": ocr_data.get("full_text", ""),
+        "deterministic_word_count_hints": estimated_counts,
         "page_images": page_images,
         "output_schema": schema_hint,
     }
@@ -799,6 +1243,17 @@ def call_grok_for_precis_grading(
                 c["rating"] = _normalize_rating(aw, alloc)
             marks_sum += aw
 
+        if marks_sum > max_obtainable and marks_sum > 0:
+            scale = max_obtainable / marks_sum
+            marks_sum = 0.0
+            for i, c in enumerate(crit):
+                alloc = float(criteria_template[i].get("marks_allocated", 0))
+                scaled_aw = float(c.get("marks_awarded", 0)) * scale
+                scaled_aw = min(max(scaled_aw, 0.0), alloc)
+                c["marks_awarded"] = round(scaled_aw, 2)
+                c["rating"] = _normalize_rating(scaled_aw, alloc)
+                marks_sum += scaled_aw
+
         declared_total = parsed.get("total_awarded")
         try:
             declared_total_f = float(declared_total)
@@ -810,17 +1265,32 @@ def call_grok_for_precis_grading(
         else:
             parsed["total_awarded"] = round(declared_total_f, 2)
 
-        parsed["total_awarded"] = max(0.0, min(float(total_marks), float(parsed["total_awarded"])))
+        parsed["total_awarded"] = max(0.0, min(float(max_obtainable), float(parsed["total_awarded"])))
 
         if parsed.get("overall_rating") not in ("Excellent", "Good", "Average", "Weak"):
-            parsed["overall_rating"] = _normalize_rating(float(parsed["total_awarded"]), float(total_marks))
+            parsed["overall_rating"] = _normalize_rating(float(parsed["total_awarded"]), float(max_obtainable))
+
+        parsed["total_marks"] = int(total_marks)
+        parsed["max_obtainable_marks"] = float(max_obtainable)
 
         ow = int(parsed.get("original_passage_word_count") or 0)
         rw = int(parsed.get("required_precis_word_count") or 0)
         sw = int(parsed.get("student_precis_word_count") or 0)
-        if rw <= 0 and ow > 0:
-            parsed["required_precis_word_count"] = int(round(ow / 3.0))
-            rw = int(parsed["required_precis_word_count"])
+
+        # Always enforce deterministic counts to avoid drift/zeros from LLM extraction.
+        if estimated_counts["original_passage_word_count"] > 0:
+            ow = estimated_counts["original_passage_word_count"]
+            parsed["original_passage_word_count"] = ow
+        if estimated_counts["student_precis_word_count"] > 0:
+            sw = estimated_counts["student_precis_word_count"]
+            parsed["student_precis_word_count"] = sw
+
+        if ow > 0:
+            rw = int(round(ow / 3.0))
+            parsed["required_precis_word_count"] = rw
+        elif estimated_counts["required_precis_word_count"] > 0:
+            rw = estimated_counts["required_precis_word_count"]
+            parsed["required_precis_word_count"] = rw
 
         if not parsed.get("length_status"):
             parsed["length_status"] = _infer_length_status(ow, rw, sw)
@@ -868,6 +1338,12 @@ def call_grok_for_precis_grading(
             continue
 
         if _validate(parsed):
+            total_awarded = float(parsed.get("total_awarded") or 0.0)
+            est_student = int(estimated_counts.get("student_precis_word_count") or 0)
+            if total_awarded <= 0.0 and est_student >= 20 and attempt < 3:
+                last_err = ValueError("Degenerate all-zero grading for non-empty precis; retrying")
+                continue
+
             print(f"  Precis grading validated on attempt {attempt + 1}.")
             return parsed
         last_err = ValueError("Invalid grading JSON")
@@ -907,7 +1383,12 @@ def call_grok_for_precis_annotations(
 
     schema_hint = {
         "page": 2,
-        "page_suggestions": ["..."],
+        "page_suggestions": [
+            {
+                "suggestion": "Refine this claim with a sharper analytical point.",
+                "anchor_quote": "EXACT substring from OCR_PAGE_TEXT"
+            }
+        ],
         "annotations": [
             {
                 "page": 2,
@@ -928,7 +1409,10 @@ def call_grok_for_precis_annotations(
         "- anchor_quote must be an exact contiguous substring from OCR_PAGE_TEXT.\n"
         "- If anchor cannot be found, skip that annotation.\n"
         "- Keep comments concise and corrective.\n"
-        "- page_suggestions should be 2-4 concise actionable bullets for this page.\n"
+        "- page_suggestions should be 2-4 concise actionable items for this page.\n"
+        "- Each suggestion must be an object with fields: suggestion, anchor_quote.\n"
+        "- For each suggestion, anchor_quote must be an EXACT contiguous substring from OCR_PAGE_TEXT.\n"
+        "- If a suggestion anchor cannot be found, skip that suggestion.\n"
         "- Ignore unrelated watermark/camera/footer artifacts or stray words not part of the answer.\n"
         "- Never mention OCR/scanning/handwriting.\n"
         "Return JSON matching schema."
@@ -1026,7 +1510,20 @@ def call_grok_for_precis_annotations(
                 }
             )
         annotations.extend(cleaned_ann)
-        page_suggestions.append({"page": page_num, "suggestions": [str(x).strip() for x in (parsed.get("page_suggestions") or []) if str(x).strip()]})
+        normalized_suggestions: List[Dict[str, str]] = []
+        for s in (parsed.get("page_suggestions") or []):
+            if isinstance(s, dict):
+                suggestion = str(s.get("suggestion", "")).strip()
+                anchor = str(s.get("anchor_quote", "")).strip()
+                if suggestion and anchor and anchor in ocr_page_text:
+                    normalized_suggestions.append({"suggestion": suggestion, "anchor_quote": anchor})
+            elif isinstance(s, str):
+                # Backward compatibility if model returns legacy string suggestions.
+                legacy = str(s).strip()
+                if legacy:
+                    normalized_suggestions.append({"suggestion": legacy, "anchor_quote": ""})
+
+        page_suggestions.append({"page": page_num, "suggestions": normalized_suggestions[:4]})
 
     return {"annotations": annotations, "page_suggestions": page_suggestions, "errors": errors}
 
@@ -1335,6 +1832,7 @@ def run_precis_grading(
     annotations_temperature: float = float(DEFAULT_MODELS["annotations"]["temperature"]),
     repair_model: str = DEFAULT_MODELS["json_repair"]["model"],
     repair_temperature: float = float(DEFAULT_MODELS["json_repair"]["temperature"]),
+    progress_callback: Optional[Callable[[float, str], None]] = None,
 ) -> Dict[str, Any]:
     validate_input_paths(pdf_path, output_json_path, output_pdf_path)
     grok_key, doc_client = load_environment(env_file)
@@ -1345,26 +1843,39 @@ def run_precis_grading(
     timings: Dict[str, float] = {}
     t0_total = time.perf_counter()
 
+    def _emit_progress(pct: float, msg: str) -> None:
+        if progress_callback:
+            try:
+                progress_callback(float(pct), msg)
+            except Exception:
+                pass
+
+    _emit_progress(8, "Reading your uploaded pages...")
+
     print("Running OCR on precis PDF...")
     t0 = time.perf_counter()
     ocr_data_raw = run_ocr_on_pdf(doc_client, pdf_path, workers=ocr_workers)
     timings["OCR"] = time.perf_counter() - t0
     print(f"OCR done in {_format_duration(timings['OCR'])}")
+    _emit_progress(22, "Extracting text from your pages...")
 
     t0 = time.perf_counter()
     ocr_data, extra_text_pack = split_extra_text(ocr_data_raw, pdf_path)
+    deterministic_counts = _estimate_precis_word_counts_from_ocr(ocr_data)
     os.makedirs(os.path.dirname(extra_json_path) or ".", exist_ok=True)
     with open(extra_json_path, "w", encoding="utf-8") as f:
         json.dump(extra_text_pack, f, indent=2, ensure_ascii=False)
     timings["Extra text filtering"] = time.perf_counter() - t0
     print(f"Extra text filtering done in {_format_duration(timings['Extra text filtering'])} "
           f"(removed {extra_text_pack.get('removed_line_count', 0)} lines)")
+    _emit_progress(34, "Cleaning text for accurate evaluation...")
 
     print("Preparing page images for Grok...")
     t0 = time.perf_counter()
     page_images = pdf_to_page_images_for_grok(pdf_path, max_pages=2, output_dir=GROK_IMAGES_DIR)
     timings["Image prep"] = time.perf_counter() - t0
     print(f"Image prep done in {_format_duration(timings['Image prep'])}")
+    _emit_progress(46, "Preparing your pages for evaluation...")
 
     print("Grading precis with rubric...")
     t0 = time.perf_counter()
@@ -1378,9 +1889,11 @@ def run_precis_grading(
         temperature=grading_temperature,
         repair_model=repair_model,
         repair_temperature=repair_temperature,
+        deterministic_counts=deterministic_counts,
     )
     timings["LLM grading"] = time.perf_counter() - t0
     print(f"LLM grading done in {_format_duration(timings['LLM grading'])}")
+    _emit_progress(62, "Evaluating your precis using the rubric...")
 
     print("Generating precis annotations...")
     t0 = time.perf_counter()
@@ -1397,6 +1910,24 @@ def run_precis_grading(
     )
     timings["Annotations"] = time.perf_counter() - t0
     print(f"Annotations done in {_format_duration(timings['Annotations'])}")
+    _emit_progress(76, "Preparing personalized improvement notes...")
+
+    print("Detecting spelling/grammar errors on answer pages...")
+    t0 = time.perf_counter()
+    ocr_answer_only = {
+        "pages": [p for p in (ocr_data.get("pages") or []) if int(p.get("page_number") or 0) >= 2],
+        "full_text": "\n".join(
+            (p.get("ocr_page_text") or "").strip()
+            for p in (ocr_data.get("pages") or [])
+            if int(p.get("page_number") or 0) >= 2 and (p.get("ocr_page_text") or "").strip()
+        ).strip(),
+    }
+    spelling_errors = detect_spelling_grammar_errors(grok_key, ocr_answer_only)
+    spelling_errors = _filter_errors(spelling_errors)
+    timings["Spelling detection"] = time.perf_counter() - t0
+    print(f"Spelling detection done in {_format_duration(timings['Spelling detection'])}")
+    print(f"Found {len(spelling_errors)} spelling/grammar errors.")
+    _emit_progress(82, "Checking spelling and grammar issues...")
 
     annotations = ann_pack.get("annotations") or []
     page_suggestions = ann_pack.get("page_suggestions") or []
@@ -1406,8 +1937,15 @@ def run_precis_grading(
         "grading": grading,
         "criteria_template": criteria_template,
         "ocr_pages": len(ocr_data.get("pages", [])),
+        "deterministic_counts": {
+            "original_passage_word_count": int(deterministic_counts.get("original_passage_word_count") or 0),
+            "required_precis_word_count": int(deterministic_counts.get("required_precis_word_count") or 0),
+            "student_precis_word_count": int(deterministic_counts.get("student_precis_word_count") or 0),
+        },
+        "count_debug": deterministic_counts.get("count_debug", {}),
         "annotations": annotations,
         "page_suggestions": page_suggestions,
+        "spelling_grammar_errors": spelling_errors,
         "annotation_errors": ann_errors,
         "extra_text_json_path": extra_json_path,
         "model_config": {
@@ -1420,6 +1958,7 @@ def run_precis_grading(
     with open(output_json_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
     print(f"Saved JSON -> {output_json_path}")
+    _emit_progress(84, "Building your precis report...")
 
     print("Rendering precis report PDF...")
     t0 = time.perf_counter()
@@ -1432,6 +1971,7 @@ def run_precis_grading(
     )
     timings["PDF render"] = time.perf_counter() - t0
     print(f"PDF render done in {_format_duration(timings['PDF render'])}")
+    _emit_progress(92, "Adding comments to answer pages...")
 
     print("Rendering annotated precis pages...")
     t0 = time.perf_counter()
@@ -1445,7 +1985,7 @@ def run_precis_grading(
         grading=grading,
         annotations=annotations,
         page_suggestions=page_suggestions,
-        spelling_errors=None,
+        spelling_errors=spelling_errors,
         max_callouts_per_page=8,
     )
     merge_report_and_annotated_answer(report_tmp, annotated_pages, output_pdf_path)
@@ -1456,6 +1996,7 @@ def run_precis_grading(
             pass
     timings["Merge output PDF"] = time.perf_counter() - t0
     print(f"Merge done in {_format_duration(timings['Merge output PDF'])}")
+    _emit_progress(98, "Finalizing your result files...")
 
     total_time = time.perf_counter() - t0_total
     print("\n" + "=" * 60)

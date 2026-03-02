@@ -1414,9 +1414,6 @@ def annotate_pdf_essay_pages(
                 bullet_anchor = ""
             if not bullet_text:
                 continue
-            # Truncate very long suggestions to prevent overflow
-            if len(bullet_text) > 300:
-                bullet_text = bullet_text[:297] + "..."
             bullet_full = "- " + bullet_text
 
             # Try to match the anchor_quote to find the target text rect in the essay
@@ -1438,9 +1435,10 @@ def annotate_pdf_essay_pages(
                             suggestion_match_rect = fuzzy_rect
 
             thick = 2
-            line_g = 22
-            top_pad = 24
-            bottom_pad = 24
+            line_g = 16
+            top_pad = 20
+            bottom_pad = 20
+            suggestion_body_scale = 1.00
 
             remaining_h = (orig_h - margin_px) - y_cur
             if remaining_h < 200:
@@ -1450,16 +1448,20 @@ def annotate_pdf_essay_pages(
                     y_cur = y_offset + 120
                 col_x = margin_px + col_idx * (col_w + col_gap)
 
-            font_s, wrapped_lines, box_h = _fit_text_box(
+            body_h = _estimate_text_height(
                 bullet_full,
-                max_width_px=col_w - 2 * left_pad,
-                max_height_px=min((orig_h - margin_px) - y_cur, 1200),
-                start_scale=0.95,
-                thickness=thick,
+                suggestion_body_scale,
+                thick,
+                col_w - 24,
                 line_gap=line_g,
-                top_pad=top_pad,
-                bottom_pad=bottom_pad,
-                min_scale=0.60,
+            )
+            box_h = body_h + top_pad + bottom_pad
+
+            wrapped_lines = _wrap_text_lines(
+                bullet_full,
+                suggestion_body_scale,
+                thick,
+                col_w - 2 * left_pad,
             )
 
             if y_cur + box_h > (orig_h - margin_px):
@@ -1478,13 +1480,13 @@ def annotate_pdf_essay_pages(
 
             y_text = by1 + top_pad
             for ln in wrapped_lines:
-                (_, th), _ = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, font_s, thick)
+                (_, th), _ = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, suggestion_body_scale, thick)
                 cv2.putText(
                     canvas,
                     ln,
                     (bx1 + left_pad, y_text + th),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    font_s,
+                    suggestion_body_scale,
                     (0, 0, 0),
                     thick,
                     cv2.LINE_AA,

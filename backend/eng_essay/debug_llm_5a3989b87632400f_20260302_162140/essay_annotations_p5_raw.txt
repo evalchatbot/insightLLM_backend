@@ -1,0 +1,37 @@
+{
+  "page": 5,
+  "annotations": [
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "their needs, fears and expection.",
+      "correction": "their needs, fears and expectations.",
+      "comment": "Spelling error 'expection'; correct to 'expectations'."
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "expection. usually, these three things are playing",
+      "correction": "expectations. Usually, these three things play",
+      "comment": "Capitalize 'usually' after period and change 'are playing' to 'play' for general truth tense."
+    },
+    {
+      "page": 5,
+      "type": "grammar_language",
+      "rubric_point": "Grammar & Language",
+      "anchor_quote": "dialogue helped with expresion and resolution of issues.",
+      "correction": "dialogue helps with expression and resolution of issues.",
+      "comment": "Change past tense 'helped' to present 'helps' for general statement and correct spelling 'expresion' to 'expression'."
+    },
+    {
+      "page": 5,
+      "type": "argumentation_depth",
+      "rubric_point": "Argumentation & Critical Depth",
+      "anchor_quote": "The first and foremost is that dialogue enables the human beings to express their needs, fears and expection.",
+      "correction": "",
+      "comment": "Argument is descriptive without evidence or case study; back with specific example for deeper analysis."
+    }
+  ]
+}
