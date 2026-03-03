@@ -1362,6 +1362,7 @@ ESSAY_PAGE_SUGGESTIONS_PROMPT = (
     "- Do NOT only describe the problem or explain how to improve it.\n"
     "- You MUST demonstrate the improved version exactly as it should appear in the essay.\n"
     "- The improved version must be written in full sentences and in formal academic tone.\n"
+    "-Use simple sentences. Avoid Using complex sentences.\n"
     "- The improved version must preserve the original intent but increase analytical depth, specificity, precision, and argument strength.\n\n"
     "SUGGESTION STRUCTURE:\n"
     "Each suggestion must:\n"
