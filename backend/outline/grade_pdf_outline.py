@@ -814,7 +814,10 @@ def get_outline_suggestions_schema_hint() -> Dict[str, Any]:
     return {
         "page": 1,
         "page_suggestions": [
-            "2-5 short, actionable suggestions focusing on this page's outline only"
+            {
+                "suggestion": "Issue + rewrite guidance. Improved version: \"...\"",
+                "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT"
+            }
         ],
     }
 
@@ -848,6 +851,8 @@ def get_outline_annotations_instructions() -> str:
         "- Avoid generic phrases like 'needs improvement' or 'could be better'.\n"
         "\n"
         "Constraints:\n"
+        "- Do NOT comment on numbering format, numeral structure, bullet style, or point-listing style.\n"
+        "- Ignore camera apps, date stamps, watermarks, and similar artifacts completely.\n"
         "- Never mention OCR, scanning, handwriting, or legibility.\n"
         "- Focus only on outline structure, coverage, ordering, and relevance.\n"
         "- Return JSON only matching the schema."
@@ -859,26 +864,222 @@ def get_outline_suggestions_instructions() -> str:
     Build the instruction block for Grok for outline page-level suggestions only.
     """
     return (
-        "You are an expert CSS English Essay OUTLINE examiner generating high-impact suggestions.\n"
-        "You are evaluating ONE outline page at a time (no full essay paragraphs).\n"
-        "Primary truth is the page image; OCR text is a helper and may contain errors.\n"
+        "PAGE SUGGESTIONS RULES (CRITICAL):\n"
+        "- page_suggestions: 2-4 items for this page only.\n"
+        "- Each suggestion MUST be an object with two fields:\n"
+        "  1) \"suggestion\" (the improvement text)\n"
+        "  2) \"anchor_quote\" (EXACT contiguous substring from OCR_PAGE_TEXT that this suggestion refers to).\n"
         "\n"
-        "Suggestion rules:\n"
-        "- Generate 2-5 short, exam-style suggestions for THIS PAGE only.\n"
-        "- Focus on structural quality of the outline: coverage of dimensions, logical ordering, balance, and relevance.\n"
-        "- Each suggestion must be concrete and actionable (e.g., 'add a separate branch for X', "
-        "'merge repeated bullets about Y', 'reorder sections so Z comes before W').\n"
-        "- Do not reference specific line numbers; talk in terms of outline sections/bullets.\n"
+        "ANCHOR REQUIREMENTS:\n"
+        "- The anchor_quote MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT.\n"
+        "- Do NOT paraphrase the anchor.\n"
+        "- The anchor_quote links the suggestion directly to the specific part of the outline being improved.\n"
         "\n"
-        "Rubric usage:\n"
-        "- Use the provided OUTLINE ANNOTATIONS RUBRIC to anchor what counts as strong vs weak outline practice.\n"
-        "- Map your suggestions to rubric ideas (coverage, ordering, balance, relevance, topic clarity).\n"
+        "CORE REQUIREMENT (MANDATORY REWRITE RULE):\n"
+        "- Each suggestion MUST include a FULLY WRITTEN improved version of the referenced text.\n"
+        "- Do NOT only describe the problem or explain how to improve it.\n"
+        "- You MUST demonstrate the improved version exactly as it should appear in the outline.\n"
+        "- The improved version must be written in full sentences and in formal academic tone.\n"
+        "- The improved version must preserve the original intent but increase analytical depth, specificity, precision, and argument strength.\n"
         "\n"
-        "Constraints:\n"
-        "- Never mention OCR, scanning, handwriting, or legibility.\n"
-        "- Do not repeat the same suggestion in different words.\n"
-        "- Return JSON only with page_suggestions as described in the schema."
+        "SUGGESTION STRUCTURE:\n"
+        "Each suggestion must:\n"
+        "1) Briefly identify the issue (1-2 clear sentences).\n"
+        "2) Provide the improved version in quotation marks, clearly introduced as:\n"
+        "   Improved version: \"...\"\n"
+        "\n"
+        "WHAT TO IMPROVE:\n"
+        "- If the thesis is vague -> Rewrite it into a clear, analytical, arguable thesis.\n"
+        "- If an outline point is broad -> Rewrite it into a precise, argument-driven claim.\n"
+        "- If a claim lacks evidence -> Replace it with a more specific and evidence-based version.\n"
+        "- If a topic sentence is weak -> Rewrite it as a strong argumentative topic sentence.\n"
+        "- If reasoning lacks causation or evaluation -> Rewrite it to include analytical depth (cause, consequence, qualification, comparison, or evaluation).\n"
+        "\n"
+        "QUALITY STANDARD:\n"
+        "- The improved version must demonstrate higher-order thinking (analysis, causation, evaluation, or qualification), not just clearer wording.\n"
+        "- Avoid generic advice such as 'add more detail' or 'improve clarity.'\n"
+        "- Every suggestion must contain a concrete rewritten sample.\n"
+        "- Suggestions must focus only on content, structure, argumentation, evidence, and relevance.\n"
+        "\n"
+        "RESTRICTIONS:\n"
+        "- Do NOT include grammar or spelling corrections (handled separately).\n"
+        "- Do NOT comment on numbering format, numeral structure, or point-listing style.\n"
+        "- Do NOT mention OCR, scan quality, handwriting, legibility, camera apps, watermarks, or date stamps.\n"
+        "- Do NOT produce generic or repetitive suggestions.\n"
+        "- Ensure variation in suggestions (e.g., thesis strength, argument depth, evidence precision, structural coherence).\n"
+        "\n"
+        "STYLE:\n"
+        "- Use clear, complete sentences for readability.\n"
+        "- Maintain academic tone appropriate for high-level competitive examinations.\n"
+        "Return JSON only with page_suggestions as described in the schema."
     )
+
+
+_OUTLINE_EXTRA_LINE_PATTERNS = [
+    re.compile(r"\bcamscanner\b", re.IGNORECASE),
+    re.compile(r"\bcs\s*camscanner\b", re.IGNORECASE),
+    re.compile(r"\bdate\s*[:\-]", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", re.IGNORECASE),
+    re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b", re.IGNORECASE),
+]
+
+_OUTLINE_FORBIDDEN_FEEDBACK_PATTERNS = [
+    re.compile(r"\bcamscanner\b", re.IGNORECASE),
+    re.compile(r"\bwatermark\b", re.IGNORECASE),
+    re.compile(r"\bdate\s*stamp\b", re.IGNORECASE),
+    re.compile(r"\bocr\b", re.IGNORECASE),
+    re.compile(r"\bscan(?:ning)?\b", re.IGNORECASE),
+    re.compile(r"\blegibility\b", re.IGNORECASE),
+    re.compile(r"\bhandwriting\b", re.IGNORECASE),
+    re.compile(r"\bnumber(?:ing|ed)?\b", re.IGNORECASE),
+    re.compile(r"\bnumeral(?:s)?\b", re.IGNORECASE),
+    re.compile(r"\broman\s+numeral(?:s)?\b", re.IGNORECASE),
+    re.compile(r"\bbullet(?:s|ing)?\b", re.IGNORECASE),
+    re.compile(r"\bpoint[-\s]?listing\b", re.IGNORECASE),
+]
+
+
+def _is_outline_extra_artifact_line(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    for pat in _OUTLINE_EXTRA_LINE_PATTERNS:
+        if pat.search(t):
+            return True
+    return False
+
+
+def filter_outline_extra_text(ocr_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Remove non-answer artifact lines (camera/date/watermark noise) from OCR pages and
+    return both cleaned OCR data and removed lines for JSON debugging.
+    """
+    cleaned_pages: List[Dict[str, Any]] = []
+    extras_pages: List[Dict[str, Any]] = []
+
+    for page in (ocr_data.get("pages") or []):
+        page_no = int(page.get("page_number") or 0)
+        kept_lines: List[Dict[str, Any]] = []
+        removed_lines: List[Dict[str, Any]] = []
+
+        for ln in (page.get("lines") or []):
+            txt = (ln.get("text") or "").strip()
+            if _is_outline_extra_artifact_line(txt):
+                removed_lines.append({"text": txt, "bbox": ln.get("bbox") or []})
+            else:
+                kept_lines.append(ln)
+
+        rebuilt_text = " ".join(
+            (x.get("text") or "").strip() for x in kept_lines if (x.get("text") or "").strip()
+        ).strip()
+
+        new_page = dict(page)
+        new_page["lines"] = kept_lines
+        new_page["ocr_page_text"] = rebuilt_text
+        cleaned_pages.append(new_page)
+
+        if removed_lines:
+            extras_pages.append({"page_number": page_no, "removed_lines": removed_lines})
+
+    cleaned = {
+        "pages": cleaned_pages,
+        "full_text": "\n".join(
+            (p.get("ocr_page_text") or "").strip()
+            for p in cleaned_pages
+            if (p.get("ocr_page_text") or "").strip()
+        ).strip(),
+    }
+    extras = {
+        "removed_line_count": sum(len(x.get("removed_lines", [])) for x in extras_pages),
+        "pages": extras_pages,
+    }
+    return cleaned, extras
+
+
+def _contains_forbidden_outline_feedback(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    for pat in _OUTLINE_FORBIDDEN_FEEDBACK_PATTERNS:
+        if pat.search(t):
+            return True
+    return False
+
+
+def filter_outline_annotations_forbidden_content(
+    annotations: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Remove annotations that discuss forbidden meta topics (numbering, OCR/scan,
+    camera/date artifacts). Returns (kept, removed).
+    """
+    kept: List[Dict[str, Any]] = []
+    removed: List[Dict[str, Any]] = []
+
+    for ann in annotations or []:
+        if not isinstance(ann, dict):
+            removed.append({"reason": "invalid_annotation_object", "item": ann})
+            continue
+
+        combined = " ".join(
+            [
+                str(ann.get("rubric_point", "")),
+                str(ann.get("comment", "")),
+                str(ann.get("correction", "")),
+            ]
+        ).strip()
+
+        if _contains_forbidden_outline_feedback(combined):
+            removed.append({"reason": "forbidden_meta_feedback", "item": ann})
+            continue
+
+        kept.append(ann)
+
+    return kept, removed
+
+
+def filter_outline_suggestions_forbidden_content(
+    page_suggestions: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Remove suggestions that discuss forbidden meta topics and keep page grouping.
+    Returns (kept_page_suggestions, removed_items).
+    """
+    kept_pages: List[Dict[str, Any]] = []
+    removed: List[Dict[str, Any]] = []
+
+    for page_item in page_suggestions or []:
+        if not isinstance(page_item, dict):
+            removed.append({"reason": "invalid_page_suggestion_object", "item": page_item})
+            continue
+
+        page_no = page_item.get("page")
+        kept_suggestions: List[Dict[str, str]] = []
+        for s in (page_item.get("suggestions") or []):
+            if not isinstance(s, dict):
+                removed.append({"reason": "invalid_suggestion_object", "page": page_no, "item": s})
+                continue
+
+            suggestion_text = str(s.get("suggestion", "")).strip()
+            if not suggestion_text:
+                removed.append({"reason": "empty_suggestion", "page": page_no, "item": s})
+                continue
+
+            if _contains_forbidden_outline_feedback(suggestion_text):
+                removed.append({"reason": "forbidden_meta_feedback", "page": page_no, "item": s})
+                continue
+
+            kept_suggestions.append(
+                {
+                    "suggestion": suggestion_text,
+                    "anchor_quote": str(s.get("anchor_quote", "")).strip(),
+                }
+            )
+
+        kept_pages.append({"page": page_no, "suggestions": kept_suggestions})
+
+    return kept_pages, removed
 
 
 def build_outline_annotation_page_payload(
@@ -1278,13 +1479,13 @@ def generate_outline_annotations(
 
 
 def _process_single_page_suggestions(
-    args_tuple: Tuple[int, str, Dict[str, Any], str, int]
-) -> Tuple[int, Optional[List[str]], Optional[str]]:
+    args_tuple: Tuple[int, str, Dict[str, Any], str, str, int]
+) -> Tuple[int, Optional[List[Dict[str, str]]], Optional[str]]:
     """
     Process suggestions for a single page. Returns (page_number, suggestions_list, error_message).
     Used for parallel processing.
     """
-    page_number, grok_key, payload, instructions, max_page_attempts = args_tuple
+    page_number, grok_key, payload, ocr_page_text, instructions, max_page_attempts = args_tuple
     
     # Retry loop for this page.
     last_err: Exception | None = None
@@ -1318,7 +1519,27 @@ def _process_single_page_suggestions(
     if not isinstance(sugg, list):
         sugg = []
 
-    return (page_number, sugg, None)
+    normalized: List[Dict[str, str]] = []
+    for item in sugg:
+        suggestion = ""
+        anchor_quote = ""
+
+        if isinstance(item, dict):
+            suggestion = str(item.get("suggestion", "")).strip()
+            anchor_quote = str(item.get("anchor_quote", "")).strip()
+        elif isinstance(item, str):
+            # Legacy fallback if model returns old schema.
+            suggestion = str(item).strip()
+            anchor_quote = ""
+
+        if not suggestion or not anchor_quote:
+            continue
+        if not _anchor_is_valid(anchor_quote, ocr_page_text):
+            continue
+
+        normalized.append({"suggestion": suggestion, "anchor_quote": anchor_quote})
+
+    return (page_number, normalized[:4], None)
 
 
 def generate_outline_suggestions(
@@ -1366,7 +1587,7 @@ def generate_outline_suggestions(
     instructions = get_outline_suggestions_instructions()
 
     # Prepare pages for parallel processing
-    pages_to_process: List[Tuple[int, str, Dict[str, Any], str, int]] = []
+    pages_to_process: List[Tuple[int, str, Dict[str, Any], str, str, int]] = []
 
     for page_number in outline_pages:
         if not isinstance(page_number, int):
@@ -1420,7 +1641,7 @@ def generate_outline_suggestions(
         }
 
         # Add to processing queue
-        pages_to_process.append((page_number, grok_key, payload, instructions, max_page_attempts))
+        pages_to_process.append((page_number, grok_key, payload, ocr_page_text, instructions, max_page_attempts))
 
     # Process pages in parallel
     if pages_to_process:
@@ -1460,6 +1681,8 @@ def generate_outline_suggestions(
                             "completed_pages": sorted(completed_pages),
                         },
                     )
+
+    page_suggestions.sort(key=lambda x: int(x.get("page") or 0))
 
     return {
         "page_suggestions": page_suggestions,
@@ -1675,6 +1898,91 @@ def _normalize_outline_grading_ranges(parsed: Dict[str, Any]) -> Dict[str, Any]:
     return parsed
 
 
+def _coerce_outline_grading_shape(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce partial/irregular grading JSON into the expected outline schema."""
+    base = get_outline_grading_schema_hint()
+    out: Dict[str, Any] = {}
+
+    for k, v in base.items():
+        out[k] = v
+
+    if isinstance(parsed, dict):
+        for key, value in parsed.items():
+            if key != "criteria":
+                out[key] = value
+
+    out["topic"] = str(out.get("topic") or "")
+    out["total_outline_marks"] = int(out.get("total_outline_marks") or 30)
+
+    valid_ratings = {"Excellent", "Good", "Average", "Weak"}
+    if out.get("overall_rating") not in valid_ratings:
+        out["overall_rating"] = "Weak"
+
+    raw_criteria = parsed.get("criteria") if isinstance(parsed, dict) else []
+    if not isinstance(raw_criteria, list):
+        raw_criteria = []
+
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for item in raw_criteria:
+        if isinstance(item, dict) and item.get("id"):
+            by_id[str(item.get("id"))] = item
+
+    template_criteria = base.get("criteria") or []
+    coerced_criteria: List[Dict[str, Any]] = []
+
+    for idx, tmpl in enumerate(template_criteria):
+        src = by_id.get(str(tmpl.get("id")))
+        if src is None and idx < len(raw_criteria) and isinstance(raw_criteria[idx], dict):
+            src = raw_criteria[idx]
+
+        merged = dict(tmpl)
+        if isinstance(src, dict):
+            merged.update(src)
+
+        merged["id"] = str(merged.get("id") or tmpl.get("id") or f"criterion_{idx + 1}")
+        merged["criterion"] = str(merged.get("criterion") or tmpl.get("criterion") or "Criterion")
+        merged["marks_allocated"] = int(merged.get("marks_allocated") or tmpl.get("marks_allocated") or 0)
+
+        lo, hi = _parse_range(str(merged.get("marks_awarded_range") or "0-0"))
+        if hi - lo > 3:
+            hi = lo + 3
+        lo = max(0, lo)
+        hi = max(lo, hi)
+        merged["marks_awarded_range"] = f"{lo}-{hi}"
+
+        if merged.get("rating") not in valid_ratings:
+            merged["rating"] = "Weak"
+
+        key_comments = merged.get("key_comments")
+        if isinstance(key_comments, list):
+            comments = [str(x).strip() for x in key_comments if str(x).strip()]
+            merged["key_comments"] = comments if comments else "No specific issue extracted."
+        else:
+            merged["key_comments"] = str(key_comments or "No specific issue extracted.")
+
+        coerced_criteria.append(merged)
+
+    if not coerced_criteria:
+        coerced_criteria = [dict(x) for x in template_criteria]
+
+    out["criteria"] = coerced_criteria
+
+    reasons = out.get("reasons_for_low_score")
+    if not isinstance(reasons, list) or not reasons:
+        out["reasons_for_low_score"] = [
+            "The outline lacks enough clear, rubric-aligned structure for higher marks."
+        ]
+
+    improvements = out.get("suggested_improvements_for_higher_score")
+    if not isinstance(improvements, list) or not improvements:
+        out["suggested_improvements_for_higher_score"] = [
+            "Add clearer thesis-linked branches, balanced dimensions, and logically ordered sub-points."
+        ]
+
+    out["overall_comment"] = str(out.get("overall_comment") or "")
+    return out
+
+
 def _validate_outline_grading(data: Dict[str, Any]) -> bool:
     """
     Check that all required fields exist and grading is valid.
@@ -1691,18 +1999,6 @@ def _validate_outline_grading(data: Dict[str, Any]) -> bool:
 
     rating = data.get("overall_rating")
     if rating not in ("Excellent", "Good", "Average", "Weak"):
-        return False
-
-    # Check that at least some criteria have non-zero marks.
-    all_zero = True
-    for crit in criteria:
-        rng = crit.get("marks_awarded_range", "0-0")
-        lo, hi = _parse_range(rng)
-        if lo > 0 or hi > 0:
-            all_zero = False
-            break
-
-    if all_zero:
         return False
 
     return True
@@ -1732,10 +2028,11 @@ def grade_outline_with_rubric(
                 structure=structure,
                 page_images=page_images,
             )
+            parsed = _coerce_outline_grading_shape(parsed)
             parsed = _normalize_outline_grading_ranges(parsed)
             if _validate_outline_grading(parsed):
                 return parsed
-            last_error = ValueError("Invalid grading JSON: missing required fields or all zero marks")
+            last_error = ValueError("Invalid grading JSON: missing required fields")
         except Exception as exc:
             last_error = exc
             if attempt < max_attempts:
@@ -1744,10 +2041,13 @@ def grade_outline_with_rubric(
     if parsed is None:
         raise RuntimeError(f"Grok outline grading failed after {max_attempts} attempts: {last_error}")
 
-    raise RuntimeError(
-        f"Grok outline grading output invalid after {max_attempts} attempts. "
-        f"Last error: {last_error}. Last parsed data: {json.dumps(parsed, indent=2)[:500]}"
+    # Last-resort fallback: return a coerced grading object instead of failing the whole pipeline.
+    recovered = _normalize_outline_grading_ranges(_coerce_outline_grading_shape(parsed))
+    print(
+        "WARNING: Outline grading JSON remained partially invalid after retries; "
+        "continuing with recovered grading object."
     )
+    return recovered
 
 
 def load_environment() -> Tuple[str, DocumentAnalysisClient]:
@@ -2378,6 +2678,7 @@ def build_outline_result_json(
     page_suggestions: List[Dict[str, Any]],
     annotation_errors: List[Dict[str, Any]] | None = None,
     spelling_errors: List[Dict[str, Any]] | None = None,
+    extra_things: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Step 9: Build the JSON object returned to the backend.
@@ -2398,6 +2699,7 @@ def build_outline_result_json(
         "page_suggestions": page_suggestions,
         "annotation_errors": annotation_errors or [],
         "spelling_grammar_errors": spelling_errors or [],
+        "extra_things": extra_things or {},
     }
 
 
@@ -2448,7 +2750,8 @@ def run_outline_grading(
     # 1) OCR
     print("Running outline OCR (Azure Document Intelligence)...")
     t0 = time.perf_counter()
-    ocr_data_all = build_outline_ocr_data(context, pdf_path)
+    ocr_data_all_raw = build_outline_ocr_data(context, pdf_path)
+    ocr_data_all, ocr_extra_things = filter_outline_extra_text(ocr_data_all_raw)
     timings["OCR"] = time.perf_counter() - t0
 
     # 2) Page images for Grok (all pages)
@@ -2534,6 +2837,9 @@ def run_outline_grading(
     annotations = ann_pack.get("annotations") or []
     annotation_errors = ann_pack.get("errors") or []
 
+    # Enforce hard restrictions for outline-only feedback quality.
+    annotations, filtered_annotations = filter_outline_annotations_forbidden_content(annotations)
+
     # 5b) Generate outline‑focused page suggestions (separate Grok call)
     print("Generating outline page suggestions...")
     t0 = time.perf_counter()
@@ -2548,6 +2854,10 @@ def run_outline_grading(
     timings["Suggestions"] = time.perf_counter() - t0
 
     page_suggestions = sugg_pack.get("page_suggestions") or []
+    suggestion_errors = sugg_pack.get("errors") or []
+
+    # Enforce hard restrictions for outline-only suggestions.
+    page_suggestions, filtered_suggestions = filter_outline_suggestions_forbidden_content(page_suggestions)
 
     # 6) Render outline evaluation report page
     print("Rendering outline evaluation report page...")
@@ -2617,6 +2927,12 @@ def run_outline_grading(
 
     # 9) Save JSON result for backend
     print("Saving outline grading JSON result...")
+    extra_things = {
+        "removed_ocr_artifacts": ocr_extra_things,
+        "filtered_annotations": filtered_annotations,
+        "filtered_page_suggestions": filtered_suggestions,
+        "suggestion_errors": suggestion_errors,
+    }
     result_json = build_outline_result_json(
         structure=structure,
         grading=grading,
@@ -2624,6 +2940,7 @@ def run_outline_grading(
         page_suggestions=page_suggestions,
         annotation_errors=annotation_errors,
         spelling_errors=spelling_errors,
+        extra_things=extra_things,
     )
     save_outline_result_json(result_json, output_json_path)
 
@@ -2638,14 +2955,17 @@ def run_outline_grading(
     print(f"  Total outline grading time: {total_elapsed:.2f}s")
     print("=" * 60)
 
-    return {
-        "status": "success",
-        "json_path": output_json_path,
-        "pdf_path": output_pdf_path,
-        "grading": grading,
-        "timings": timings,
-        "total_time": total_elapsed,
-    }
+    response_payload = dict(result_json)
+    response_payload.update(
+        {
+            "status": "success",
+            "json_path": output_json_path,
+            "pdf_path": output_pdf_path,
+            "timings": timings,
+            "total_time": total_elapsed,
+        }
+    )
+    return response_payload
 
 
 def main() -> None:

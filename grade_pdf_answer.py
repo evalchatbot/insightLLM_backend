@@ -137,6 +137,29 @@ def validate_annotation(annotation: Dict[str, Any], idx: int = 0) -> bool:
     return True
 
 
+def _norm_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip())
+
+
+def _ocr_page_text(page: Dict[str, Any]) -> str:
+    line_texts: List[str] = []
+    for line in (page.get("lines") or []):
+        t = (line.get("text") or "").strip()
+        if t:
+            line_texts.append(t)
+    return " ".join(line_texts).strip()
+
+
+def _anchor_is_valid(anchor: str, page_text: str, min_words: int = 3) -> bool:
+    a = _norm_ws(anchor)
+    t = _norm_ws(page_text)
+    if not a or not t:
+        return False
+    if len(a.split()) < min_words:
+        return False
+    return a in t
+
+
 def validate_input_paths(pdf_path: str, output_json_path: str, output_pdf_path: str) -> bool:
     """Validate all input/output paths before processing."""
     # Check PDF exists and is readable
@@ -1100,6 +1123,7 @@ def call_grok_for_refined_rubric_annotations(
         "- For ALL annotation types, you MUST copy text EXACTLY as it appears in the OCR text.\n"
         "- NEVER paraphrase, reword, or correct the text when filling target_word_or_sentence.\n"
         "- ALWAYS provide context_before (3-5 words immediately before) and context_after (3-5 words immediately after).\n"
+        "- ALWAYS provide anchor_quote as an EXACT contiguous substring from OCR text covering the target span.\n"
         "- Copy these contexts EXACTLY from the OCR text with original spelling and punctuation.\n\n"
         "- If the OCR text appears wrong compared to the page image, SKIP the annotation entirely.\n"
         "- Do NOT annotate errors that are caused by OCR mistakes.\n\n"
@@ -1110,6 +1134,7 @@ def call_grok_for_refined_rubric_annotations(
         "  target_word_or_sentence: string (EXACT text from OCR - the word, phrase, or sentence being annotated)\n"
         "  context_before: string (EXACT 3-5 words from OCR that appear immediately before the target)\n"
         "  context_after: string (EXACT 3-5 words from OCR that appear immediately after the target)\n"
+        "  anchor_quote: string (EXACT contiguous substring from OCR that contains the target span)\n"
         "  correction: string (the correct version, or suggestion for improvement)\n"
         "  comment: string (explanation of the issue)\n"
         "  sentiment: string (required for heading_issue: 'positive' or 'negative')\n\n"
@@ -1124,6 +1149,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT first sentence or opening phrase from OCR,\n"
         "       context_before = '' (empty for first sentence),\n"
         "       context_after = EXACT next 3-5 words from OCR after the target,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the target,\n"
         "       correction = '' (not applicable for introduction comments),\n"
         "       comment = a detailed 3–5 sentence evaluation of ONLY the introduction using the refined generic rubric.\n"
         "   - DO NOT SKIP THIS ANNOTATION. It is MANDATORY.\n\n"
@@ -1140,6 +1166,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT heading text from OCR,\n"
         "       context_before = EXACT 3-5 words from OCR before the heading,\n"
         "       context_after = EXACT 3-5 words from OCR after the heading,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the heading text,\n"
         "       sentiment = 'positive',\n"
         "       correction = '' (empty for positive headings),\n"
         "       comment = 'Correct heading' or 'Good heading - clear and relevant'.\n"
@@ -1149,6 +1176,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT heading text from OCR (even if misspelled),\n"
         "       context_before = EXACT 3-5 words from OCR before the heading,\n"
         "       context_after = EXACT 3-5 words from OCR after the heading,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the heading text,\n"
         "       sentiment = 'negative',\n"
         "       correction = a better alternate heading that would be more self-explanatory and relevant,\n"
         "       comment = short explanation of the issue (NEVER mention spelling/grammar/OCR errors).\n"
@@ -1167,6 +1195,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT SHORT PHRASE containing the WRONG fact (e.g., '1944' when it should be '1945'),\n"
         "       context_before = EXACT 3-5 words immediately before the error in OCR,\n"
         "       context_after = EXACT 3-5 words immediately after the error in OCR,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the wrong fact,\n"
         "       correction = the CORRECT fact (e.g., '1945'),\n"
         "       comment = short explanation (e.g., 'Year should be 1945 not 1944').\n"
         "   - NEVER copy full sentences - only the specific phrase with the error.\n"
@@ -1185,6 +1214,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT misspelled word or very short span (1-3 words) from OCR,\n"
         "       context_before = EXACT 3-5 words from OCR immediately before the misspelled word,\n"
         "       context_after = EXACT 3-5 words from OCR immediately after the misspelled word,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the misspelled span,\n"
         "       correction = the correctly spelled word or very short corrected phrase,\n"
         "       comment = brief note like 'spelling error'.\n"
         "   - Always cross-check using BOTH OCR text AND the page image:\n"
@@ -1202,6 +1232,7 @@ def call_grok_for_refined_rubric_annotations(
         "       target_word_or_sentence = EXACT repeated phrase or sentence from OCR,\n"
         "       context_before = EXACT 3-5 words from OCR before the repeated text,\n"
         "       context_after = EXACT 3-5 words from OCR after the repeated text,\n"
+        "       anchor_quote = EXACT contiguous substring from OCR containing the repeated phrase,\n"
         "       correction = suggestion like 'Remove repetition' or 'Already mentioned on page X',\n"
         "       comment = note indicating where it was first mentioned.\n\n"
         "Additionally, build refined_rubric_summary[]:\n"
@@ -1241,6 +1272,7 @@ def call_grok_for_refined_rubric_annotations(
                     "target_word_or_sentence": "First sentence of introduction (EXACT from OCR)",
                     "context_before": "",
                     "context_after": "Next 3-5 words after (EXACT from OCR)",
+                    "anchor_quote": "EXACT contiguous substring from OCR containing target",
                     "correction": "",
                     "comment": "Detailed evaluation of introduction quality (3-5 sentences)",
                 },
@@ -1251,6 +1283,7 @@ def call_grok_for_refined_rubric_annotations(
                     "target_word_or_sentence": "EXACT heading text from OCR",
                     "context_before": "EXACT 3-5 words before",
                     "context_after": "EXACT 3-5 words after",
+                    "anchor_quote": "EXACT contiguous substring from OCR containing target",
                     "correction": "Better heading suggestion or empty if positive",
                     "comment": "Explanation of issue or 'Correct heading'",
                     "sentiment": "positive/negative",
@@ -1262,6 +1295,7 @@ def call_grok_for_refined_rubric_annotations(
                     "target_word_or_sentence": "SHORT PHRASE with error (EXACT from OCR)",
                     "context_before": "EXACT 3-5 words before",
                     "context_after": "EXACT 3-5 words after",
+                    "anchor_quote": "EXACT contiguous substring from OCR containing target",
                     "correction": "Correct fact",
                     "comment": "Explanation of error",
                 }
@@ -1530,10 +1564,14 @@ def call_grok_for_page_wise_suggestions(
           {
             "page": 1,
             "suggestions": [
-              "Add comparison with Kant's categorical imperative",
-              "Include the 1945 UN Charter establishment date",
-              "Reference Rawls' theory of justice for stronger argumentation",
-              "Add empirical evidence from 2020 Climate Summit"
+                            {
+                                "suggestion": "Add comparison with Kant's categorical imperative",
+                                "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT"
+                            },
+                            {
+                                "suggestion": "Include the 1945 UN Charter establishment date",
+                                "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT"
+                            }
             ]
           },
           ...
@@ -1566,8 +1604,12 @@ def call_grok_for_page_wise_suggestions(
             "STRICT OUTPUT FORMAT:\n"
             "- Return ONLY valid JSON\n"
             "- Top-level key: 'page_suggestions' with array of page objects\n"
-            "- Each page object has: 'page' (integer) and 'suggestions' (array of strings)\n"
-            "- Each suggestion must be a single, specific, actionable statement\n"
+            "- Each page object has: 'page' (integer) and 'suggestions' (array of objects)\n"
+            "- Each suggestion object MUST contain:\n"
+            "    1) 'suggestion' (single, specific, actionable statement)\n"
+            "    2) 'anchor_quote' (EXACT contiguous substring copied from OCR_PAGE_TEXT for this page)\n"
+            "- Do NOT paraphrase anchor_quote.\n"
+            "- If an anchor cannot be found in OCR_PAGE_TEXT, skip that suggestion.\n"
             "- No markdown, no commentary, just JSON\n"
         ),
     }
@@ -1586,7 +1628,8 @@ def call_grok_for_page_wise_suggestions(
         "   ❌ Bad: 'Reference a philosopher'\n"
         "   ✅ Good: 'Reference Mill's harm principle (On Liberty, 1859)'\n\n"
         "4. Suggestions should align with the subject rubric criteria\n\n"
-        "5. Each page should have 3-6 suggestions maximum\n\n"
+        "5. Each page should have 3-6 suggestions maximum\n"
+        "6. Every suggestion MUST include anchor_quote copied EXACTLY from OCR_PAGE_TEXT of that page\n\n"
         "OUTPUT:\n"
         "Return JSON with this exact structure:\n"
         "{\n"
@@ -1594,17 +1637,27 @@ def call_grok_for_page_wise_suggestions(
         "    {\n"
         "      \"page\": 1,\n"
         "      \"suggestions\": [\n"
-        "        \"Add comparison with Locke's social contract theory (Two Treatises, 1689)\",\n"
-        "        \"Include the Magna Carta signing date (1215) as historical precedent\",\n"
-        "        \"Reference the 1948 Universal Declaration of Human Rights\"\n"
+        "        {\n"
+        "          \"suggestion\": \"Add comparison with Locke's social contract theory (Two Treatises, 1689)\",\n"
+        "          \"anchor_quote\": \"EXACT contiguous substring from OCR_PAGE_TEXT\"\n"
+        "        },\n"
+        "        {\n"
+        "          \"suggestion\": \"Include the Magna Carta signing date (1215) as historical precedent\",\n"
+        "          \"anchor_quote\": \"EXACT contiguous substring from OCR_PAGE_TEXT\"\n"
+        "        }\n"
         "      ]\n"
         "    },\n"
         "    {\n"
         "      \"page\": 2,\n"
         "      \"suggestions\": [\n"
-        "        \"Add Amartya Sen's capability approach for economic analysis\",\n"
-        "        \"Include World Bank poverty data (2021 report)\",\n"
-        "        \"Compare with China's economic reforms post-1978\"\n"
+        "        {\n"
+        "          \"suggestion\": \"Add Amartya Sen's capability approach for economic analysis\",\n"
+        "          \"anchor_quote\": \"EXACT contiguous substring from OCR_PAGE_TEXT\"\n"
+        "        },\n"
+        "        {\n"
+        "          \"suggestion\": \"Compare with China's economic reforms post-1978\",\n"
+        "          \"anchor_quote\": \"EXACT contiguous substring from OCR_PAGE_TEXT\"\n"
+        "        }\n"
         "      ]\n"
         "    }\n"
         "  ]\n"
@@ -1614,8 +1667,8 @@ def call_grok_for_page_wise_suggestions(
     # Simplified page data (text only, no images or bounding boxes to reduce tokens)
     ocr_pages_minimal = [
         {
-            "page": p.get("page", idx + 1),
-            "text": p.get("text", "")[:300000]  # Limit per-page text
+            "page": p.get("page_number", idx + 1),
+            "ocr_page_text": _ocr_page_text(p)[:300000],
         }
         for idx, p in enumerate(ocr_data.get("pages", []))
     ]
@@ -1630,7 +1683,12 @@ def call_grok_for_page_wise_suggestions(
             "page_suggestions": [
                 {
                     "page": 1,
-                    "suggestions": ["string", "string"]
+                    "suggestions": [
+                        {
+                            "suggestion": "string",
+                            "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT",
+                        }
+                    ],
                 }
             ]
         },
@@ -1694,6 +1752,58 @@ def call_grok_for_page_wise_suggestions(
             content = data["choices"][0]["message"]["content"]
             cleaned = clean_json_from_llm(content)
             parsed = json.loads(cleaned)
+
+            # Normalize and validate anchor-linked suggestion objects.
+            page_text_by_num: Dict[int, str] = {}
+            for p in ocr_data.get("pages", []):
+                pno = p.get("page_number")
+                if isinstance(pno, int):
+                    page_text_by_num[pno] = _ocr_page_text(p)
+
+            normalized_pages: List[Dict[str, Any]] = []
+            for page_item in (parsed.get("page_suggestions") or []):
+                if not isinstance(page_item, dict):
+                    continue
+
+                page_no_raw = page_item.get("page")
+                if not isinstance(page_no_raw, int):
+                    continue
+                page_no = page_no_raw
+
+                page_text = page_text_by_num.get(page_no, "")
+                cleaned_suggestions: List[Dict[str, str]] = []
+
+                for suggestion_item in (page_item.get("suggestions") or []):
+                    suggestion_text = ""
+                    anchor_quote = ""
+
+                    if isinstance(suggestion_item, dict):
+                        suggestion_text = str(suggestion_item.get("suggestion", "")).strip()
+                        anchor_quote = str(suggestion_item.get("anchor_quote", "")).strip()
+                    elif isinstance(suggestion_item, str):
+                        # Legacy fallback for older model outputs.
+                        suggestion_text = str(suggestion_item).strip()
+                        anchor_quote = ""
+
+                    if not suggestion_text or not anchor_quote:
+                        continue
+                    if page_text and not _anchor_is_valid(anchor_quote, page_text):
+                        continue
+
+                    cleaned_suggestions.append(
+                        {
+                            "suggestion": suggestion_text,
+                            "anchor_quote": anchor_quote,
+                        }
+                    )
+
+                normalized_pages.append({
+                    "page": page_no,
+                    "suggestions": cleaned_suggestions[:6],
+                })
+
+            normalized_pages.sort(key=lambda x: int(x.get("page") or 0))
+            parsed = {"page_suggestions": normalized_pages}
 
             # Success
             if attempt > 0:

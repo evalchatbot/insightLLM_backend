@@ -210,6 +210,79 @@ def _find_word_or_line_rect(
     return best_rect
 
 
+def _find_anchor_rect_on_page(
+    page_ocr: Dict[str, Any],
+    anchor_quote: str,
+    w: int,
+    h: int,
+    already_found: Optional[List[Tuple[int, int, int, int]]] = None,
+) -> Optional[Tuple[int, int, int, int]]:
+    """Resolve an exact anchor quote to a compact bbox on the OCR page."""
+    anchor_norm = _normalize(anchor_quote)
+    if not anchor_norm:
+        return None
+
+    already_found = already_found or []
+
+    # Try precise token sequence matching first.
+    rect = _find_precise_word_rect_with_context(
+        page_ocr=page_ocr,
+        target_text=anchor_quote,
+        context_before="",
+        context_after="",
+        w=w,
+        h=h,
+        already_found=already_found,
+    )
+    if rect is not None:
+        return rect
+
+    # Fallback to strong line-level matching.
+    anchor_tokens = set(anchor_norm.split())
+    if not anchor_tokens:
+        return None
+
+    best_rect: Optional[Tuple[int, int, int, int]] = None
+    best_score = 0.0
+
+    for line in page_ocr.get("lines", []):
+        text = _normalize(line.get("text") or "")
+        bbox = line.get("bbox")
+        if not text or not bbox:
+            continue
+
+        if anchor_norm in text:
+            score = 1.0
+        else:
+            line_tokens = set(text.split())
+            score = len(anchor_tokens & line_tokens) / max(len(anchor_tokens), 1)
+
+        if score < 0.7 or score <= best_score:
+            continue
+
+        x1, y1, x2, y2 = _bbox_to_rect(bbox, pad=2, w=w, h=h)
+        box_w = x2 - x1
+        box_h = y2 - y1
+        if box_h > 0.35 * h or box_w > 0.95 * w:
+            continue
+
+        is_duplicate = False
+        for found_rect in already_found:
+            fx1, fy1, fx2, fy2 = found_rect
+            overlap_x = max(0, min(x2, fx2) - max(x1, fx1))
+            overlap_y = max(0, min(y2, fy2) - max(y1, fy1))
+            if overlap_x > 0 and overlap_y > 0:
+                is_duplicate = True
+                break
+        if is_duplicate:
+            continue
+
+        best_score = score
+        best_rect = (x1, y1, x2, y2)
+
+    return best_rect
+
+
 def _find_precise_word_rect_with_context(
     page_ocr: Dict[str, Any],
     target_text: str,
@@ -648,7 +721,20 @@ def annotate_pdf_answer_pages(
         # RENDER IMPROVEMENT SUGGESTIONS ON LEFT MARGIN
         BLUE = (255, 140, 0)  # Deep sky blue color in BGR
         if page_suggestion_data:
-            suggestions = page_suggestion_data.get("suggestions", [])
+            raw_suggestions = page_suggestion_data.get("suggestions", [])
+            suggestions: List[Dict[str, str]] = []
+            for entry in raw_suggestions:
+                if isinstance(entry, dict):
+                    suggestion_text = str(entry.get("suggestion") or entry.get("text") or "").strip()
+                    anchor_quote = str(entry.get("anchor_quote") or "").strip()
+                else:
+                    suggestion_text = str(entry or "").strip()
+                    anchor_quote = ""
+                if suggestion_text:
+                    suggestions.append({
+                        "suggestion": suggestion_text,
+                        "anchor_quote": anchor_quote,
+                    })
 
             # Title
             title_text = f"Page {page_number} - Suggestions:"
@@ -665,8 +751,10 @@ def annotate_pdf_answer_pages(
             suggestion_y += int(line_height * 1.5)
 
             # Draw each suggestion as a numbered bullet with blue box
-            for idx, suggestion in enumerate(suggestions[:6], 1):  # Max 6 suggestions
-                bullet = f"{idx}. {suggestion}"
+            for idx, suggestion_item in enumerate(suggestions[:6], 1):  # Max 6 suggestions
+                suggestion_text = suggestion_item.get("suggestion", "")
+                anchor_quote = suggestion_item.get("anchor_quote", "")
+                bullet = f"{idx}. {suggestion_text}"
                 wrapped_lines = _wrap_text_cv2(
                     bullet, suggestion_max_width, font_face, font_scale * 1.0, text_thickness  # Increased font scale and thickness
                 )
@@ -674,18 +762,22 @@ def annotate_pdf_answer_pages(
                 # Calculate box height for this suggestion
                 box_start_y = suggestion_y - int(line_height * 0.8)
                 box_height = len(wrapped_lines) * int(line_height * 1.2) + int(line_height * 0.4)
+                suggestion_box = (
+                    suggestion_x1 - 5,
+                    box_start_y,
+                    suggestion_x2 + 5,
+                    box_start_y + box_height,
+                )
 
                 # Draw blue box around suggestion
                 cv2.rectangle(
                     cv_img,
-                    (suggestion_x1 - 5, box_start_y),
-                    (suggestion_x2 + 5, box_start_y + box_height),
+                    (suggestion_box[0], suggestion_box[1]),
+                    (suggestion_box[2], suggestion_box[3]),
                     BLUE,
                     3,  # Box thickness
                 )
-                comment_boxes.append(
-                    (suggestion_x1 - 5, box_start_y, suggestion_x2 + 5, box_start_y + box_height)
-                )
+                comment_boxes.append(suggestion_box)
 
                 for line in wrapped_lines:
                     cv2.putText(
@@ -700,6 +792,42 @@ def annotate_pdf_answer_pages(
                     )
                     suggestion_y += int(line_height * 1.2)
                 suggestion_y += int(line_height * 1.2)  # Increased gap between suggestion boxes
+
+                # Draw anchor-linked connector from left suggestion box to text on answer page.
+                if anchor_quote:
+                    anchor_rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=anchor_quote,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=[],
+                    )
+                    if anchor_rect:
+                        shifted_anchor = (
+                            anchor_rect[0] + left_width,
+                            anchor_rect[1] + y_offset,
+                            anchor_rect[2] + left_width,
+                            anchor_rect[3] + y_offset,
+                        )
+                        cv2.rectangle(
+                            cv_img,
+                            (shifted_anchor[0], shifted_anchor[1]),
+                            (shifted_anchor[2], shifted_anchor[3]),
+                            BLUE,
+                            3,
+                        )
+
+                        suggestion_center_y = (suggestion_box[1] + suggestion_box[3]) // 2
+                        anchor_center_y = (shifted_anchor[1] + shifted_anchor[3]) // 2
+                        start_x = min(left_width - 6, suggestion_box[2] + 6)
+                        end_x = max(left_width + 2, shifted_anchor[0] - 6)
+                        cv2.line(
+                            cv_img,
+                            (start_x, suggestion_center_y),
+                            (end_x, anchor_center_y),
+                            BLUE,
+                            3,
+                        )
 
         suggestion_end_y = max(suggestion_y, margin)
 
@@ -1030,6 +1158,7 @@ def annotate_pdf_answer_pages(
             target_text = ann.get("target_word_or_sentence") or ""
             context_before = ann.get("context_before") or ""
             context_after = ann.get("context_after") or ""
+            anchor_quote = ann.get("anchor_quote") or ""
             correction = ann.get("correction") or ""
             comment = ann.get("comment") or ""
 
@@ -1042,6 +1171,15 @@ def annotate_pdf_answer_pages(
                     intro_sec = intro_sections[0]
                     sid = str(intro_sec.get("id") or intro_sec.get("section_id") or intro_sec.get("title"))
                     intro_rect = section_regions.get(sid)
+
+                if not intro_rect and anchor_quote:
+                    intro_rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=anchor_quote,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
 
                 if not intro_rect and target_text:
                     rect = _find_annotation_rect_with_context(
@@ -1093,19 +1231,29 @@ def annotate_pdf_answer_pages(
                 if sentiment not in ("negative", "weak", "problematic"):
                     continue
 
-                if not target_text:
+                if not target_text and not anchor_quote:
                     continue
 
-                # Use precise word-level matching for headings (they're short)
-                rect = _find_precise_word_rect_with_context(
-                    page_ocr=page_ocr,
-                    target_text=target_text,
-                    context_before=context_before,
-                    context_after=context_after,
-                    w=orig_w,
-                    h=orig_h,
-                    already_found=found_rects,
-                )
+                rect = None
+                if anchor_quote:
+                    rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=anchor_quote,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
+                if not rect and target_text:
+                    # Use precise word-level matching for headings (they're short)
+                    rect = _find_precise_word_rect_with_context(
+                        page_ocr=page_ocr,
+                        target_text=target_text,
+                        context_before=context_before,
+                        context_after=context_after,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
                 if not rect:
                     continue
 
@@ -1128,19 +1276,29 @@ def annotate_pdf_answer_pages(
 
             # 3) Factual error – precise box on error phrase + right-side comment
             elif atype == "factual_error":
-                if not target_text:
+                if not target_text and not anchor_quote:
                     continue
 
-                # ALWAYS use precise word-level matching for factual errors
-                rect = _find_precise_word_rect_with_context(
-                    page_ocr=page_ocr,
-                    target_text=target_text,
-                    context_before=context_before,
-                    context_after=context_after,
-                    w=orig_w,
-                    h=orig_h,
-                    already_found=found_rects,
-                )
+                rect = None
+                if anchor_quote:
+                    rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=anchor_quote,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
+                if not rect and target_text:
+                    # ALWAYS use precise word-level matching for factual errors
+                    rect = _find_precise_word_rect_with_context(
+                        page_ocr=page_ocr,
+                        target_text=target_text,
+                        context_before=context_before,
+                        context_after=context_after,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
 
                 if not rect:
                     continue
@@ -1164,19 +1322,29 @@ def annotate_pdf_answer_pages(
 
             # 4) Grammar & language – small box + inline correction
             elif atype == "grammar_language":
-                if not target_text:
+                if not target_text and not anchor_quote:
                     continue
 
-                # ALWAYS use precise word-level matching for spelling errors
-                rect = _find_precise_word_rect_with_context(
-                    page_ocr=page_ocr,
-                    target_text=target_text,
-                    context_before=context_before,
-                    context_after=context_after,
-                    w=orig_w,
-                    h=orig_h,
-                    already_found=found_rects,
-                )
+                rect = None
+                if anchor_quote:
+                    rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=anchor_quote,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
+                if not rect and target_text:
+                    # ALWAYS use precise word-level matching for spelling errors
+                    rect = _find_precise_word_rect_with_context(
+                        page_ocr=page_ocr,
+                        target_text=target_text,
+                        context_before=context_before,
+                        context_after=context_after,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=found_rects,
+                    )
                 if not rect:
                     continue
 

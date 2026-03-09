@@ -33,6 +33,9 @@ from PIL import Image
 import cv2
 
 
+MAX_LEFT_SUGGESTIONS_PER_PAGE = 4
+
+
 # ============================================================
 # TEXT HELPERS
 # ============================================================
@@ -1084,13 +1087,25 @@ def annotate_pdf_essay_pages(
         if isinstance(pn, int):
             ocr_pages_by_num[pn] = p
 
-    # Suggestions per page
-    suggestions_by_page: Dict[int, List[str]] = {}
+    # Suggestions per page (supports {suggestion, anchor_quote})
+    suggestions_by_page: Dict[int, List[Dict[str, str]]] = {}
     for s in page_suggestions:
         pno = s.get("page")
         sug = s.get("suggestions") or []
         if isinstance(pno, int) and pno >= 1:
-            suggestions_by_page[pno] = [str(x) for x in sug if str(x).strip()]
+            parsed_suggestions: List[Dict[str, str]] = []
+            for item in sug:
+                if isinstance(item, dict):
+                    text = str(item.get("suggestion", "")).strip()
+                    anchor = str(item.get("anchor_quote", "")).strip()
+                    if text:
+                        parsed_suggestions.append({"suggestion": text, "anchor_quote": anchor})
+                elif isinstance(item, str):
+                    text = str(item).strip()
+                    if text:
+                        parsed_suggestions.append({"suggestion": text, "anchor_quote": ""})
+            # Hard cap: never draw more than 4 suggestion cards per page.
+            suggestions_by_page[pno] = parsed_suggestions[:MAX_LEFT_SUGGESTIONS_PER_PAGE]
 
     # Determine which pages have content (OCR data, annotations, or suggestions)
     pages_with_content = set()
@@ -1159,6 +1174,7 @@ def annotate_pdf_essay_pages(
         new_w = left_width + orig_w + right_width
         y_offset = 0
         margin_px = int(0.03 * orig_w)
+        right_box_w = int(right_width - 2 * margin_px)
 
         canvas = np.full((orig_h, new_w, 3), 255, dtype=np.uint8)
         canvas[y_offset:y_offset + orig_h, left_width:left_width + orig_w] = orig_cv
@@ -1188,41 +1204,54 @@ def annotate_pdf_essay_pages(
             cv2.LINE_AA,
         )
 
-        left_pad = 10
-        col_gap = 14
-        # When the left margin is narrower (after making margins equal),
-        # using 2 columns makes boxes too skinny and causes excessive wrapping.
-        # Use 1 column for narrow margins; keep 2 columns for wide margins.
-        max_cols = 1 if left_width < int(0.50 * orig_w) else 2
-        col_w = (left_width - 2 * margin_px - (max_cols - 1) * col_gap) // max_cols
-        col_x = margin_px
-        col_idx = 0
-        y_cur = y_offset + 120
+        # Keep left suggestion cards visually aligned with right callout card width.
+        left_pad = 12
+        top_pad = 12
+        bottom_pad = 12
+        line_g = 14
+        thick = 2
 
-        for bullet in suggestions_by_page.get(page_number, [])[:6]:
-            bullet_text = str(bullet).strip()
+        # Keep left width equal to right callout width and single-column stable.
+        col_w = right_box_w
+        left_inner_w = left_width - 2 * margin_px
+        col_x = margin_px + max(0, (left_inner_w - col_w) // 2)
+        y_top = y_offset + 120
+        y_bottom = orig_h - margin_px
+        y_cur = y_top
+
+        for bullet_obj in suggestions_by_page.get(page_number, [])[:MAX_LEFT_SUGGESTIONS_PER_PAGE]:
+            bullet_text = str(bullet_obj.get("suggestion", "")).strip()
+            bullet_anchor = str(bullet_obj.get("anchor_quote", "")).strip()
             if not bullet_text:
                 continue
             bullet_full = "- " + bullet_text
 
-            thick = 2
-            line_g = 18
-            top_pad = 20
-            bottom_pad = 20
+            # Try to find the target text region for this suggestion via anchor_quote.
+            suggestion_match_rect = None
+            if bullet_anchor:
+                rect_pdf = _find_match_rect_in_pdf_text(page_obj, orig_w, orig_h, bullet_anchor)
+                if rect_pdf:
+                    suggestion_match_rect = rect_pdf
+                elif page_ocr:
+                    rect_ocr = _find_best_match_rect_from_ocr(
+                        page_ocr,
+                        bullet_anchor,
+                        orig_w,
+                        orig_h,
+                        prefer_anchor=True,
+                    )
+                    if rect_ocr:
+                        suggestion_match_rect = rect_ocr
 
-            remaining_h = (orig_h - margin_px) - y_cur
-            if remaining_h < 160:
-                col_idx += 1
-                if col_idx >= max_cols:
-                    col_idx = max_cols - 1
-                    y_cur = y_offset + 120
-                col_x = margin_px + col_idx * (col_w + col_gap)
+            remaining_h = y_bottom - y_cur
+            if remaining_h < 120:
+                break
 
             font_s, wrapped_lines, box_h = _fit_text_box(
                 bullet_full,
                 max_width_px=col_w - 2 * left_pad,
-                max_height_px=min((orig_h - margin_px) - y_cur, 1200),
-                start_scale=1.55,
+                max_height_px=remaining_h,
+                start_scale=1.00,
                 thickness=thick,
                 line_gap=line_g,
                 top_pad=top_pad,
@@ -1230,12 +1259,9 @@ def annotate_pdf_essay_pages(
                 min_scale=1.00,
             )
 
-            if y_cur + box_h > (orig_h - margin_px):
-                col_idx += 1
-                if col_idx >= max_cols:
-                    col_idx = max_cols - 1
-                    y_cur = y_offset + 120
-                col_x = margin_px + col_idx * (col_w + col_gap)
+            # Never truncate suggestion text. If full card cannot fit, stop on this page.
+            if box_h > remaining_h:
+                break
 
             bx1 = col_x
             bx2 = col_x + col_w
@@ -1259,7 +1285,18 @@ def annotate_pdf_essay_pages(
                 )
                 y_text += th + line_g
 
-            y_cur += box_h + 18
+            # Draw a connector line from left suggestion box to matched text region.
+            if suggestion_match_rect is not None:
+                target_canvas_rect = _shift_rect(suggestion_match_rect, left_width, y_offset)
+                start_x = bx2
+                start_y = (by1 + by2) // 2
+                end_x = target_canvas_rect[0]
+                end_y = (target_canvas_rect[1] + target_canvas_rect[3]) // 2
+                cv2.line(canvas, (start_x, start_y), (end_x, end_y), (0, 0, 0), 2, cv2.LINE_AA)
+
+            y_cur += box_h + 12
+            if y_cur >= y_bottom - 60:
+                break
 
         # OPTIONAL DEBUG: draw OCR line boxes
         if debug_draw_ocr_boxes and page_ocr and page_ocr.get("lines"):
@@ -1294,8 +1331,6 @@ def annotate_pdf_essay_pages(
         callout_items: List[Dict[str, Any]] = []
 
         for idx, a in enumerate(anns):
-            # Matching/anchors disabled: skip detailed processing
-            continue
             a_type = (a.get("type") or "").strip()
             rubric_point = (a.get("rubric_point") or "").strip()
             comment = (a.get("comment") or "").strip()
@@ -1411,27 +1446,9 @@ def annotate_pdf_essay_pages(
                 print(f"     has_anchor={item['has_anchor']}")
                 print(f"     candidate_preview={item['primary_candidate_preview'][:120]}")
 
-        # RIGHT MARGIN LAYOUT (no overlap). Matching/anchors removed; all callouts are page-level in input order.
-        box_w = int(right_width - 2 * margin_px)
-        resolved_callouts: List[Dict[str, Any]] = []
-        for idx, a in enumerate(anns):
-            a_type = (a.get("type") or "").strip()
-            rubric_point = (a.get("rubric_point") or "").strip()
-            comment = (a.get("comment") or "").strip()
-            correction = (a.get("correction") or "").strip()
-            header = rubric_point.strip()
-            body = (comment + (f"  Fix: {correction}" if correction else "")).strip()
-            if a_type != "grammar_language" and correction:
-                body = (comment ).strip()
-            resolved_callouts.append({
-                "rect": None,
-                "header": header,
-                "body": body,
-                "y_sort": idx,
-                "page_level": True,
-            })
+        # RIGHT MARGIN LAYOUT - preserve matched order and avoid overlap.
         resolved_callouts.sort(key=lambda x: x["y_sort"])
-
+        box_w = right_box_w
         last_bottom_y = margin_px
         gap = 12
 
@@ -1450,33 +1467,51 @@ def annotate_pdf_essay_pages(
 
             bx1 = left_width + orig_w + margin_px
             bx2 = bx1 + box_w
-
-            # Stack top-to-bottom without collisions; anchor near rect if present
-            desired_y = rect[1] - 20 if rect else last_bottom_y + gap
-            start_y = max(margin_px, last_bottom_y + gap, desired_y)
-
-            by1 = int(start_y)
+            by1 = int(last_bottom_y + gap)
             by2 = int(by1 + box_h)
 
-            # Ensure box stays within page bounds
             max_bottom = orig_h - margin_px
             if by2 > max_bottom:
-                # Try to move box up while respecting last_bottom_y
+                available = max_bottom - by1
+                if available < 100:
+                    continue
                 by2 = max_bottom
-                by1 = max(margin_px, last_bottom_y + gap, by2 - box_h)
-                # Constrain by2 again if by1 adjustment caused overflow
-                if by1 + box_h > max_bottom:
-                    by2 = max_bottom
-                    by1 = max(margin_px, last_bottom_y + gap)
 
             last_bottom_y = by2
 
-            # highlight + connector only if rect exists
             cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
-            _draw_wrapped_text(canvas, bx1 + 12, by1 + 24, header, header_scale, 2, box_w - 24, (0, 0, 255), line_gap=l_gap)
-            _draw_wrapped_text(canvas, bx1 + 12, by1 + 30 + h_h, body, body_scale, 2, box_w - 24, (0, 0, 0), line_gap=l_gap)
+            _draw_wrapped_text(
+                canvas,
+                bx1 + 12,
+                by1 + 24,
+                header,
+                header_scale,
+                2,
+                box_w - 24,
+                (0, 0, 255),
+                line_gap=l_gap,
+            )
+            _draw_wrapped_text(
+                canvas,
+                bx1 + 12,
+                by1 + 30 + h_h,
+                body,
+                body_scale,
+                2,
+                box_w - 24,
+                (0, 0, 0),
+                line_gap=l_gap,
+            )
 
-            # Intentionally omit on-page highlights/connectors to avoid overlaying essay content.
+            # If matched, draw an on-text highlight and a connector line.
+            if rect:
+                rx1, ry1, rx2, ry2 = rect
+                cv2.rectangle(canvas, (rx1, ry1), (rx2, ry2), (0, 0, 255), 2)
+                start_x = bx1
+                start_y = (by1 + by2) // 2
+                end_x = rx2
+                end_y = (ry1 + ry2) // 2
+                cv2.line(canvas, (start_x, start_y), (end_x, end_y), (0, 0, 255), 2, cv2.LINE_AA)
 
         # Store at correct page index (0-based) to maintain page order
         annotated_pages[page_idx] = Image.fromarray(canvas[:, :, ::-1])
