@@ -83,3 +83,26 @@ class ConversationListResponse(BaseModel):
 class ConversationMessagesResponse(BaseModel):
     conversation: Conversation
     messages: List[ConversationMessage]
+
+
+class FactbookEditorial(BaseModel):
+    id: Optional[str] = None
+    publication_date: str
+    headline: str
+    summary_bullets: List[str] = Field(default_factory=list)
+    takeaway: str
+    summary_paragraph: str
+    topic_domain: Optional[str] = "Other"
+    thesis_statement: Optional[str] = ""
+    source_url: Optional[str] = None
+    source_hash: Optional[str] = None
+    source_name: Optional[str] = "dawn"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_synced_at: Optional[datetime] = None
+
+
+class FactbookEditorialListResponse(BaseModel):
+    date: str
+    count: int
+    editorials: List[FactbookEditorial]

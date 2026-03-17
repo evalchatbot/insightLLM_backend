@@ -11,6 +11,7 @@ from backend.api.routes import (
     books,
     chatbot,
     conversations,
+    factbook,
     ingest,
     ocr,
     users,
@@ -54,6 +55,7 @@ app.include_router(assistant.router)
 app.include_router(books.router)
 app.include_router(chatbot.router)
 app.include_router(conversations.router)
+app.include_router(factbook.router)
 app.include_router(ingest.router)
 app.include_router(ocr.router)
 app.include_router(users.router)

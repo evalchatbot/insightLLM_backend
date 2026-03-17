@@ -1,11 +1,12 @@
 from supabase import create_client, Client
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import uuid
 import json
 import time
 
+from backend.ingest.factbook_topics import keyword_fallback_topic_domain
 from backend.utils.logging_config import log_supabase_request, log_supabase_response, get_logger
 
 logger = get_logger(__name__)
@@ -580,4 +581,391 @@ class SupabaseService:
             
         except Exception as e:
             logger.error(f"[SUPABASE] Error getting valid user ID: {e}")
+            return None
+
+    async def upsert_factbook_editorials(self, editorials: List[Dict]) -> int:
+        """Upsert fact book editorials by source hash for idempotent ingestion."""
+        if not editorials:
+            return 0
+
+        try:
+            now = datetime.utcnow().isoformat()
+            records = []
+            for item in editorials:
+                records.append(
+                    {
+                        "publication_date": item["publication_date"],
+                        "headline": item["headline"],
+                        "summary_bullets": item.get("summary_bullets", []),
+                        "takeaway": item.get("takeaway", ""),
+                        "summary_paragraph": item.get("summary_paragraph", ""),
+                        "topic_domain": item.get("topic_domain", "Other"),
+                        "thesis_statement": item.get("thesis_statement", ""),
+                        "source_url": item["source_url"],
+                        "source_hash": item["source_hash"],
+                        "source_name": item.get("source_name", "dawn"),
+                        "last_synced_at": item.get("last_synced_at", now),
+                        "updated_at": now,
+                    }
+                )
+
+            result = (
+                self.supabase
+                .table("factbook_editorials")
+                .upsert(records, on_conflict="source_hash")
+                .execute()
+            )
+
+            return len(result.data) if result.data else len(records)
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                logger.warning("Factbook topic/thesis columns missing; falling back to base upsert payload")
+                try:
+                    fallback_records = []
+                    for row in records:
+                        fallback_records.append(
+                            {
+                                "publication_date": row["publication_date"],
+                                "headline": row["headline"],
+                                "summary_bullets": row["summary_bullets"],
+                                "takeaway": row["takeaway"],
+                                "summary_paragraph": row["summary_paragraph"],
+                                "source_url": row["source_url"],
+                                "source_hash": row["source_hash"],
+                                "source_name": row["source_name"],
+                                "last_synced_at": row["last_synced_at"],
+                                "updated_at": row["updated_at"],
+                            }
+                        )
+
+                    result = (
+                        self.supabase
+                        .table("factbook_editorials")
+                        .upsert(fallback_records, on_conflict="source_hash")
+                        .execute()
+                    )
+                    return len(result.data) if result.data else len(fallback_records)
+                except Exception as fallback_error:
+                    logger.error(f"Factbook fallback upsert failed: {fallback_error}")
+                    return 0
+
+            logger.error(f"Error upserting factbook editorials: {e}")
+            return 0
+
+    def _is_missing_factbook_topic_column_error(self, error: Exception) -> bool:
+        text = str(error).lower()
+        return (
+            "column factbook_editorials.topic_domain does not exist" in text
+            or "column factbook_editorials.thesis_statement does not exist" in text
+        )
+
+    async def factbook_topic_columns_available(self) -> bool:
+        """Return whether topic/thesis columns exist in factbook_editorials."""
+        try:
+            self.supabase.table("factbook_editorials").select("topic_domain, thesis_statement").limit(1).execute()
+            return True
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                return False
+            logger.warning(f"Unexpected error while checking factbook topic columns: {e}")
+            return False
+
+    async def get_factbook_source_hashes_by_date(self, publication_date: str) -> Set[str]:
+        """Get existing fact book source hashes for a specific publication date."""
+        try:
+            result = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("source_hash")
+                .eq("publication_date", publication_date)
+                .execute()
+            )
+            rows = result.data if result.data else []
+            return {row.get("source_hash") for row in rows if row.get("source_hash")}
+        except Exception as e:
+            logger.error(f"Error getting factbook source hashes by date: {e}")
+            return set()
+
+    async def get_factbook_editorials_by_date(self, publication_date: str) -> List[Dict]:
+        """Get fact book editorial summaries for a specific publication date."""
+        try:
+            result = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("id, publication_date, headline, summary_bullets, takeaway, summary_paragraph, topic_domain, thesis_statement")
+                .eq("publication_date", publication_date)
+                .order("headline")
+                .execute()
+            )
+            return result.data if result.data else []
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                try:
+                    result = (
+                        self.supabase
+                        .table("factbook_editorials")
+                        .select("id, publication_date, headline, summary_bullets, takeaway, summary_paragraph")
+                        .eq("publication_date", publication_date)
+                        .order("headline")
+                        .execute()
+                    )
+
+                    rows = result.data if result.data else []
+                    for row in rows:
+                        bullets = row.get("summary_bullets") or []
+                        context_text = " ".join(
+                            [
+                                row.get("headline") or "",
+                                " ".join(bullets),
+                                row.get("takeaway") or "",
+                                row.get("summary_paragraph") or "",
+                            ]
+                        )
+                        row["topic_domain"] = keyword_fallback_topic_domain(context_text)
+                        row["thesis_statement"] = bullets[0] if bullets else (row.get("takeaway") or "")
+                    return rows
+                except Exception as fallback_error:
+                    logger.error(f"Factbook date query fallback failed: {fallback_error}")
+                    return []
+
+            logger.error(f"Error getting factbook editorials by date: {e}")
+            return []
+
+    async def get_factbook_editorials_by_topic(self, topic_domain: str, limit: int = 180) -> List[Dict]:
+        """Get fact book editorials for a selected topic domain."""
+        try:
+            query = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("id, publication_date, headline, summary_bullets, takeaway, summary_paragraph, topic_domain, thesis_statement")
+            )
+
+            if topic_domain and topic_domain.lower() != "all":
+                query = query.eq("topic_domain", topic_domain)
+
+            result = (
+                query
+                .order("publication_date", desc=True)
+                .order("headline")
+                .limit(max(1, min(limit, 500)))
+                .execute()
+            )
+
+            return result.data if result.data else []
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                try:
+                    fallback_result = (
+                        self.supabase
+                        .table("factbook_editorials")
+                        .select("id, publication_date, headline, summary_bullets, takeaway, summary_paragraph")
+                        .order("publication_date", desc=True)
+                        .limit(5000)
+                        .execute()
+                    )
+
+                    rows = fallback_result.data if fallback_result.data else []
+                    filtered_rows: List[Dict] = []
+                    for row in rows:
+                        bullets = row.get("summary_bullets") or []
+                        context_text = " ".join(
+                            [
+                                row.get("headline") or "",
+                                " ".join(bullets),
+                                row.get("takeaway") or "",
+                                row.get("summary_paragraph") or "",
+                            ]
+                        )
+                        inferred_topic = keyword_fallback_topic_domain(context_text)
+                        if topic_domain and topic_domain.lower() != "all" and inferred_topic != topic_domain:
+                            continue
+
+                        row["topic_domain"] = inferred_topic
+                        row["thesis_statement"] = bullets[0] if bullets else (row.get("takeaway") or "")
+                        filtered_rows.append(row)
+
+                    return filtered_rows[: max(1, min(limit, 500))]
+                except Exception as fallback_error:
+                    logger.error(f"Factbook topic query fallback failed: {fallback_error}")
+                    return []
+            logger.error(f"Error getting factbook editorials by topic: {e}")
+            return []
+
+    async def get_factbook_topic_counts(self) -> Dict[str, int]:
+        """Get editorial counts grouped by topic domain."""
+        try:
+            result = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("topic_domain")
+                .execute()
+            )
+
+            counts: Dict[str, int] = {}
+            for row in result.data or []:
+                topic = row.get("topic_domain") or "Other"
+                counts[topic] = counts.get(topic, 0) + 1
+            return counts
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                try:
+                    fallback_result = (
+                        self.supabase
+                        .table("factbook_editorials")
+                        .select("headline, summary_bullets, takeaway, summary_paragraph")
+                        .limit(5000)
+                        .execute()
+                    )
+
+                    counts: Dict[str, int] = {}
+                    for row in fallback_result.data or []:
+                        context_text = " ".join(
+                            [
+                                row.get("headline") or "",
+                                " ".join(row.get("summary_bullets") or []),
+                                row.get("takeaway") or "",
+                                row.get("summary_paragraph") or "",
+                            ]
+                        )
+                        inferred_topic = keyword_fallback_topic_domain(context_text)
+                        counts[inferred_topic] = counts.get(inferred_topic, 0) + 1
+
+                    return counts
+                except Exception as fallback_error:
+                    logger.error(f"Factbook topic count fallback failed: {fallback_error}")
+                    return {}
+            logger.error(f"Error getting factbook topic counts: {e}")
+            return {}
+
+    async def get_factbook_editorials_for_topic_labeling(
+        self,
+        start_date: str,
+        end_date: str,
+        limit: int = 100,
+        offset: int = 0,
+        only_unlabeled: bool = True,
+    ) -> List[Dict]:
+        """Get paginated factbook editorials for topic labeling updates."""
+        try:
+            query = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("id, publication_date, headline, summary_bullets, takeaway, summary_paragraph, topic_domain, thesis_statement")
+                .gte("publication_date", start_date)
+                .lte("publication_date", end_date)
+                .order("publication_date")
+                .range(offset, offset + max(1, limit) - 1)
+            )
+
+            result = query.execute()
+            rows = result.data if result.data else []
+
+            if not only_unlabeled:
+                return rows
+
+            filtered: List[Dict] = []
+            for row in rows:
+                topic = (row.get("topic_domain") or "").strip().lower()
+                thesis = (row.get("thesis_statement") or "").strip()
+                if topic in ("", "other", "uncategorized") or not thesis:
+                    filtered.append(row)
+            return filtered
+        except Exception as e:
+            if self._is_missing_factbook_topic_column_error(e):
+                logger.warning("Factbook topic-label query requested before topic columns are available")
+                return []
+            logger.error(f"Error getting factbook editorials for topic labeling: {e}")
+            return []
+
+    async def upsert_factbook_topic_labels(self, updates: List[Dict]) -> int:
+        """Update topic labels and thesis statements by editorial id."""
+        if not updates:
+            return 0
+
+        now = datetime.utcnow().isoformat()
+        updated_count = 0
+
+        for row in updates:
+            try:
+                payload = {
+                    "topic_domain": row.get("topic_domain", "Other"),
+                    "thesis_statement": row.get("thesis_statement", ""),
+                    "updated_at": now,
+                }
+
+                result = (
+                    self.supabase
+                    .table("factbook_editorials")
+                    .update(payload)
+                    .eq("id", row["id"])
+                    .execute()
+                )
+
+                # Supabase may return an empty representation based on settings;
+                # count it as updated when no exception was raised.
+                if result.data:
+                    updated_count += len(result.data)
+                else:
+                    updated_count += 1
+            except Exception as row_error:
+                if self._is_missing_factbook_topic_column_error(row_error):
+                    logger.warning("Factbook topic label update skipped because topic columns are missing")
+                    return 0
+                logger.error(f"Error updating factbook topic label for id {row.get('id')}: {row_error}")
+
+        return updated_count
+
+    async def get_factbook_editorial_dates(self, month: Optional[str] = None, limit: int = 120) -> List[str]:
+        """Get publication dates with available factbook editorials."""
+        try:
+            query = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("publication_date")
+                .order("publication_date", desc=True)
+            )
+
+            if month:
+                start = date.fromisoformat(f"{month}-01")
+                next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+                query = query.gte("publication_date", start.isoformat()).lt("publication_date", next_month.isoformat())
+
+            result = query.limit(max(limit * 5, 60)).execute()
+            rows = result.data if result.data else []
+
+            dates: List[str] = []
+            seen = set()
+            for row in rows:
+                publication_date = row.get("publication_date")
+                if not publication_date or publication_date in seen:
+                    continue
+                seen.add(publication_date)
+                dates.append(publication_date)
+                if len(dates) >= limit:
+                    break
+
+            return dates
+        except Exception as e:
+            logger.error(f"Error getting factbook editorial dates: {e}")
+            return []
+
+    async def get_latest_factbook_editorial_date(self) -> Optional[str]:
+        """Get the latest available publication date with at least one editorial."""
+        try:
+            result = (
+                self.supabase
+                .table("factbook_editorials")
+                .select("publication_date")
+                .order("publication_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            rows = result.data if result.data else []
+            if not rows:
+                return None
+
+            return rows[0].get("publication_date")
+        except Exception as e:
+            logger.error(f"Error getting latest factbook editorial date: {e}")
             return None
