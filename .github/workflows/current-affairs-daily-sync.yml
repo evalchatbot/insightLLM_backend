@@ -1,0 +1,45 @@
+name: Current Affairs Daily Sync
+
+on:
+  schedule:
+    # 20:30 UTC = 01:30 Asia/Karachi (next day)
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger current affairs sync endpoint
+        env:
+          CURRENT_AFFAIRS_SYNC_URL: ${{ secrets.CURRENT_AFFAIRS_SYNC_URL }}
+          CURRENT_AFFAIRS_SYNC_TOKEN: ${{ secrets.CURRENT_AFFAIRS_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CURRENT_AFFAIRS_SYNC_URL:-}" ]; then
+            echo "Missing secret: CURRENT_AFFAIRS_SYNC_URL"
+            exit 1
+          fi
+
+          if [ -z "${CURRENT_AFFAIRS_SYNC_TOKEN:-}" ]; then
+            echo "Missing secret: CURRENT_AFFAIRS_SYNC_TOKEN"
+            exit 1
+          fi
+
+          TARGET_DATE="$(TZ=Asia/Karachi date +%F)"
+          PAYLOAD="{\"date\":\"${TARGET_DATE}\",\"dry_run\":false}"
+
+          echo "Triggering daily sync for date ${TARGET_DATE}"
+          HTTP_CODE=$(curl --retry 3 --retry-delay 2 --retry-connrefused -sS -o response.json -w "%{http_code}" \
+            -X POST "${CURRENT_AFFAIRS_SYNC_URL}" \
+            -H "Content-Type: application/json" \
+            -H "x-current-affairs-token: ${CURRENT_AFFAIRS_SYNC_TOKEN}" \
+            -d "${PAYLOAD}")
+
+          cat response.json
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Sync request failed with HTTP ${HTTP_CODE}"
+            exit 1
+          fi
