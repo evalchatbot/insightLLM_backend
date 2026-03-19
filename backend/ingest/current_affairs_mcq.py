@@ -784,15 +784,24 @@ async def sync_current_affairs_mcqs_for_date(
 
     try:
         for section in DAWN_SECTIONS:
-            listing_html = _fetch_html(section["url"])
-            section_candidates = _extract_section_candidates(section["name"], section["url"], listing_html)
+            try:
+                listing_html = _fetch_html(section["url"])
+                section_candidates = _extract_section_candidates(section["name"], section["url"], listing_html)
 
-            for item in section_candidates:
-                item["heuristic_score"] = _headline_relevance_score(item["headline"], item["section"])
-                candidates.append(item)
+                for item in section_candidates:
+                    item["heuristic_score"] = _headline_relevance_score(item["headline"], item["section"])
+                    candidates.append(item)
 
-            stats["sections_scanned"] += 1
-            time.sleep(0.1)
+                stats["sections_scanned"] += 1
+            except Exception as section_exc:
+                error_message = f"section={section['name']} fetch failed: {section_exc}"
+                logger.warning(f"[CURRENT_AFFAIRS] {error_message}")
+                stats["errors"].append(error_message)
+            finally:
+                time.sleep(0.1)
+
+        if not candidates:
+            return stats
 
         # Dedupe by URL and keep highest heuristic score version if repeated across sections.
         deduped: Dict[str, Dict[str, Any]] = {}

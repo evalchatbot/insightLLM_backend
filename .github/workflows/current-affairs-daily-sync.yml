@@ -10,36 +10,91 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger current affairs sync endpoint
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run current affairs daily sync
         env:
-          CURRENT_AFFAIRS_SYNC_URL: ${{ secrets.CURRENT_AFFAIRS_SYNC_URL }}
-          CURRENT_AFFAIRS_SYNC_TOKEN: ${{ secrets.CURRENT_AFFAIRS_SYNC_TOKEN }}
+          CURRENT_AFFAIRS_SYNC_URL: ${{ secrets.CURRENT_AFFAIRS_SYNC_URL || vars.CURRENT_AFFAIRS_SYNC_URL || vars.CURRENT_AFFAIRS_API_BASE_URL || vars.API_BASE_URL }}
+          CURRENT_AFFAIRS_SYNC_TOKEN: ${{ secrets.CURRENT_AFFAIRS_SYNC_TOKEN || vars.CURRENT_AFFAIRS_SYNC_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GROK_API: ${{ secrets.GROK_API }}
         run: |
           set -euo pipefail
-
-          if [ -z "${CURRENT_AFFAIRS_SYNC_URL:-}" ]; then
-            echo "Missing secret: CURRENT_AFFAIRS_SYNC_URL"
-            exit 1
-          fi
-
-          if [ -z "${CURRENT_AFFAIRS_SYNC_TOKEN:-}" ]; then
-            echo "Missing secret: CURRENT_AFFAIRS_SYNC_TOKEN"
-            exit 1
-          fi
 
           TARGET_DATE="$(TZ=Asia/Karachi date +%F)"
           PAYLOAD="{\"date\":\"${TARGET_DATE}\",\"dry_run\":false}"
 
-          echo "Triggering daily sync for date ${TARGET_DATE}"
-          HTTP_CODE=$(curl --retry 3 --retry-delay 2 --retry-connrefused -sS -o response.json -w "%{http_code}" \
-            -X POST "${CURRENT_AFFAIRS_SYNC_URL}" \
-            -H "Content-Type: application/json" \
-            -H "x-current-affairs-token: ${CURRENT_AFFAIRS_SYNC_TOKEN}" \
-            -d "${PAYLOAD}")
+          if [ -n "${CURRENT_AFFAIRS_SYNC_URL:-}" ]; then
+            if [ -z "${CURRENT_AFFAIRS_SYNC_TOKEN:-}" ]; then
+              echo "Missing CURRENT_AFFAIRS_SYNC_TOKEN for endpoint mode"
+              exit 1
+            fi
 
-          cat response.json
+            RAW_URL="${CURRENT_AFFAIRS_SYNC_URL%/}"
+            case "${RAW_URL}" in
+              http://*|https://*) ;;
+              *)
+                echo "Invalid CURRENT_AFFAIRS_SYNC_URL. Expected http:// or https:// URL"
+                exit 1
+                ;;
+            esac
 
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            echo "Sync request failed with HTTP ${HTTP_CODE}"
+            if [[ "${RAW_URL}" == *"/sync/current-affairs/"* ]]; then
+              SYNC_ENDPOINT="${RAW_URL}"
+            else
+              # Allow users to provide a base URL and append the daily endpoint automatically.
+              SYNC_ENDPOINT="${RAW_URL}/quiz/sync/current-affairs/daily"
+            fi
+
+            echo "Triggering endpoint sync for date ${TARGET_DATE} via ${SYNC_ENDPOINT}"
+
+            set +e
+            HTTP_CODE=$(curl --retry 4 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 120 -sS -o response.json -w "%{http_code}" \
+              -X POST "${SYNC_ENDPOINT}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "x-current-affairs-token: ${CURRENT_AFFAIRS_SYNC_TOKEN}" \
+              -d "${PAYLOAD}")
+            CURL_EXIT=$?
+            set -e
+
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              echo "Sync request failed before HTTP response (curl exit ${CURL_EXIT})"
+              [ -f response.json ] && cat response.json || true
+              exit 1
+            fi
+
+            [ -f response.json ] && cat response.json || true
+
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+              echo "Sync request failed with HTTP ${HTTP_CODE} at ${SYNC_ENDPOINT}"
+              exit 1
+            fi
+
+            echo "Endpoint sync completed successfully"
+            exit 0
+          fi
+
+          echo "CURRENT_AFFAIRS_SYNC_URL not set. Falling back to local script mode."
+
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "Missing SUPABASE_URL for local mode"
             exit 1
           fi
+
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] && [ -z "${SUPABASE_KEY:-}" ]; then
+            echo "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY for local mode"
+            exit 1
+          fi
+
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m backend.scripts.run_current_affairs_daily_sync --date "${TARGET_DATE}"
