@@ -754,6 +754,39 @@ def _ensure_current_affairs_genre_id(supabase_service: SupabaseService) -> str:
     raise RuntimeError(f"Could not resolve Current Affairs genre id. Last error: {last_error}")
 
 
+def _get_existing_mcq_count_for_date(
+    supabase_service: SupabaseService,
+    genre_id: str,
+    target_date: date,
+) -> int:
+    """
+    Return number of previously saved current-affairs MCQs for this date.
+
+    Uses metadata.source_date and metadata.module to avoid re-generating already-synced days.
+    """
+
+    try:
+        result = (
+            supabase_service.supabase
+            .table("mcqs")
+            .select("id", count="exact")
+            .eq("genre_id", genre_id)
+            .filter("metadata->>module", "eq", "current_affairs_dawn")
+            .filter("metadata->>source_date", "eq", target_date.isoformat())
+            .limit(1)
+            .execute()
+        )
+
+        if hasattr(result, "count") and result.count is not None:
+            return int(result.count)
+
+        rows = result.data if result.data else []
+        return len(rows)
+    except Exception as exc:
+        logger.warning(f"[CURRENT_AFFAIRS] Existing-count check failed for {target_date.isoformat()}: {exc}")
+        return 0
+
+
 async def sync_current_affairs_mcqs_for_date(
     supabase_service: SupabaseService,
     target_date: date,
@@ -770,6 +803,7 @@ async def sync_current_affairs_mcqs_for_date(
         "sections_scanned": 0,
         "candidate_headlines": 0,
         "relevant_headlines": 0,
+        "existing_mcqs_for_date": 0,
         "mcqs_after_quality_filter": 0,
         "mcqs_generated": 0,
         "mcqs_saved": 0,
@@ -781,6 +815,7 @@ async def sync_current_affairs_mcqs_for_date(
     selected_candidates: List[Dict[str, Any]] = []
     generated_mcqs: List[Dict[str, Any]] = []
     upsert_rows: List[Dict[str, Any]] = []
+    resolved_genre_id: Optional[str] = None
 
     try:
         for section in DAWN_SECTIONS:
@@ -825,6 +860,23 @@ async def sync_current_affairs_mcqs_for_date(
 
         if not selected_candidates:
             return stats
+
+        if not dry_run:
+            resolved_genre_id = _ensure_current_affairs_genre_id(supabase_service)
+            stats["genre_id"] = resolved_genre_id
+
+            existing_count = _get_existing_mcq_count_for_date(
+                supabase_service=supabase_service,
+                genre_id=resolved_genre_id,
+                target_date=target_date,
+            )
+            stats["existing_mcqs_for_date"] = existing_count
+
+            if existing_count >= max(1, CURRENT_AFFAIRS_MCQS_PER_DAY):
+                logger.info(
+                    f"[CURRENT_AFFAIRS] Skipping {target_date.isoformat()} - already has {existing_count} MCQs"
+                )
+                return stats
 
         generated_mcqs = _generate_mcqs_with_grok(
             selected_candidates=selected_candidates,
@@ -917,7 +969,7 @@ async def sync_current_affairs_mcqs_for_date(
         if dry_run or not deduped_mcqs:
             return stats
 
-        genre_id = _ensure_current_affairs_genre_id(supabase_service)
+        genre_id = resolved_genre_id or _ensure_current_affairs_genre_id(supabase_service)
         stats["genre_id"] = genre_id
         generated_at = datetime.utcnow().isoformat()
 

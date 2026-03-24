@@ -23,9 +23,11 @@ jobs:
           CURRENT_AFFAIRS_SYNC_URL: ${{ secrets.CURRENT_AFFAIRS_SYNC_URL || vars.CURRENT_AFFAIRS_SYNC_URL || vars.CURRENT_AFFAIRS_API_BASE_URL || vars.API_BASE_URL }}
           CURRENT_AFFAIRS_SYNC_TOKEN: ${{ secrets.CURRENT_AFFAIRS_SYNC_TOKEN || vars.CURRENT_AFFAIRS_SYNC_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          GROK_API: ${{ secrets.GROK_API }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
+          GROK_API: ${{ secrets.GROK_API || vars.GROK_API }}
+          CURRENT_AFFAIRS_BACKFILL_START_DATE: ${{ vars.CURRENT_AFFAIRS_BACKFILL_START_DATE || '2026-01-01' }}
+          CURRENT_AFFAIRS_MAX_DAYS_PER_RUN: ${{ vars.CURRENT_AFFAIRS_MAX_DAYS_PER_RUN || '30' }}
         run: |
           set -euo pipefail
 
@@ -34,56 +36,53 @@ jobs:
 
           if [ -n "${CURRENT_AFFAIRS_SYNC_URL:-}" ]; then
             if [ -z "${CURRENT_AFFAIRS_SYNC_TOKEN:-}" ]; then
-              echo "Missing CURRENT_AFFAIRS_SYNC_TOKEN for endpoint mode"
-              exit 1
-            fi
-
-            RAW_URL="${CURRENT_AFFAIRS_SYNC_URL%/}"
-            case "${RAW_URL}" in
-              http://*|https://*) ;;
-              *)
-                echo "Invalid CURRENT_AFFAIRS_SYNC_URL. Expected http:// or https:// URL"
-                exit 1
-                ;;
-            esac
-
-            if [[ "${RAW_URL}" == *"/sync/current-affairs/"* ]]; then
-              SYNC_ENDPOINT="${RAW_URL}"
+              echo "Missing CURRENT_AFFAIRS_SYNC_TOKEN for endpoint mode. Falling back to local mode."
             else
-              # Allow users to provide a base URL and append the daily endpoint automatically.
-              SYNC_ENDPOINT="${RAW_URL}/quiz/sync/current-affairs/daily"
+              RAW_URL="${CURRENT_AFFAIRS_SYNC_URL%/}"
+              case "${RAW_URL}" in
+                http://*|https://*) ;;
+                *)
+                  echo "Invalid CURRENT_AFFAIRS_SYNC_URL. Expected http:// or https:// URL"
+                  exit 1
+                  ;;
+              esac
+
+              if [[ "${RAW_URL}" == *"/sync/current-affairs/"* ]]; then
+                SYNC_ENDPOINT="${RAW_URL}"
+              else
+                # Allow users to provide a base URL and append the daily endpoint automatically.
+                SYNC_ENDPOINT="${RAW_URL}/quiz/sync/current-affairs/daily"
+              fi
+
+              echo "Triggering endpoint sync for date ${TARGET_DATE} via ${SYNC_ENDPOINT}"
+
+              set +e
+              HTTP_CODE=$(curl --retry 4 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 120 -sS -o response.json -w "%{http_code}" \
+                -X POST "${SYNC_ENDPOINT}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -H "x-current-affairs-token: ${CURRENT_AFFAIRS_SYNC_TOKEN}" \
+                -d "${PAYLOAD}")
+              CURL_EXIT=$?
+              set -e
+
+              if [ "$CURL_EXIT" -ne 0 ]; then
+                echo "Sync request failed before HTTP response (curl exit ${CURL_EXIT}). Will try local fallback if available."
+                [ -f response.json ] && cat response.json || true
+              else
+                [ -f response.json ] && cat response.json || true
+
+                if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+                  echo "Sync request failed with HTTP ${HTTP_CODE} at ${SYNC_ENDPOINT}. Will try local fallback if available."
+                else
+                  echo "Endpoint sync completed successfully"
+                  exit 0
+                fi
+              fi
             fi
-
-            echo "Triggering endpoint sync for date ${TARGET_DATE} via ${SYNC_ENDPOINT}"
-
-            set +e
-            HTTP_CODE=$(curl --retry 4 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 120 -sS -o response.json -w "%{http_code}" \
-              -X POST "${SYNC_ENDPOINT}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -H "x-current-affairs-token: ${CURRENT_AFFAIRS_SYNC_TOKEN}" \
-              -d "${PAYLOAD}")
-            CURL_EXIT=$?
-            set -e
-
-            if [ "$CURL_EXIT" -ne 0 ]; then
-              echo "Sync request failed before HTTP response (curl exit ${CURL_EXIT})"
-              [ -f response.json ] && cat response.json || true
-              exit 1
-            fi
-
-            [ -f response.json ] && cat response.json || true
-
-            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-              echo "Sync request failed with HTTP ${HTTP_CODE} at ${SYNC_ENDPOINT}"
-              exit 1
-            fi
-
-            echo "Endpoint sync completed successfully"
-            exit 0
           fi
 
-          echo "CURRENT_AFFAIRS_SYNC_URL not set. Falling back to local script mode."
+          echo "Using local script mode for daily sync + catch-up."
 
           if [ -z "${SUPABASE_URL:-}" ]; then
             echo "Missing SUPABASE_URL for local mode"
@@ -97,4 +96,7 @@ jobs:
 
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m backend.scripts.run_current_affairs_daily_sync --date "${TARGET_DATE}"
+          python -m backend.scripts.run_current_affairs_daily_sync \
+            --start-date "${CURRENT_AFFAIRS_BACKFILL_START_DATE}" \
+            --end-date "${TARGET_DATE}" \
+            --max-days "${CURRENT_AFFAIRS_MAX_DAYS_PER_RUN}"
