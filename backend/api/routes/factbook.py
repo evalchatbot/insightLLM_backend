@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.config import (
@@ -129,7 +129,6 @@ class BackfillSyncRequest(BaseModel):
 
 @router.get("/editorials", response_model=EditorialListResponse)
 async def get_editorials(
-    background_tasks: BackgroundTasks,
     date_value: Optional[str] = Query(default=None, alias="date"),
     supabase_service: SupabaseService = Depends(get_supabase_service),
 ):
@@ -138,22 +137,22 @@ async def get_editorials(
     resolved_date = target_date
 
     if not date_value and not rows:
-        latest_date = await supabase_service.get_latest_factbook_editorial_date()
-        if latest_date:
-            fallback_rows = await supabase_service.get_factbook_editorials_by_date(latest_date)
-            if fallback_rows:
-                rows = fallback_rows
-                resolved_date = date.fromisoformat(latest_date)
-
         if _should_trigger_auto_sync(target_date):
-            logger.info(f"[FACTBOOK] Auto-sync queued for {target_date.isoformat()} after empty read")
-            background_tasks.add_task(
-                sync_editorials_for_range,
+            logger.info(f"[FACTBOOK] Auto-sync running for {target_date.isoformat()} after empty current-day read")
+            await sync_editorials_for_range(
                 supabase_service=supabase_service,
                 start_date=target_date,
                 end_date=target_date,
                 dry_run=False,
             )
+            rows = await supabase_service.get_factbook_editorials_by_date(target_date.isoformat())
+
+        latest_date = await supabase_service.get_latest_factbook_editorial_date()
+        if not rows and latest_date:
+            fallback_rows = await supabase_service.get_factbook_editorials_by_date(latest_date)
+            if fallback_rows:
+                rows = fallback_rows
+                resolved_date = date.fromisoformat(latest_date)
 
     editorials = [EditorialSummary(**row) for row in rows]
     return EditorialListResponse(date=resolved_date.isoformat(), count=len(editorials), editorials=editorials)

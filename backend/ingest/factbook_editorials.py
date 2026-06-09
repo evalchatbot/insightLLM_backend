@@ -256,10 +256,12 @@ def _split_sentences(text: str) -> List[str]:
     return [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
 
 
-def _fallback_summary(article_text: str) -> Dict[str, Any]:
+def _fallback_summary(article_text: str, headline: str = "") -> Dict[str, Any]:
     sentences = _split_sentences(article_text)
+    fallback_headline = _normalize_whitespace(headline) or "Editorial context and implications"
     if not sentences:
         return {
+            "summary_headline": fallback_headline,
             "summary_bullets": ["No summary available.", "No summary available.", "No summary available."],
             "takeaway": "No takeaway available.",
             "summary_paragraph": "No detailed summary available.",
@@ -286,15 +288,23 @@ def _fallback_summary(article_text: str) -> Dict[str, Any]:
     if len(takeaway) > 180:
         takeaway = takeaway[:177].rstrip() + "..."
 
+    summary_headline = fallback_headline
+    if sentences:
+        summary_headline = _normalize_whitespace(sentences[0])
+
     return {
+        "summary_headline": summary_headline,
         "summary_bullets": bullets[:3],
         "takeaway": takeaway,
         "summary_paragraph": paragraph,
     }
 
 
-def _normalize_summary_payload(payload: Dict[str, Any], article_text: str) -> Dict[str, Any]:
-    fallback = _fallback_summary(article_text)
+def _normalize_summary_payload(payload: Dict[str, Any], article_text: str, headline: str = "") -> Dict[str, Any]:
+    fallback = _fallback_summary(article_text, headline=headline)
+    summary_headline = _normalize_whitespace(str(payload.get("summary_headline", ""))) if isinstance(payload, dict) else ""
+    if not summary_headline:
+        summary_headline = fallback["summary_headline"]
 
     bullets_raw = payload.get("summary_bullets", []) if isinstance(payload, dict) else []
     bullets = [
@@ -318,6 +328,7 @@ def _normalize_summary_payload(payload: Dict[str, Any], article_text: str) -> Di
         paragraph = fallback["summary_paragraph"]
 
     return {
+        "summary_headline": summary_headline,
         "summary_bullets": bullets[:3],
         "takeaway": takeaway,
         "summary_paragraph": paragraph,
@@ -414,7 +425,7 @@ def classify_editorial_topic_domain(headline: str, summary_payload: Dict[str, An
 def summarize_editorial_with_grok(headline: str, article_text: str) -> Dict[str, Any]:
     if not GROK_API:
         logger.warning("[FACTBOOK] Grok API key missing, using fallback summarizer")
-        return _fallback_summary(article_text)
+        return _fallback_summary(article_text, headline=headline)
 
     client = GrokClient(api_key=GROK_API, timeout=120)
     max_input_chars = 9000
@@ -422,7 +433,11 @@ def summarize_editorial_with_grok(headline: str, article_text: str) -> Dict[str,
 
     system_prompt = (
         "You are a precise editorial summarizer. Return strict JSON only with keys: "
-        "summary_bullets, takeaway, summary_paragraph. "
+        "summary_headline, summary_bullets, takeaway, summary_paragraph. "
+        "Read the fetched original headline and article text, then write summary_headline as one comprehensive, "
+        "self-explanatory news-style line that can stand alone without the article. "
+        "summary_headline must clearly explain what happened, who/what is involved, and the main issue or implication; "
+        "do not use vague 2-3 word titles, clickbait, prefixes, quotation marks, or all caps. "
         "summary_bullets must be exactly 3 concise bullets. "
         "takeaway must be a single sentence. "
         "summary_paragraph must be one paragraph, around 90 to 130 words."
@@ -432,6 +447,7 @@ def summarize_editorial_with_grok(headline: str, article_text: str) -> Dict[str,
         "headline": headline,
         "article_text": trimmed_text,
         "output_schema": {
+            "summary_headline": "string",
             "summary_bullets": ["string", "string", "string"],
             "takeaway": "string",
             "summary_paragraph": "string",
@@ -454,10 +470,10 @@ def summarize_editorial_with_grok(headline: str, article_text: str) -> Dict[str,
         parsed = _extract_json_object(content)
         if not parsed:
             raise ValueError("Could not parse Grok summary JSON")
-        return _normalize_summary_payload(parsed, article_text)
+        return _normalize_summary_payload(parsed, article_text, headline=headline)
     except Exception as exc:
         logger.warning(f"[FACTBOOK] Grok summary failed, falling back. Error: {exc}")
-        return _fallback_summary(article_text)
+        return _fallback_summary(article_text, headline=headline)
 
 
 def _fetch_html(url: str) -> str:
@@ -536,7 +552,7 @@ def _finalize_editorial_record(candidate: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "publication_date": candidate["publication_date"],
-        "headline": candidate["headline"],
+        "headline": summary_payload.get("summary_headline") or candidate["headline"],
         "summary_bullets": summary_payload["summary_bullets"],
         "takeaway": summary_payload["takeaway"],
         "summary_paragraph": summary_payload["summary_paragraph"],
