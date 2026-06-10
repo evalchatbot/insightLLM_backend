@@ -1451,7 +1451,7 @@ def annotate_pdf_answer_pages(
                     text_y += int(line_height * 1.0)
 
                 comment_y = max(comment_y, box_y2 + int(line_height * 0.6))
-                is_right = box_x1 >= comment_x - 5
+                is_right = box_x2 > left_width + orig_w
                 return (box_x1, box_y1, box_x2, box_y2), is_right
 
             def draw_correction_near_box(
@@ -1902,6 +1902,121 @@ def annotate_pdf_answer_pages(
                         add_side_comment(header, body)
                     found_rects.append(rect)
 
+            def _heading_key(text: str) -> str:
+                return re.sub(r"[^a-z0-9\s]", " ", (text or "").lower()).strip()
+
+            def _heading_similarity(a: str, b: str) -> float:
+                ak = _heading_key(a)
+                bk = _heading_key(b)
+                if not ak or not bk:
+                    return 0.0
+                if ak == bk or ak in bk or bk in ak:
+                    return 1.0
+                a_tokens = set(ak.split())
+                b_tokens = set(bk.split())
+                if not a_tokens or not b_tokens:
+                    return 0.0
+                return len(a_tokens & b_tokens) / max(len(a_tokens), len(b_tokens))
+
+            def _matching_heading_annotations(sec: Dict[str, Any]) -> List[Dict[str, Any]]:
+                sec_ids = {
+                    str(sec.get("id") or "").strip(),
+                    str(sec.get("section_id") or "").strip(),
+                    str(sec.get("title") or "").strip(),
+                }
+                sec_ids.discard("")
+
+                sec_headings = [
+                    sec.get("exact_ocr_heading_raw") or "",
+                    sec.get("exact_ocr_heading") or "",
+                    sec.get("title") or "",
+                    sec.get("rephrased_heading") or "",
+                ]
+
+                matches: List[Tuple[float, Dict[str, Any]]] = []
+                for ann in page_anns:
+                    if (ann.get("type") or "").lower() != "heading_issue":
+                        continue
+
+                    ann_sid = str(ann.get("section_id") or ann.get("target_section_id") or "").strip()
+                    if ann_sid and ann_sid in sec_ids:
+                        matches.append((1.0, ann))
+                        continue
+
+                    ann_headings = [
+                        ann.get("target_word_or_sentence") or "",
+                        ann.get("correction") or "",
+                        ann.get("anchor_quote") or "",
+                    ]
+                    score = max(
+                        _heading_similarity(sec_heading, ann_heading)
+                        for sec_heading in sec_headings
+                        for ann_heading in ann_headings
+                    )
+                    if score >= 0.60:
+                        matches.append((score, ann))
+
+                matches.sort(key=lambda item: item[0], reverse=True)
+                return [ann for _, ann in matches]
+
+            def _resolve_heading_comment_rect(sec: Dict[str, Any]) -> Optional[Tuple[int, int, int, int]]:
+                for ann in _matching_heading_annotations(sec):
+                    anchor = (ann.get("anchor_quote") or "").strip()
+                    if anchor:
+                        rect = _find_anchor_rect_on_page(
+                            page_ocr=page_ocr,
+                            anchor_quote=anchor,
+                            w=orig_w,
+                            h=orig_h,
+                            already_found=[],
+                        )
+                        if rect:
+                            return rect
+
+                    target = (ann.get("target_word_or_sentence") or "").strip()
+                    if target:
+                        rect = _find_precise_word_rect_with_context(
+                            page_ocr=page_ocr,
+                            target_text=target,
+                            context_before=ann.get("context_before") or "",
+                            context_after=ann.get("context_after") or "",
+                            w=orig_w,
+                            h=orig_h,
+                            already_found=[],
+                        )
+                        if rect:
+                            return rect
+
+                for heading_text in (
+                    sec.get("exact_ocr_heading_raw") or "",
+                    sec.get("exact_ocr_heading") or "",
+                    sec.get("title") or "",
+                ):
+                    if not heading_text:
+                        continue
+                    rect = _find_anchor_rect_on_page(
+                        page_ocr=page_ocr,
+                        anchor_quote=heading_text,
+                        w=orig_w,
+                        h=orig_h,
+                        already_found=[],
+                    )
+                    if rect:
+                        return rect
+
+                    bbox = _find_heading_bbox_on_page(heading_text, page_ocr)
+                    if bbox:
+                        return _bbox_to_rect(bbox, pad=4, w=orig_w, h=orig_h)
+
+                sid = str(sec.get("id") or sec.get("section_id") or sec.get("title") or "")
+                sec_region = section_regions.get(sid)
+                if sec_region:
+                    x1, y1, x2, _ = sec_region
+                    heading_h = max(int(line_height * 1.4), 24)
+                    return (x1, y1, x2, min(orig_h - 1, y1 + heading_h))
+
+                return None
+
             # NEW: Add heading comments only on the first page of each section
             for sec in sections:
                 pages = sec.get("page_numbers") or []
@@ -1989,10 +2104,20 @@ def annotate_pdf_answer_pages(
 
                 comment_box, comment_on_right = add_side_comment(header, body)
 
-                heading_bbox = _find_heading_bbox_on_page(exact_heading or display_heading, page_ocr)
-                if heading_bbox and comment_on_right:
-                    hx1, hy1, hx2, hy2 = _bbox_to_rect(heading_bbox, pad=4, w=orig_w, h=orig_h)
-                    shifted = shift_rect((hx1, hy1, hx2, hy2))
+                heading_rect = _resolve_heading_comment_rect(sec)
+                if not heading_rect and comment_on_right:
+                    target_y = (comment_box[1] + comment_box[3]) // 2 - y_offset
+                    target_y = max(0, min(orig_h - 1, target_y))
+                    target_h = max(12, int(line_height * 0.8))
+                    heading_rect = (
+                        int(orig_w * 0.06),
+                        max(0, target_y - target_h // 2),
+                        int(orig_w * 0.70),
+                        min(orig_h - 1, target_y + target_h // 2),
+                    )
+
+                if heading_rect and comment_on_right:
+                    shifted = shift_rect(heading_rect)
                     draw_connector(
                         shifted,
                         comment_box[0],
