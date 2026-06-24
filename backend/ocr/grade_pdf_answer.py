@@ -64,6 +64,16 @@ except ImportError:
     from ocr_vision import run_ocr_on_pdf
     from progress_tracker import OCRProgressTracker
 
+# Shared first-page ("cover") report renderer (matches the Rubric.ai mockup).
+try:
+    from backend.utils import report_cover as _cover
+except ImportError:
+    try:
+        from utils import report_cover as _cover
+    except ImportError:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from utils import report_cover as _cover
+
 # -------- 4. OCR Spell Correction Module --------
 print("\n" + "="*60)
 print("Initializing OCR Spell Correction Module...")
@@ -2576,19 +2586,105 @@ def render_subject_report_pages(
       - CRITERIA breakdown (with remarks)
       (Note: high-scoring outline is on a separate dedicated page)
     """
+    try:
+        model = _build_subject_cover_model(grading_result)
+        return _cover.render_cover_images(model, page_size=page_size)
+    except Exception as exc:
+        print(f"WARNING: Rubric cover renderer failed ({exc!r}); using legacy report layout.")
+        traceback.print_exc()
+        return _render_subject_report_legacy(grading_result, page_size, refined_summary)
+
+
+def _build_subject_cover_model(grading_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a 20-marks grading result onto the shared first-page cover model."""
+    subject = str(grading_result.get("subject", "") or "").strip().replace("-", " ").title()
+    total = grading_result.get("total_marks_awarded", 0) or 0
+    maximum = grading_result.get("max_marks", DEFAULT_MAX_MARKS) or DEFAULT_MAX_MARKS
+    try:
+        pct = float(total) / float(maximum) if float(maximum) else 0.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        pct = 0.0
+    question = _strip_question_prefix(grading_result.get("question_statement") or "") or "No question statement provided."
+
+    rows: List[Dict[str, Any]] = []
+    for c in grading_result.get("criteria", []) or []:
+        name = str(c.get("name", "") or "").strip()
+        if not name:
+            continue
+        cmax = c.get("max", "")
+        cawd = c.get("awarded", "")
+        remark = str(c.get("remark", "") or "").strip()
+        if not remark:
+            try:
+                if float(cawd or 0) < float(cmax or 0):
+                    remark = "Missing required content for this criterion."
+            except (TypeError, ValueError):
+                pass
+        rows.append({
+            "category": name,
+            "alloc": _cover.fmt_num(cmax) if cmax != "" else "",
+            "obtained": _cover.fmt_num(cawd) if cawd != "" else "",
+            "remarks": remark,
+            "obtained_color": _cover.obtained_color(cawd, cmax),
+        })
+
+    def _as_list(*keys: str) -> List[str]:
+        for kk in keys:
+            v = grading_result.get(kk)
+            if isinstance(v, str) and v.strip():
+                return [v.strip()]
+            if isinstance(v, list) and v:
+                return [str(x).strip() for x in v if str(x).strip()]
+        return []
+
+    gaps = _as_list("overall_what_was_missing", "key_gaps_in_answer")[:6] or ["No key gaps identified."]
+    improve = _as_list("overall_how_to_improve", "how_to_improve")[:6] or ["No improvement suggestions provided."]
+
+    return {
+        "meta_lines": [
+            [("Subject", subject or "—"), ("Type", "CSS / FPSC")],
+            [("Date", datetime.datetime.now().strftime("%B %Y")), ("", "AI-Powered Evaluation")],
+        ],
+        "score_value": _cover.fmt_num(total),
+        "score_denom": f"Total Marks / {_cover.fmt_num(maximum)}",
+        "score_pct": pct,
+        "score_caption": _cover.score_caption(pct),
+        "question_label": "Question Statement",
+        "question": question,
+        "table_label": "Marks Breakdown",
+        "columns": [
+            {"title": "Category", "key": "category", "w": 0.30, "align": "left", "kind": "cat"},
+            {"title": "Alloc.", "key": "alloc", "w": 0.10, "align": "center", "kind": "mono"},
+            {"title": "Obtained", "key": "obtained", "w": 0.11, "align": "center", "kind": "mono_score"},
+            {"title": "Remarks", "key": "remarks", "w": 0.49, "align": "left", "kind": "text"},
+        ],
+        "rows": rows,
+        "left_section": {"label": "Key Gaps", "accent": "red", "items": gaps},
+        "right_section": {"label": "How to Improve", "accent": "green", "items": improve},
+        "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
+        "footer_url": "rubric.ai",
+    }
+
+
+def _render_subject_report_legacy(
+    grading_result: Dict[str, Any],
+    page_size: Tuple[int, int] = (2977, 4211),
+    refined_summary: Optional[List[Dict[str, Any]]] = None,
+) -> List[Image.Image]:
+    """Legacy PIL-based subject report (retained as a fallback)."""
     W, H = page_size
     # Start from the base size returned by get_report_page_size().
     # Then grow height gradually until everything fits on a SINGLE page.
     base_height_multiplier = 1.0
     max_height_multiplier = 5.0  # safety upper bound; actual cap enforced in renderer based on memory
     height_increment = 0.05  # smaller step for a tighter fit
-    
+
     # Try dynamic height adjustment first
     current_height_multiplier = base_height_multiplier
     font_scale = 1.0  # Keep font size constant initially
     attempt = 0
     last_pages: List[Image.Image] = []
-    
+
     while current_height_multiplier <= max_height_multiplier:
         adjusted_page_size = (W, int(H * current_height_multiplier))
         pages, overflowed = _render_subject_report_with_scale(

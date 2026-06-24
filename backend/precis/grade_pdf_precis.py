@@ -44,6 +44,17 @@ except Exception:
     except Exception:
         annotate_pdf_essay_pages = None  # type: ignore
 
+# Shared first-page ("cover") report renderer (matches the Rubric.ai mockup).
+import datetime as _dt
+try:
+    from backend.utils import report_cover as _cover
+except ImportError:
+    try:
+        from utils import report_cover as _cover
+    except ImportError:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from utils import report_cover as _cover
+
 
 DEFAULT_PRECIS_CRITERIA: List[Dict[str, Any]] = [
     {"id": "comprehension", "criterion": "Comprehension & Understanding of Passage", "marks_allocated": 3},
@@ -1614,7 +1625,93 @@ def render_precis_report_pdf(
     colouring_scheme_image: str = "",
     max_pages: int = 2,
 ) -> None:
-    """Render report on exactly one page by shrinking all text sizes if needed."""
+    """Render the precis evaluation first page (report cover).
+
+    Writes a single-page vector PDF matching the shared Rubric.ai cover design.
+    Falls back to the legacy layout on any error.
+    """
+    try:
+        model = _build_precis_cover_model(grading)
+        _cover.render_cover_pdf(model, output_pdf_path)
+        return
+    except Exception as exc:
+        print(f"WARNING: Rubric cover renderer failed ({exc!r}); using legacy precis layout.")
+
+    _render_precis_report_pdf_legacy(
+        grading, output_pdf_path,
+        colouring_scheme_image=colouring_scheme_image, max_pages=max_pages,
+    )
+
+
+def _build_precis_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a precis grading result onto the shared first-page cover model."""
+    total_awarded = grading.get("total_awarded", 0) or 0
+    total_marks = int(round(sum(float(c.get("marks_allocated", 0)) for c in grading.get("criteria", []) or []))) or 20
+    try:
+        pct = float(total_awarded) / float(total_marks) if total_marks else 0.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        pct = 0.0
+
+    rows: List[Dict[str, Any]] = []
+    for c in grading.get("criteria", []) or []:
+        crit = str(c.get("criterion", "") or "").strip()
+        if not crit:
+            continue
+        alloc = c.get("marks_allocated", "")
+        awd = c.get("marks_awarded", "")
+        rows.append({
+            "category": crit,
+            "alloc": _cover.fmt_num(alloc) if alloc != "" else "",
+            "obtained": _cover.fmt_num(awd) if awd != "" else "",
+            "remarks": str(c.get("key_comments", "") or "").strip(),
+            "obtained_color": _cover.obtained_color(awd, alloc),
+        })
+
+    reasons = [str(x).strip() for x in (grading.get("reasons_for_low_score") or []) if str(x).strip()][:6] \
+        or ["No major weaknesses identified."]
+    ideal = grading.get("ideal_precis") or {}
+    ideal_title = str(ideal.get("title", "") or "").strip() or "(Not provided)"
+    ideal_text = str(ideal.get("text", "") or "").strip() or "(Not provided)"
+
+    owc = grading.get("original_passage_word_count", 0)
+    rwc = grading.get("required_precis_word_count", 0)
+    swc = grading.get("student_precis_word_count", 0)
+    student_title = str(grading.get("student_title", "") or "").strip() or "Untitled passage"
+
+    return {
+        "meta_lines": [
+            [("Subject", "Précis"), ("Type", "CSS / FPSC")],
+            [("Words", f"{owc} → {rwc} req · {swc} used"), ("Date", _dt.datetime.now().strftime("%B %Y"))],
+        ],
+        "score_value": _cover.fmt_num(total_awarded),
+        "score_denom": f"Total Marks / {_cover.fmt_num(total_marks)}",
+        "score_pct": pct,
+        "score_caption": _cover.score_caption(pct),
+        "question_label": "Passage Title",
+        "question": student_title,
+        "table_label": "Marks Breakdown",
+        "columns": [
+            {"title": "Criterion", "key": "category", "w": 0.30, "align": "left", "kind": "cat"},
+            {"title": "Alloc.", "key": "alloc", "w": 0.10, "align": "center", "kind": "mono"},
+            {"title": "Awarded", "key": "obtained", "w": 0.11, "align": "center", "kind": "mono_score"},
+            {"title": "Key Comments", "key": "remarks", "w": 0.49, "align": "left", "kind": "text"},
+        ],
+        "rows": rows,
+        "left_section": {"label": "Reasons for Low Score", "accent": "red", "items": reasons},
+        "right_section": {"label": "Ideal Précis", "accent": "red", "title": ideal_title, "body": ideal_text},
+        "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
+        "footer_url": "rubric.ai",
+    }
+
+
+def _render_precis_report_pdf_legacy(
+    grading: Dict[str, Any],
+    output_pdf_path: str,
+    *,
+    colouring_scheme_image: str = "",
+    max_pages: int = 2,
+) -> None:
+    """Legacy fitz-based precis report (retained as a fallback)."""
     palette = _dominant_colors_from_scheme(colouring_scheme_image)
     W, H = 595.0, 842.0
     margin = 30.0

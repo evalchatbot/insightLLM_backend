@@ -83,6 +83,18 @@ except (ImportError, ModuleNotFoundError):
             "Ensure 'annotate_pdf_with_essay_rubric.py' exists in backend/eng_essay/ directory."
         )
 
+# Shared first-page ("cover") report renderer (matches the Rubric.ai mockup).
+import datetime as _dt
+try:
+    from backend.utils import report_cover as _cover
+except ImportError:
+    try:
+        from utils import report_cover as _cover
+    except ImportError:
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from utils import report_cover as _cover
+
 # Import spell correction function from backend/ocr/ocr-spell-correction.py
 try:
     import sys
@@ -2045,10 +2057,80 @@ def render_essay_report_pages_range(
     page_size: Tuple[int, int] = (2977, 4211),
 ) -> List[Image.Image]:
     """
-    Render essay report using PyMuPDF with built-in fonts (like annotations).
-    This ensures consistent font sizes in all environments without external font files.
-    Returns a list of PIL Images for compatibility with merge function.
+    Render the essay evaluation first page (report cover).
+
+    Returns a list with a single PIL image matching the shared Rubric.ai cover
+    design. Falls back to the legacy PyMuPDF layout on any error.
     """
+    try:
+        model = _build_essay_cover_model(grading)
+        return _cover.render_cover_images(model, page_size=page_size)
+    except Exception as exc:
+        print(f"WARNING: Rubric cover renderer failed ({exc!r}); using legacy essay layout.")
+        return _render_essay_report_legacy(grading, page_size=page_size)
+
+
+def _parse_range_mid(s: Any) -> float:
+    """Average of the numbers in a range string like '55-60' (-> 57.5)."""
+    nums = re.findall(r"\d+(?:\.\d+)?", str(s or ""))
+    if not nums:
+        return 0.0
+    vals = [float(n) for n in nums]
+    return sum(vals) / len(vals)
+
+
+def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
+    """Map an essay grading result onto the shared first-page cover model."""
+    topic = str(grading.get("topic", "") or "").strip() or "No topic provided."
+    rng = str(grading.get("total_awarded_range", "") or "").strip()
+    mid = _parse_range_mid(rng)
+    pct = max(0.0, min(1.0, mid / 100.0))
+    score_value = rng if rng else _cover.fmt_num(mid)
+
+    rows: List[Dict[str, Any]] = []
+    for c in grading.get("criteria", []) or []:
+        crit = str(c.get("criterion", "") or "").strip()
+        if not crit:
+            continue
+        rows.append({"category": crit, "remarks": str(c.get("key_comments", "") or "").strip()})
+
+    reasons = [str(x).strip() for x in (grading.get("reasons_for_low_score") or []) if str(x).strip()][:6] \
+        or ["No specific weaknesses identified."]
+    improves = [
+        str(x).strip()
+        for x in (grading.get("suggested_improvements_for_higher_score_70_plus") or [])
+        if str(x).strip()
+    ][:6] or ["No improvement suggestions provided."]
+
+    return {
+        "meta_lines": [
+            [("Subject", "English Essay"), ("Type", "CSS / FPSC")],
+            [("Date", _dt.datetime.now().strftime("%B %Y")), ("", "AI-Powered Evaluation")],
+        ],
+        "score_value": score_value,
+        "score_denom": "Total Marks / 100",
+        "score_pct": pct,
+        "score_caption": _cover.score_caption(pct),
+        "question_label": "Essay Topic",
+        "question": topic,
+        "table_label": "Criterion Feedback",
+        "columns": [
+            {"title": "Criterion", "key": "category", "w": 0.32, "align": "left", "kind": "cat"},
+            {"title": "Key Comments", "key": "remarks", "w": 0.68, "align": "left", "kind": "text"},
+        ],
+        "rows": rows,
+        "left_section": {"label": "Reasons for Low Score", "accent": "red", "items": reasons},
+        "right_section": {"label": "How to Reach 70+", "accent": "green", "items": improves},
+        "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
+        "footer_url": "rubric.ai",
+    }
+
+
+def _render_essay_report_legacy(
+    grading: Dict[str, Any],
+    page_size: Tuple[int, int] = (2977, 4211),
+) -> List[Image.Image]:
+    """Legacy PyMuPDF essay report (retained as a fallback)."""
     # PyMuPDF works in points (72 DPI), input page_size is in pixels at 200 DPI
     dpi_ratio = 72.0 / 200.0
     W_pt = page_size[0] * dpi_ratio
