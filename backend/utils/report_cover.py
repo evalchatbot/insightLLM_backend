@@ -51,9 +51,11 @@ _FONT_FILES = {
 
 RED = (0.698, 0.133, 0.133)        # #b22222  brand red / accent
 INK = (0.102, 0.102, 0.102)        # #1A1A1A  primary text
-GREY = (0.600, 0.600, 0.600)       # #999999  muted labels
-GREY_DK = (0.200, 0.200, 0.200)    # #333333  body text
-GREY_MID = (0.267, 0.267, 0.267)   # #444444  question text
+# All report text is rendered in near-black for maximum readability.
+# (Structural rule lines below stay light; red/green accents are kept.)
+GREY = INK                         # labels (was #999999)
+GREY_DK = INK                      # body text (was #333333)
+GREY_MID = INK                     # question text (was #444444)
 LINE = (0.910, 0.910, 0.910)       # #E8E8E8  soft rules
 LINE_LT = (0.941, 0.941, 0.941)    # #F0F0F0  row rules
 LINE_XLT = (0.957, 0.957, 0.957)   # #F4F4F4  list rules
@@ -445,7 +447,7 @@ def _draw_footer(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, p
     canvas.hline(x0, x1, fy, LINE, 0.8)
     fy += _px(10) * k
     note = str(model.get("footer_note", ""))
-    canvas.text(x0, fy, note, "sans-light", _px(9) * k, (0.733, 0.733, 0.733))
+    canvas.text(x0, fy, note, "sans-light", _px(9) * k, INK)
     url = str(model.get("footer_url", "rubric.ai"))
     uw = canvas.text_len(url, "mono", _px(9) * k)
     canvas.text(x1 - uw, fy, url, "mono", _px(9) * k, RED)
