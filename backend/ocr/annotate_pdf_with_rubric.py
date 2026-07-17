@@ -11,6 +11,8 @@ import numpy as np
 import fitz
 from PIL import Image
 
+from backend.utils import annotated_result_layout as arl
+
 # Try to import psutil for cross-platform memory monitoring
 try:
     import psutil
@@ -808,6 +810,7 @@ def annotate_pdf_answer_pages(
     page_suggestions: Optional[List[Dict[str, Any]]] = None,
     log_path: Optional[str] = None,
     request_id: Optional[str] = None,
+    page_meta: Optional[str] = None,
 ) -> List[Image.Image]:
     """
     Create annotated versions of the answer pages.
@@ -1000,43 +1003,43 @@ def annotate_pdf_answer_pages(
             # Explicitly delete pix and img_bytes to free memory immediately
             del pix, img_bytes
 
-            # Extended canvas: [left margin][answer][right margin]
+            # Extended cream canvas: [left margin][answer][right margin]
             left_width = int(SIDE_MARGIN_RATIO * orig_w)
             right_width = int(SIDE_MARGIN_RATIO * orig_w)
             new_w = left_width + orig_w + right_width
             margin = int(MARGIN_RATIO * orig_w)
-            # Changed from vertical centering to top-aligned with small margin
-            # This reduces top/bottom space while keeping suggestions/annotations working
-            y_offset = margin  # Changed from (h - content_h) // 2
+            # Below masthead + page label; footer reserved at bottom
+            top_chrome = arl.content_top_offset(new_w)
+            bottom_chrome = arl.content_bottom_reserve(new_w)
+            y_offset = top_chrome
             
-            # Ensure canvas height is sufficient: must accommodate y_offset + content_h
-            # For very large pages (like test 5), ensure we have enough space
-            # Calculate required height: margin at top + content height + small bottom margin
-            required_h = y_offset + content_h + margin  # Add bottom margin for safety
-            h = max(orig_h, min_page_height, required_h)  # Ensure h >= required_h
+            required_h = y_offset + content_h + bottom_chrome
+            h = max(orig_h, min_page_height, required_h)
 
-            cv_img = np.full((h, new_w, 3), 255, dtype=np.uint8)
-            # Place answer at top with small margin
-            # Canvas is guaranteed to be tall enough, so this will always fit
-            cv_img[
-                y_offset:y_offset + content_h,
-                left_width:left_width + orig_w,
-                :
-            ] = orig_cv
+            cv_img = arl.create_cream_canvas(new_w, h)
+            cv_img = arl.paste_script_with_shadow(
+                cv_img,
+                orig_cv,
+                left_width=left_width,
+                y_offset=y_offset,
+                shadow_offset=max(4, int(0.008 * orig_w)),
+            )
+            h = cv_img.shape[0]
 
             # Track all comment boxes for collision detection
             comment_boxes: List[Tuple[int, int, int, int]] = []
+            _right_card_num = 0
 
             # Left-side padding area for improvement suggestions
             suggestion_x1 = margin
             suggestion_x2 = left_width - margin
-            suggestion_y = margin
+            suggestion_y = top_chrome
 
             # Right-side padding area for error/issue annotations
             comment_x1 = left_width + orig_w
             comment_x2 = new_w - margin
             comment_x = comment_x1 + margin
-            comment_y = margin
+            comment_y = top_chrome
 
             # Get suggestions for this page
             page_suggestion_data = None
@@ -1047,6 +1050,10 @@ def annotate_pdf_answer_pages(
 
             page_ocr = ocr_pages_by_num.get(page_number)
             if not page_ocr:
+                # Still apply chrome so empty pages match the report look
+                needed = max(cv_img.shape[0], y_offset + content_h + bottom_chrome)
+                cv_img = arl.ensure_canvas_height(cv_img, needed)
+                cv_img = arl.apply_chrome(cv_img, page_number=page_number, meta=page_meta or "")
                 # Check if image is too large BEFORE color conversion
                 max_dimension = MAX_DIMENSION_BEFORE_RESIZE
                 h_img, w_img = cv_img.shape[:2]
@@ -1109,27 +1116,11 @@ def annotate_pdf_answer_pages(
             suggestion_max_width = suggestion_x2 - suggestion_x1 - 10
             comment_max_width = comment_x2 - comment_x - 10
 
-            # RENDER IMPROVEMENT SUGGESTIONS ON LEFT MARGIN
-            BLUE = COLOR_SUGGESTION_BGR  # Deep sky blue color in BGR
+            # RENDER IMPROVEMENT SUGGESTIONS ON LEFT MARGIN (reference-style cards)
             if page_suggestion_data:
                 suggestions = page_suggestion_data.get("suggestions", [])
 
-                # Title
-                title_text = f"Page {page_number} - Suggestions:"
-                cv2.putText(
-                    cv_img,
-                    title_text,
-                    (suggestion_x1, suggestion_y),
-                    font_face,
-                    font_scale * 0.9,
-                    BLUE,
-                    text_thickness + 1,
-                    cv2.LINE_AA,
-                )
-                suggestion_y += int(line_height * 1.5)
-
-                # Draw each suggestion as a numbered bullet with blue box
-                for idx, suggestion in enumerate(suggestions[:MAX_SUGGESTIONS_PER_PAGE], 1):  # Max suggestions per page
+                for idx, suggestion in enumerate(suggestions[:MAX_SUGGESTIONS_PER_PAGE], 1):
                     if isinstance(suggestion, dict):
                         suggestion_text = str(suggestion.get("suggestion", "")).strip()
                         suggestion_anchor = str(suggestion.get("anchor_quote", "")).strip()
@@ -1140,43 +1131,27 @@ def annotate_pdf_answer_pages(
                     if not suggestion_text:
                         continue
 
-                    bullet = f"{idx}. {suggestion_text}"
-                    wrapped_lines = _wrap_text_cv2(
-                        bullet, suggestion_max_width, font_face, font_scale * 0.85, text_thickness
+                    card = arl.suggestion_card_content(suggestion_text, index=idx)
+                    box_w = max(40, suggestion_x2 - suggestion_x1)
+                    box_h = arl.measure_card_height(card, box_w, font_scale)
+                    box_y = arl.find_non_overlapping_y(
+                        comment_boxes,
+                        x1=suggestion_x1,
+                        x2=suggestion_x2,
+                        start_y=suggestion_y,
+                        height=box_h,
+                        gap=int(line_height * 0.6),
                     )
-
-                    # Calculate box height for this suggestion
-                    box_start_y = suggestion_y - int(line_height * 0.8)
-                    box_height = len(wrapped_lines) * int(line_height * 1.2) + int(line_height * 0.4)
-
-                    # Draw blue box around suggestion
-                    suggestion_box = (suggestion_x1 - 5, box_start_y, suggestion_x2 + 5, box_start_y + box_height)
-                    cv2.rectangle(
-                        cv_img,
-                        (suggestion_box[0], suggestion_box[1]),
-                        (suggestion_box[2], suggestion_box[3]),
-                        BLUE,
-                        3,  # Box thickness
-                    )
-                    
-                    # Add suggestion box to collision detection list
+                    required_bottom = box_y + box_h + bottom_chrome
+                    if required_bottom > h:
+                        cv_img = arl.ensure_canvas_height(cv_img, required_bottom)
+                        h = cv_img.shape[0]
+                    suggestion_box = (suggestion_x1, box_y, suggestion_x2, box_y + box_h)
+                    arl.draw_feedback_card(cv_img, suggestion_box, card, font_scale)
                     comment_boxes.append(suggestion_box)
+                    suggestion_y = suggestion_box[3] + int(line_height * 0.6)
 
-                    for line in wrapped_lines:
-                        cv2.putText(
-                            cv_img,
-                            line,
-                            (suggestion_x1, suggestion_y),
-                            font_face,
-                            font_scale * 0.85,
-                            BLUE,
-                            text_thickness,
-                            cv2.LINE_AA,
-                        )
-                        suggestion_y += int(line_height * 1.2)
-                    suggestion_y += int(line_height * 1.2)  # Increased gap between suggestion boxes
-
-                    # Match left-side suggestion anchor to answer text and draw connector to the suggestion box.
+                    # Match left-side suggestion anchor to answer text and draw connector.
                     if suggestion_anchor and page_ocr:
                         matched = _find_anchor_rect_on_page(
                             page_ocr=page_ocr,
@@ -1190,21 +1165,20 @@ def annotate_pdf_answer_pages(
                             m_y1 = matched[1] + y_offset
                             m_x2 = matched[2] + left_width
                             m_y2 = matched[3] + y_offset
-
-                            # Highlight the matched text span in blue for visible linking.
-                            cv2.rectangle(cv_img, (m_x1, m_y1), (m_x2, m_y2), BLUE, 3)
-
-                            text_y = (m_y1 + m_y2) // 2
-                            box_target_x = suggestion_box[2]
-                            box_target_y = (suggestion_box[1] + suggestion_box[3]) // 2
-                            text_start_x = max(left_width + 4, m_x1 - 8)
-                            cv2.line(
+                            # Bracket-style highlight (ink, matching HTML .rb-hl.suggestion)
+                            cv2.rectangle(
                                 cv_img,
-                                (text_start_x, text_y),
-                                (box_target_x, box_target_y),
-                                BLUE,
-                                3,
-                                cv2.LINE_AA,
+                                (m_x1, m_y1),
+                                (m_x2, m_y2),
+                                arl.INK_BGR,
+                                2,
+                            )
+                            arl.draw_connector(
+                                cv_img,
+                                suggestion_box,
+                                (m_x1, m_y1, m_x2, m_y2),
+                                side="left",
+                                thickness=2,
                             )
 
             suggestion_end_y = max(suggestion_y, margin)
@@ -1312,147 +1286,40 @@ def annotate_pdf_answer_pages(
                 draw_box: bool = True,
             ) -> Tuple[Tuple[int, int, int, int], bool]:
                 """
-                Add a side comment with collision detection.
-                
-                Args:
-                    header: Header text for the comment
-                    text: Body text for the comment
-                    draw_box: Whether to draw red box around comment (default: True)
-                
-                Returns:
-                    Tuple of ((x1, y1, x2, y2), is_right) where:
-                    - (x1, y1, x2, y2) is the comment box coordinates
-                    - is_right is True if box is on right side, False if on left
-                """
-                nonlocal comment_y
-                
-                def build_lines(
-                    max_width: int,
-                ) -> Tuple[List[str], List[Tuple[str, Tuple[int, int, int]]], int]:
-                    """Build header lines + colored body lines, return total height needed."""
-                    header_lines = _wrap_text_cv2(
-                        header, max_width - 20, font_face, font_scale * 0.95, text_thickness
-                    )
-                    body_lines: List[Tuple[str, Tuple[int, int, int]]] = []
-                    if text:
-                        # Preserve explicit newlines (e.g., "Heading:" / "Rephrased:" / "- comment")
-                        # and allow styling specific lines without affecting annotation boxes.
-                        raw_lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
-                        for raw in raw_lines:
-                            is_rephrased = raw.lower().startswith("rephrased:")
-                            color = GREEN if is_rephrased else RED
-                            wrapped = _wrap_text_cv2(
-                                raw, max_width - 20, font_face, font_scale * 0.85, text_thickness
-                            )
-                            for wline in wrapped:
-                                body_lines.append((wline, color))
-                    height = int(
-                        len(header_lines) * line_height * 1.2
-                        + len(body_lines) * line_height * 1.0
-                        + line_height * 1.4
-                    )
-                    return header_lines, body_lines, height
+                Add a right-side feedback card with collision detection.
 
-                # Try right side first
+                Right annotations never migrate into the left suggestion column.
+                If the right column is full, the cream page height is extended.
+                """
+                nonlocal comment_y, cv_img, h, _right_card_num
+
                 right_x1 = comment_x - 10
                 right_x2 = comment_x2 - 5
-                right_min_y = margin
-                right_max_y = h - margin
-                preferred_y = max(comment_y - int(line_height * 1.0), right_min_y)
-
-                header_lines, body_lines, box_height = build_lines(comment_max_width)
-                box = _find_box_in_column(
-                    right_x1,
-                    right_x2,
-                    preferred_y,
-                    right_min_y,
-                    right_max_y,
-                    box_height,
+                box_w = max(40, right_x2 - right_x1)
+                _right_card_num += 1
+                card = arl.annotation_card_content(header, text or "", index=_right_card_num)
+                box_height = arl.measure_card_height(card, box_w, font_scale)
+                preferred_y = max(comment_y - int(line_height * 1.0), top_chrome)
+                box_y = arl.find_non_overlapping_y(
+                    [b for b in comment_boxes if b[0] >= left_width + orig_w - 2],
+                    x1=right_x1,
+                    x2=right_x2,
+                    start_y=preferred_y,
+                    height=box_height,
+                    gap=int(line_height * 0.6),
                 )
-                
-                # If right side is full, try left side
-                if not box:
-                    box = _find_box_in_column(
-                        right_x1,
-                        right_x2,
-                        right_min_y,
-                        right_min_y,
-                        right_max_y,
-                        box_height,
-                    )
-                
-                if not box:
-                    header_lines, body_lines, box_height = build_lines(suggestion_max_width)
-                    left_x1 = suggestion_x1 - 5
-                    left_x2 = suggestion_x2 + 5
-                    left_min_y = max(suggestion_end_y, margin)
-                    left_max_y = h - margin
-                    box = _find_box_in_column(
-                        left_x1,
-                        left_x2,
-                        left_min_y,
-                        left_min_y,
-                        left_max_y,
-                        box_height,
-                    )
+                required_bottom = box_y + box_height + bottom_chrome
+                if required_bottom > h:
+                    cv_img = arl.ensure_canvas_height(cv_img, required_bottom)
+                    h = cv_img.shape[0]
 
-                # Last resort: place at bottom
-                if not box:
-                    y1 = max(right_min_y, right_max_y - box_height)
-                    box = (right_x1, y1, right_x2, min(right_max_y, y1 + box_height))
-
-                # Track this box for collision detection
+                box = (right_x1, box_y, right_x2, box_y + box_height)
                 comment_boxes.append(box)
-                box_x1, box_y1, box_x2, box_y2 = box
-
                 if draw_box:
-                    # Draw red box around the entire comment
-                    cv2.rectangle(
-                        cv_img,
-                        (box_x1, box_y1),
-                        (box_x2, box_y2),
-                        RED,
-                        3,  # Box thickness
-                    )
+                    arl.draw_feedback_card(cv_img, box, card, font_scale)
 
-                text_x = box_x1 + 10
-                text_y = box_y1 + int(line_height * 1.0)
-
-                # Header (red, bold-ish)
-                for line in header_lines:
-                    if text_y > box_y2 - int(line_height * 0.5):
-                        break
-                    cv2.putText(
-                        cv_img,
-                        line,
-                        (text_x, text_y),
-                        font_face,
-                        font_scale * 0.95,
-                        RED,
-                        text_thickness,
-                        cv2.LINE_AA,
-                    )
-                    text_y += int(line_height * 1.2)
-
-                # Body text (red, except Rephrased:* lines in green)
-                for line, color in body_lines:
-                    if text_y > box_y2 - int(line_height * 0.5):
-                        break
-                    cv2.putText(
-                        cv_img,
-                        line,
-                        (text_x, text_y),
-                        font_face,
-                        font_scale * 0.85,
-                        color,
-                        text_thickness,
-                        cv2.LINE_AA,
-                    )
-                    text_y += int(line_height * 1.0)
-
-                comment_y = max(comment_y, box_y2 + int(line_height * 0.6))
-                is_right = box_x2 > left_width + orig_w
-                return (box_x1, box_y1, box_x2, box_y2), is_right
+                comment_y = max(comment_y, box[3] + int(line_height * 0.6))
+                return box, True
 
             def draw_correction_near_box(
                 rect: Tuple[int, int, int, int],
@@ -1497,22 +1364,25 @@ def annotate_pdf_answer_pages(
                 target_y_center: int,
             ):
                 """
-                Draw a red line from the annotation box to the comment box.
-                
+                Draw a red connector from the script annotation to the right-side card.
+
                 Args:
-                    rect: Annotation rectangle (x1, y1, x2, y2)
-                    target_x: X position of target comment box
-                    target_y_center: Y center position of target comment box
+                    rect: Annotation rectangle on the script (x1, y1, x2, y2)
+                    target_x: Left X of the right-side comment card
+                    target_y_center: Y center of the right-side comment card
                 """
-                x1, y1, x2, y2 = rect
-                rect_center_y = (y1 + y2) // 2
-                rect_right_x = min(left_width + orig_w - int(0.02 * orig_w), x2 + 10)
-                cv2.line(
+                # Reconstruct the card box from the legacy connector call signature.
+                card_box = (target_x, target_y_center - 8, comment_x2 - 5, target_y_center + 8)
+                for box in comment_boxes:
+                    if abs(box[0] - target_x) <= 2 and box[1] <= target_y_center <= box[3]:
+                        card_box = box
+                        break
+                arl.draw_connector(
                     cv_img,
-                    (rect_right_x, rect_center_y),
-                    (target_x, target_y_center),
-                    RED,
-                    3,
+                    card_box,
+                    rect,
+                    side="right",
+                    thickness=2,
                 )
 
 
@@ -2195,6 +2065,15 @@ def annotate_pdf_answer_pages(
             # Check if image is too large BEFORE color conversion to prevent MemoryError
             # Large images can cause MemoryError when converting colors or to PIL Image
             # 268MB allocation failure suggests image is ~9000x9000 pixels or larger
+            # Ensure footer clearance then stamp masthead / page label / footer
+            content_bottom = max(
+                y_offset + content_h,
+                max((b[3] for b in comment_boxes), default=0),
+            )
+            cv_img = arl.ensure_canvas_height(cv_img, content_bottom + bottom_chrome)
+            cv_img = arl.apply_chrome(cv_img, page_number=page_number, meta=page_meta or "")
+            h = cv_img.shape[0]
+
             max_dimension = MAX_DIMENSION_BEFORE_RESIZE  # Maximum dimension before downscaling
             h_img, w_img = cv_img.shape[:2]
             

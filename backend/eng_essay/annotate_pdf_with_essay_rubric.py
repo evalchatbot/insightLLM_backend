@@ -32,6 +32,8 @@ import numpy as np
 from PIL import Image
 import cv2
 
+from backend.utils import annotated_result_layout as arl
+
 
 # ============================================================
 # TEXT HELPERS
@@ -1225,6 +1227,7 @@ def annotate_pdf_essay_pages(
     dedup_iou_threshold: float = 0.35,
     topk_candidates_per_ann: int = 6,
     max_callouts_per_page: int = 12,
+    page_meta: Optional[str] = None,
 ) -> List[Image.Image]:
     """
     Returns list of annotated PIL images (one per page).
@@ -1324,6 +1327,13 @@ def annotate_pdf_essay_pages(
 
     RED = (0, 0, 255)
     annotated_pages: List[Image.Image] = []
+    # Masthead Q/meta from grading topic (essay) — callers may override via page_meta
+    resolved_meta = (page_meta or "").strip() or arl.format_page_meta(
+        kind="essay",
+        topic=str((grading or {}).get("topic") or ""),
+        question=str((grading or {}).get("question") or ""),
+        title=str((grading or {}).get("student_title") or ""),
+    )
 
     for page_idx, pil_img in enumerate(pil_pages):
         page_number = page_idx + 1
@@ -1341,71 +1351,44 @@ def annotate_pdf_essay_pages(
         extent = _compute_page_extent(page_ocr) if page_ocr else None
         print(f"  Page extent: {extent}")
 
-        # Canvas with margins (equal spacing on both sides of the essay body)
-        # Previously: left=65% and right=35% of essay width, which left a visibly larger gap on the left.
+        # Cream canvas with equal side margins around the essay body
         side_margin_ratio = 0.35
         left_width = int(side_margin_ratio * orig_w)
         right_width = int(side_margin_ratio * orig_w)
         new_w = left_width + orig_w + right_width
-        y_offset = 0
         margin_px = int(0.03 * orig_w)
+        top_chrome = arl.content_top_offset(new_w)
+        bottom_chrome = arl.content_bottom_reserve(new_w)
+        y_offset = top_chrome
+        font_scale = max(0.85, min(orig_w, orig_h) / 1400.0)
 
-        canvas = np.full((orig_h, new_w, 3), 255, dtype=np.uint8)
-        canvas[y_offset:y_offset + orig_h, left_width:left_width + orig_w] = orig_cv
-
-        # ------------------------------------------------------------
-        # BOX LINES on both sides of the essay page body
-        # Draw vertical border lines along the left and right edges of the essay body
-        # ------------------------------------------------------------
-        border_color = (80, 80, 80)  # Dark gray for clean borders
-        border_thickness = 3
-        # Left border of essay body
-        cv2.line(canvas, (left_width, y_offset), (left_width, y_offset + orig_h), border_color, border_thickness)
-        # Right border of essay body
-        cv2.line(canvas, (left_width + orig_w, y_offset), (left_width + orig_w, y_offset + orig_h), border_color, border_thickness)
-        # Top border of essay body
-        cv2.line(canvas, (left_width, y_offset), (left_width + orig_w, y_offset), border_color, border_thickness)
-        # Bottom border of essay body
-        cv2.line(canvas, (left_width, y_offset + orig_h - 1), (left_width + orig_w, y_offset + orig_h - 1), border_color, border_thickness)
+        canvas = arl.create_cream_canvas(new_w, y_offset + orig_h + bottom_chrome)
+        canvas = arl.paste_script_with_shadow(
+            canvas,
+            orig_cv,
+            left_width=left_width,
+            y_offset=y_offset,
+            shadow_offset=max(4, int(0.008 * orig_w)),
+        )
 
         # ------------------------------------------------------------
         # RED TICK MARK (on essay body) - one per page, near lower area
         # ------------------------------------------------------------
         tick_size = max(26, int(orig_w * 0.05))
         tick_thickness = max(3, int(orig_w * 0.004))
-        # Place slightly above bottom (not too low) and inside the essay body region
         tick_x = left_width + int(orig_w * 0.08)
         tick_y = y_offset + int(orig_h * 0.82)
-        # Constrain inside visible page bounds
         tick_x = max(left_width + 5, min(tick_x, left_width + orig_w - tick_size - 5))
-        tick_y = max(5 + tick_size, min(tick_y, orig_h - margin_px - 5))
+        tick_y = max(y_offset + 5 + tick_size, min(tick_y, y_offset + orig_h - margin_px - 5))
         _draw_red_tick(canvas, x=tick_x, y=tick_y, size=tick_size, thickness=tick_thickness)
 
-        # LEFT MARGIN: Improvements
-        cv2.putText(
-            canvas,
-            _sanitize_text_for_render(f"Page {page_number} - Improvements"),
-            (margin_px, y_offset + 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
-
-        left_pad = 10
-        col_gap = 14
-        # When the left margin is narrower (after making margins equal),
-        # using 2 columns makes boxes too skinny and causes excessive wrapping.
-        # Use 1 column for narrow margins; keep 2 columns for wide margins.
-        max_cols = 1 if left_width < int(0.50 * orig_w) else 2
-        col_w = (left_width - 2 * margin_px - (max_cols - 1) * col_gap) // max_cols
+        # LEFT MARGIN: Improvements (reference-style cards; grow page if needed)
+        left_boxes: List[Tuple[int, int, int, int]] = []
+        col_w = max(40, left_width - 2 * margin_px)
         col_x = margin_px
-        col_idx = 0
-        y_cur = y_offset + 120
+        y_cur = top_chrome
 
-        for bullet_obj in suggestions_by_page.get(page_number, [])[:6]:
-            # Handle both old string format and new object format
+        for idx, bullet_obj in enumerate(suggestions_by_page.get(page_number, [])[:6], 1):
             if isinstance(bullet_obj, dict):
                 bullet_text = str(bullet_obj.get("suggestion", "")).strip()
                 bullet_anchor = str(bullet_obj.get("anchor_quote", "")).strip()
@@ -1414,101 +1397,65 @@ def annotate_pdf_essay_pages(
                 bullet_anchor = ""
             if not bullet_text:
                 continue
-            bullet_full = "- " + bullet_text
 
-            # Try to match the anchor_quote to find the target text rect in the essay
             suggestion_match_rect = None
             if bullet_anchor:
-                # Try PDF text matching first (same as right-side annotations)
                 pdf_rect = _find_exact_rect_in_pdf_text(page_obj, orig_w, orig_h, bullet_anchor)
                 if pdf_rect:
                     suggestion_match_rect = pdf_rect
                 elif page_ocr:
-                    # Try OCR matching
                     ocr_rect = _find_exact_rect_from_ocr(page_ocr, bullet_anchor, orig_w, orig_h)
                     if ocr_rect:
                         suggestion_match_rect = ocr_rect
                     else:
-                        # Try fuzzy OCR match as fallback
                         fuzzy_rect = _find_best_match_rect_from_ocr(page_ocr, bullet_anchor, orig_w, orig_h)
                         if fuzzy_rect:
                             suggestion_match_rect = fuzzy_rect
 
-            thick = 2
-            line_g = 16
-            top_pad = 20
-            bottom_pad = 20
-            suggestion_body_scale = 1.00
-
-            remaining_h = (orig_h - margin_px) - y_cur
-            if remaining_h < 200:
-                col_idx += 1
-                if col_idx >= max_cols:
-                    col_idx = max_cols - 1
-                    y_cur = y_offset + 120
-                col_x = margin_px + col_idx * (col_w + col_gap)
-
-            body_h = _estimate_text_height(
-                bullet_full,
-                suggestion_body_scale,
-                thick,
-                col_w - 24,
-                line_gap=line_g,
+            card = arl.suggestion_card_content(
+                _sanitize_text_for_render(bullet_text),
+                index=idx,
             )
-            box_h = body_h + top_pad + bottom_pad
-
-            wrapped_lines = _wrap_text_lines(
-                bullet_full,
-                suggestion_body_scale,
-                thick,
-                col_w - 2 * left_pad,
+            box_h = arl.measure_card_height(card, col_w, font_scale)
+            box_y = arl.find_non_overlapping_y(
+                left_boxes,
+                x1=col_x,
+                x2=col_x + col_w,
+                start_y=y_cur,
+                height=box_h,
+                gap=16,
             )
+            required_bottom = box_y + box_h + bottom_chrome
+            if required_bottom > canvas.shape[0]:
+                canvas = arl.ensure_canvas_height(canvas, required_bottom)
 
-            if y_cur + box_h > (orig_h - margin_px):
-                col_idx += 1
-                if col_idx >= max_cols:
-                    col_idx = max_cols - 1
-                    y_cur = y_offset + 120
-                col_x = margin_px + col_idx * (col_w + col_gap)
+            suggestion_box = (col_x, box_y, col_x + col_w, box_y + box_h)
+            arl.draw_feedback_card(canvas, suggestion_box, card, font_scale)
+            left_boxes.append(suggestion_box)
 
-            bx1 = col_x
-            bx2 = col_x + col_w
-            by1 = y_cur
-            by2 = y_cur + box_h
-
-            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 0, 0), 2)
-
-            y_text = by1 + top_pad
-            for ln in wrapped_lines:
-                (_, th), _ = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, suggestion_body_scale, thick)
-                cv2.putText(
-                    canvas,
-                    ln,
-                    (bx1 + left_pad, y_text + th),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    suggestion_body_scale,
-                    (0, 0, 0),
-                    thick,
-                    cv2.LINE_AA,
-                )
-                y_text += th + line_g
-
-            # Draw pointer line from suggestion box to matched text (if found)
             if suggestion_match_rect is not None:
-                # Shift the match rect into canvas coords (essay body has left_width offset)
                 target_canvas_rect = _shift_rect(suggestion_match_rect, left_width, y_offset)
-                # Clip to essay body bounds
-                target_canvas_rect = _clip_rect(target_canvas_rect, new_w, orig_h)
-                # Draw line from right edge of suggestion box to left edge of target text
-                suggestion_box = (bx1, by1, bx2, by2)
-                # For left-side: line goes from right side of box to left side of target
-                start_x = bx2
-                start_y = (by1 + by2) // 2
-                end_x = target_canvas_rect[0]
-                end_y = (target_canvas_rect[1] + target_canvas_rect[3]) // 2
-                cv2.line(canvas, (start_x, start_y), (end_x, end_y), (0, 0, 0), 2, cv2.LINE_AA)
+                target_canvas_rect = _clip_rect(
+                    target_canvas_rect,
+                    new_w,
+                    max(canvas.shape[0], y_offset + orig_h),
+                )
+                cv2.rectangle(
+                    canvas,
+                    (target_canvas_rect[0], target_canvas_rect[1]),
+                    (target_canvas_rect[2], target_canvas_rect[3]),
+                    arl.INK_BGR,
+                    2,
+                )
+                arl.draw_connector(
+                    canvas,
+                    suggestion_box,
+                    target_canvas_rect,
+                    side="left",
+                    thickness=2,
+                )
 
-            y_cur += box_h + 28
+            y_cur = suggestion_box[3] + 20
 
         # OPTIONAL DEBUG: draw OCR line boxes
         if debug_draw_ocr_boxes and page_ocr and page_ocr.get("lines"):
@@ -1671,71 +1618,75 @@ def annotate_pdf_essay_pages(
         # Sort resolved callouts by y position (or put page-level ones at end)
         resolved_callouts.sort(key=lambda x: x["y_sort"])
 
-        # RIGHT MARGIN LAYOUT - start from top, stack downwards
+        # RIGHT MARGIN LAYOUT - stack top-to-bottom; extend cream page height if needed
         box_w = int(right_width - 2 * margin_px)
-        last_bottom_y = margin_px  # Start from top of page
-        gap = 12
+        last_bottom_y = top_chrome
+        gap = 16
+        right_boxes: List[Tuple[int, int, int, int]] = []
+        left_count = len(suggestions_by_page.get(page_number, [])[:6])
 
-        for item in resolved_callouts:
+        for r_idx, item in enumerate(resolved_callouts, 1):
             rect = item["rect"]
-            header = item["header"]
-            body = item["body"]
+            header = _sanitize_text_for_render(item["header"])
+            body = _sanitize_text_for_render(item["body"])
 
-            header_scale = 1.05
-            body_scale = 1.00
-            l_gap = 16
-
-            h_h = _estimate_text_height(header, header_scale, 2, box_w - 24, line_gap=l_gap)
-            b_h = _estimate_text_height(body, body_scale, 2, box_w - 24, line_gap=l_gap)
-            box_h = h_h + b_h + 60
+            card = arl.annotation_card_content(header, body, index=left_count + r_idx)
+            box_h = arl.measure_card_height(card, box_w, font_scale)
 
             bx1 = left_width + orig_w + margin_px
             bx2 = bx1 + box_w
+            by1 = arl.find_non_overlapping_y(
+                right_boxes,
+                x1=bx1,
+                x2=bx2,
+                start_y=last_bottom_y + gap,
+                height=box_h,
+                gap=gap,
+            )
+            by2 = by1 + box_h
 
-            # Stack top-to-bottom from last position (ignore rect position for right margin)
-            # This ensures annotations don't overlap and stay within page bounds
-            start_y = last_bottom_y + gap
+            required_bottom = by2 + bottom_chrome
+            if required_bottom > canvas.shape[0]:
+                canvas = arl.ensure_canvas_height(canvas, required_bottom)
 
-            by1 = int(start_y)
-            by2 = int(by1 + box_h)
-
-            # Ensure box stays within page bounds
-            max_bottom = orig_h + y_offset - margin_px
-            if by2 > max_bottom:
-                # Calculate available space
-                available_space = max_bottom - max(margin_px, last_bottom_y + gap)
-                if available_space < 100:  # Minimum viable box height
-                    # Skip this annotation - not enough space
-                    print(f"      ⚠ Skipping annotation (no space): {header[:50]}")
-                    continue
-                
-                # Shrink box to fit available space
-                by1 = max(margin_px, last_bottom_y + gap)
-                by2 = min(by1 + box_h, max_bottom)
-                box_h = by2 - by1  # Actual constrained height
-
+            annotation_box = (bx1, by1, bx2, by2)
+            arl.draw_feedback_card(canvas, annotation_box, card, font_scale)
+            right_boxes.append(annotation_box)
             last_bottom_y = by2
 
-            # Draw annotation box
-            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
-            _draw_wrapped_text(canvas, bx1 + 12, by1 + 24, header, header_scale, 2, box_w - 24, (0, 0, 255), line_gap=l_gap)
-            _draw_wrapped_text(canvas, bx1 + 12, by1 + 30 + h_h, body, body_scale, 2, box_w - 24, (0, 0, 0), line_gap=l_gap)
-
-            # Draw pointer line if rect exists (no highlight box)
             if rect:
                 print(f"      → Drawing pointer: annotation at ({bx1},{by1}) to text at {rect}")
-                # Get target text position (clip to essay bounds)
                 rx1, ry1, rx2, ry2 = _clip_rect(
                     _shift_rect(rect, -left_width, -y_offset),
-                    orig_w, orig_h
+                    orig_w,
+                    orig_h,
                 )
                 highlight_rect_canvas = _shift_rect((rx1, ry1, rx2, ry2), left_width, y_offset)
-
-                # Draw pointer line from annotation box to text location
-                annotation_box = (bx1, by1, bx2, by2)
-                _draw_pointer_line(canvas, annotation_box, highlight_rect_canvas, color=(0, 0, 255), thickness=2)
+                cv2.rectangle(
+                    canvas,
+                    (highlight_rect_canvas[0], highlight_rect_canvas[1]),
+                    (highlight_rect_canvas[2], highlight_rect_canvas[3]),
+                    arl.CRIMSON_BGR,
+                    2,
+                )
+                arl.draw_connector(
+                    canvas,
+                    annotation_box,
+                    highlight_rect_canvas,
+                    side="right",
+                    thickness=2,
+                )
             else:
                 print(f"      ✗ No rect for annotation: {header[:50]}")
+
+        # Stamp masthead / page label / footer on every annotated page
+        content_bottom = max(
+            y_offset + orig_h,
+            max((b[3] for b in left_boxes), default=0),
+            max((b[3] for b in right_boxes), default=0),
+        )
+        canvas = arl.ensure_canvas_height(canvas, content_bottom + bottom_chrome)
+        canvas = arl.apply_chrome(canvas, page_number=page_number, meta=resolved_meta)
 
         annotated_pages.append(Image.fromarray(canvas[:, :, ::-1]))
 

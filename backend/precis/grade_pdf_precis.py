@@ -55,6 +55,15 @@ except ImportError:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from utils import report_cover as _cover
 
+try:
+    from backend.utils.annotated_result_layout import format_page_meta as _format_page_meta
+except ImportError:
+    try:
+        from utils.annotated_result_layout import format_page_meta as _format_page_meta
+    except ImportError:
+        def _format_page_meta(**kwargs):  # type: ignore
+            return ""
+
 
 DEFAULT_PRECIS_CRITERIA: List[Dict[str, Any]] = [
     {"id": "comprehension", "criterion": "Comprehension & Understanding of Passage", "marks_allocated": 3},
@@ -676,8 +685,10 @@ def merge_report_and_annotated_answer(
     annotated_pages: List[Image.Image],
     output_pdf_path: str,
 ) -> None:
-    target_w = 595.0
-    target_h = 842.0
+    # Report pages keep their native size. Annotated pages keep their own
+    # wide/dynamic cream-canvas aspect ratio instead of being forced into A4.
+    report_w = 595.0
+    report_h = 842.0
 
     def _encode_for_pdf(img: Image.Image, *, jpeg_quality: int, max_long_edge: int) -> Tuple[bytes, int, int]:
         work = img.convert("RGB")
@@ -692,9 +703,22 @@ def merge_report_and_annotated_answer(
         work.save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
         return buf.getvalue(), work.width, work.height
 
+    def _annotated_page_points(img_w: int, img_h: int, *, ref_w: float = 595.0) -> Tuple[float, float]:
+        """
+        Convert annotated image pixels to PDF points while preserving aspect ratio.
+        Uses a stable reference width so tall cream pages remain readable.
+        """
+        if img_w <= 0 or img_h <= 0:
+            return ref_w, 842.0
+        page_w = float(ref_w)
+        page_h = page_w * (float(img_h) / float(img_w))
+        # Avoid pathological tiny/huge pages after compression
+        page_h = max(420.0, min(page_h, 2400.0))
+        return page_w, page_h
+
     def _build_pdf_bytes(jpeg_quality: int, max_long_edge: int) -> bytes:
         out_doc = fitz.open()
-        tw, th = target_w, target_h
+        tw, th = report_w, report_h
 
         if os.path.exists(report_pdf_path):
             rdoc = fitz.open(report_pdf_path)
@@ -709,13 +733,10 @@ def merge_report_and_annotated_answer(
             if img_w <= 0 or img_h <= 0:
                 continue
 
-            page = out_doc.new_page(width=tw, height=th)
-            scale = min(tw / img_w, th / img_h)
-            draw_w = img_w * scale
-            draw_h = img_h * scale
-            x0 = (tw - draw_w) / 2.0
-            y0 = 0.0
-            rect = fitz.Rect(x0, y0, x0 + draw_w, y0 + draw_h)
+            # Preserve the annotated canvas aspect ratio (wide + optionally taller).
+            page_w, page_h = _annotated_page_points(img_w, img_h, ref_w=max(tw, 595.0))
+            page = out_doc.new_page(width=page_w, height=page_h)
+            rect = fitz.Rect(0.0, 0.0, page_w, page_h)
             page.insert_image(rect, stream=stream)
 
         out = io.BytesIO()
@@ -2084,6 +2105,11 @@ def run_precis_grading(
         page_suggestions=page_suggestions,
         spelling_errors=spelling_errors,
         max_callouts_per_page=8,
+        page_meta=_format_page_meta(
+            kind="precis",
+            title=str((grading or {}).get("student_title") or ""),
+            topic=str(((grading or {}).get("ideal_precis") or {}).get("title") or ""),
+        ),
     )
     merge_report_and_annotated_answer(report_tmp, annotated_pages, output_pdf_path)
     if report_only_pdf_path is None:

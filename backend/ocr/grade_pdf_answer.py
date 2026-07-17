@@ -74,6 +74,15 @@ except ImportError:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from utils import report_cover as _cover
 
+try:
+    from backend.utils.annotated_result_layout import format_page_meta as _format_page_meta
+except ImportError:
+    try:
+        from utils.annotated_result_layout import format_page_meta as _format_page_meta
+    except ImportError:
+        def _format_page_meta(**kwargs):  # type: ignore
+            return ""
+
 # -------- 4. OCR Spell Correction Module --------
 print("\n" + "="*60)
 print("Initializing OCR Spell Correction Module...")
@@ -4264,6 +4273,11 @@ def grade_pdf_answer(
             page_suggestions=page_suggestions,
             log_path=log_path,
             request_id=request_id,
+            page_meta=_format_page_meta(
+                kind="subject",
+                subject=subject,
+                question=str((grading_result or {}).get("question_statement") or ""),
+            ),
         )
         step_duration = time.perf_counter() - step_start
         step_timings["Step 11: Annotate answer pages"] = step_duration
