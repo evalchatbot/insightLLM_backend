@@ -1786,8 +1786,9 @@ def call_grok_for_essay_annotations(
         pages_to_process.append((page, page_num, payload))
     
     # Process pages in parallel (up to 3 concurrent pages)
+    # Floor of 1 prevents "max_workers must be greater than 0" when no pages remain
     lock = threading.Lock()
-    max_workers = min(3, len(pages_to_process))
+    max_workers = min(3, max(1, len(pages_to_process)))
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {

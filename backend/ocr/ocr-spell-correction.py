@@ -655,7 +655,10 @@ def detect_spelling_grammar_errors(
     """
     
     pages = ocr_data.get("pages", [])
-    
+    if not pages:
+        print("  No OCR pages available for spelling/grammar check; skipping.")
+        return []
+
     schema_hint = {
         "page": 1,
         "errors": [
