@@ -17,6 +17,9 @@ from bs4 import BeautifulSoup
 
 from backend.config import (
     FACTBOOK_DAWN_BASE_URL,
+    FACTBOOK_FETCH_MIN_INTERVAL_SECONDS,
+    FACTBOOK_FETCH_PROXY_PREFIX,
+    FACTBOOK_FETCH_PROXY_TOKEN,
     FACTBOOK_GROK_MODEL,
     FACTBOOK_MAX_CANDIDATE_LINKS,
     FACTBOOK_MAX_EDITORIALS_PER_DAY,
@@ -476,12 +479,29 @@ def summarize_editorial_with_grok(headline: str, article_text: str) -> Dict[str,
         return _fallback_summary(article_text, headline=headline)
 
 
+_last_fetch_started_at = 0.0
+
+
+def _throttle_fetch() -> None:
+    global _last_fetch_started_at
+    if FACTBOOK_FETCH_MIN_INTERVAL_SECONDS <= 0:
+        return
+    wait_for = _last_fetch_started_at + FACTBOOK_FETCH_MIN_INTERVAL_SECONDS - time.monotonic()
+    if wait_for > 0:
+        time.sleep(wait_for)
+    _last_fetch_started_at = time.monotonic()
+
+
 def _fetch_html(url: str) -> str:
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "Mozilla/5.0 (compatible; rubric-ai-factbook/1.0)",
     ]
+
+    # Dawn sits behind a Cloudflare challenge that plain HTTP clients cannot pass;
+    # the optional proxy renders the page in a real browser and returns its HTML.
+    request_url = f"{FACTBOOK_FETCH_PROXY_PREFIX}{url}" if FACTBOOK_FETCH_PROXY_PREFIX else url
 
     last_error: Optional[Exception] = None
     for attempt in range(3):
@@ -490,9 +510,14 @@ def _fetch_html(url: str) -> str:
             "Accept-Language": "en-US,en;q=0.8",
             "Referer": FACTBOOK_DAWN_BASE_URL,
         }
+        if FACTBOOK_FETCH_PROXY_PREFIX:
+            headers["X-Return-Format"] = "html"
+            if FACTBOOK_FETCH_PROXY_TOKEN:
+                headers["Authorization"] = f"Bearer {FACTBOOK_FETCH_PROXY_TOKEN}"
         try:
+            _throttle_fetch()
             response = requests.get(
-                url,
+                request_url,
                 timeout=FACTBOOK_REQUEST_TIMEOUT_SECONDS,
                 headers=headers,
             )

@@ -51,6 +51,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
           GROK_API: ${{ secrets.GROK_API || vars.GROK_API }}
+          # Dawn is behind a Cloudflare challenge; fetch through a rendering proxy, paced under its 20 req/min anonymous limit.
+          FACTBOOK_FETCH_PROXY_PREFIX: ${{ vars.FACTBOOK_FETCH_PROXY_PREFIX || 'https://r.jina.ai/' }}
+          FACTBOOK_FETCH_PROXY_TOKEN: ${{ secrets.FACTBOOK_FETCH_PROXY_TOKEN }}
+          FACTBOOK_FETCH_MIN_INTERVAL_SECONDS: ${{ vars.FACTBOOK_FETCH_MIN_INTERVAL_SECONDS || '3.2' }}
+          FACTBOOK_REQUEST_TIMEOUT_SECONDS: ${{ vars.FACTBOOK_REQUEST_TIMEOUT_SECONDS || '60' }}
           FACTBOOK_CATCHUP_DAYS: ${{ vars.FACTBOOK_CATCHUP_DAYS || '3' }}
           INPUT_START_DATE: ${{ inputs.start_date }}
           INPUT_END_DATE: ${{ inputs.end_date }}
