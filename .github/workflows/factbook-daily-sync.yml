@@ -1,0 +1,119 @@
+name: Fact Book Daily Sync
+
+on:
+  schedule:
+    # 03:30 UTC = 08:30 Asia/Karachi (Dawn's editorials are online by then)
+    - cron: "30 3 * * *"
+    # 09:00 UTC = 14:00 Asia/Karachi (afternoon catch-up; already-synced editorials are skipped before any LLM call)
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Start date YYYY-MM-DD (default: FACTBOOK_CATCHUP_DAYS before today, Asia/Karachi)"
+        required: false
+        type: string
+      end_date:
+        description: "End date YYYY-MM-DD (default: today, Asia/Karachi)"
+        required: false
+        type: string
+      dry_run:
+        description: "Fetch + summarize without writing to Supabase"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: factbook-daily-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run Fact Book sync (today + catch-up window)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
+          GROK_API: ${{ secrets.GROK_API || vars.GROK_API }}
+          FACTBOOK_CATCHUP_DAYS: ${{ vars.FACTBOOK_CATCHUP_DAYS || '3' }}
+          INPUT_START_DATE: ${{ inputs.start_date }}
+          INPUT_END_DATE: ${{ inputs.end_date }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "Missing SUPABASE_URL"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] && [ -z "${SUPABASE_KEY:-}" ]; then
+            echo "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY"
+            exit 1
+          fi
+          if [ -z "${GROK_API:-}" ]; then
+            # Without GROK_API the sync would store low-quality fallback summaries that later runs treat as final.
+            echo "Missing GROK_API"
+            exit 1
+          fi
+
+          TODAY="$(TZ=Asia/Karachi date +%F)"
+          END_DATE="${INPUT_END_DATE:-$TODAY}"
+          START_DATE="${INPUT_START_DATE:-$(date -d "${TODAY} -${FACTBOOK_CATCHUP_DAYS} days" +%F)}"
+
+          DRY_RUN_FLAG=""
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+
+          echo "Syncing Fact Book editorials ${START_DATE} -> ${END_DATE} (dry_run=${INPUT_DRY_RUN:-false})"
+          python -m backend.scripts.run_factbook_backfill \
+            --start-date "${START_DATE}" \
+            --end-date "${END_DATE}" \
+            --progress-log "factbook_sync_progress.jsonl" \
+            ${DRY_RUN_FLAG}
+
+      - name: Fail on day-level errors
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+
+          errors = []
+          with open("factbook_sync_progress.jsonl", encoding="utf-8") as fh:
+              for line in fh:
+                  row = json.loads(line)
+                  if row.get("event") == "complete":
+                      errors = row.get("stats", {}).get("errors", [])
+
+          if errors:
+              print("Sync finished with day-level errors:")
+              for err in errors:
+                  print(f" - {err}")
+              sys.exit(1)
+          print("Sync finished without day-level errors.")
+          PY
+
+      - name: Upload progress log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factbook-sync-progress
+          path: factbook_sync_progress.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
