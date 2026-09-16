@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from backend.config import (
@@ -14,6 +15,7 @@ from backend.config import (
     FACTBOOK_TIMEZONE,
 )
 from backend.db.supabase_service import SupabaseService
+from backend.ingest.factbook_digest import generate_factbook_digest
 from backend.ingest.factbook_editorials import sync_editorials_for_range
 from backend.ingest.factbook_topics import TOPIC_GROUPS
 from backend.utils.logging_config import get_logger
@@ -116,6 +118,35 @@ class EditorialTopicListResponse(BaseModel):
     editorials: List[EditorialSummary]
 
 
+class DigestRequest(BaseModel):
+    editorials: List[EditorialSummary] = Field(default_factory=list)
+    source_name: str = "Dawn Editorials"
+
+
+class DigestCard(BaseModel):
+    headline: str
+    bullets: List[str]
+    takeaway_label: str
+    takeaway_text: str
+    date: str
+
+
+class DigestFigure(BaseModel):
+    figure: str
+    label: str
+    context: str
+    date: str
+
+
+class DigestResponse(BaseModel):
+    digest_title: str
+    source_name: str
+    topic: str
+    date_range: str
+    cards: List[DigestCard]
+    figures: List[DigestFigure]
+
+
 class DailySyncRequest(BaseModel):
     date: Optional[str] = None
     dry_run: bool = False
@@ -185,6 +216,27 @@ async def get_editorials_by_topic(
     rows = await supabase_service.get_factbook_editorials_by_topic(topic_domain=topic, limit=limit)
     editorials = [EditorialSummary(**row) for row in rows]
     return EditorialTopicListResponse(topic=topic, count=len(editorials), editorials=editorials)
+
+
+@router.post("/digest", response_model=DigestResponse)
+async def create_digest(request: DigestRequest) -> Dict[str, Any]:
+    if not request.editorials:
+        raise HTTPException(status_code=400, detail="No editorials supplied for digest generation")
+
+    editorials = [e.dict() for e in request.editorials]
+    try:
+        digest = await run_in_threadpool(
+            generate_factbook_digest,
+            editorials,
+            source_name=request.source_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.warning(f"[FACTBOOK] Digest generation failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Digest generation failed: {exc}")
+
+    return digest
 
 
 @router.post("/sync/daily")
