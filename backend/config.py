@@ -36,9 +36,10 @@ FACTBOOK_FETCH_PROXY_TOKEN = os.getenv("FACTBOOK_FETCH_PROXY_TOKEN", "").strip()
 FACTBOOK_FETCH_MIN_INTERVAL_SECONDS = float(os.getenv("FACTBOOK_FETCH_MIN_INTERVAL_SECONDS", "3.2") or "3.2")
 
 # In-process daily scheduler (runs inside the Railway backend, no GitHub Actions needed).
+# Once a day, 08:30 local time, for that day only (catch-up window = 0 days).
 FACTBOOK_SCHEDULER_ENABLED = os.getenv("FACTBOOK_SCHEDULER_ENABLED", "true").lower() == "true"
-FACTBOOK_SCHEDULER_TIMES = os.getenv("FACTBOOK_SCHEDULER_TIMES", "08:30,14:00")  # local FACTBOOK_TIMEZONE
-FACTBOOK_CATCHUP_DAYS = int(os.getenv("FACTBOOK_CATCHUP_DAYS", "3"))
+FACTBOOK_SCHEDULER_TIMES = os.getenv("FACTBOOK_SCHEDULER_TIMES", "08:30")  # local FACTBOOK_TIMEZONE
+FACTBOOK_CATCHUP_DAYS = int(os.getenv("FACTBOOK_CATCHUP_DAYS", "0"))
 
 # Current Affairs MCQ Sync
 CURRENT_AFFAIRS_SYNC_TOKEN = os.getenv("CURRENT_AFFAIRS_SYNC_TOKEN")

@@ -2,10 +2,8 @@ name: Fact Book Daily Sync
 
 on:
   schedule:
-    # 03:30 UTC = 08:30 Asia/Karachi (Dawn's editorials are online by then)
+    # 03:30 UTC = 08:30 Asia/Karachi (Dawn's editorials are online by then). Once a day.
     - cron: "30 3 * * *"
-    # 09:00 UTC = 14:00 Asia/Karachi (afternoon catch-up; already-synced editorials are skipped before any LLM call)
-    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       start_date:
@@ -56,7 +54,7 @@ jobs:
           FACTBOOK_FETCH_PROXY_TOKEN: ${{ secrets.FACTBOOK_FETCH_PROXY_TOKEN }}
           FACTBOOK_FETCH_MIN_INTERVAL_SECONDS: ${{ vars.FACTBOOK_FETCH_MIN_INTERVAL_SECONDS || '3.2' }}
           FACTBOOK_REQUEST_TIMEOUT_SECONDS: ${{ vars.FACTBOOK_REQUEST_TIMEOUT_SECONDS || '60' }}
-          FACTBOOK_CATCHUP_DAYS: ${{ vars.FACTBOOK_CATCHUP_DAYS || '3' }}
+          FACTBOOK_CATCHUP_DAYS: ${{ vars.FACTBOOK_CATCHUP_DAYS || '0' }}
           INPUT_START_DATE: ${{ inputs.start_date }}
           INPUT_END_DATE: ${{ inputs.end_date }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
