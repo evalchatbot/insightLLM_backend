@@ -28,10 +28,17 @@ FACTBOOK_MAX_CANDIDATE_LINKS = int(os.getenv("FACTBOOK_MAX_CANDIDATE_LINKS", "60
 FACTBOOK_REQUEST_TIMEOUT_SECONDS = int(os.getenv("FACTBOOK_REQUEST_TIMEOUT_SECONDS", "30"))
 FACTBOOK_AUTO_SYNC_TODAY_ON_EMPTY = os.getenv("FACTBOOK_AUTO_SYNC_TODAY_ON_EMPTY", "true").lower() == "true"
 FACTBOOK_AUTO_SYNC_COOLDOWN_SECONDS = int(os.getenv("FACTBOOK_AUTO_SYNC_COOLDOWN_SECONDS", "900"))
-# Optional prefix-style rendering proxy (e.g. https://r.jina.ai/) for Dawn pages; unset = direct fetch.
-FACTBOOK_FETCH_PROXY_PREFIX = os.getenv("FACTBOOK_FETCH_PROXY_PREFIX", "").strip()
+# Prefix-style rendering proxy for Dawn pages. Dawn now serves a Cloudflare challenge to
+# every non-browser client, so the proxy is the ONLY path that works -> default it ON.
+# Set FACTBOOK_FETCH_PROXY_PREFIX="" to force direct fetch (will 403 while the block stands).
+FACTBOOK_FETCH_PROXY_PREFIX = os.getenv("FACTBOOK_FETCH_PROXY_PREFIX", "https://r.jina.ai/").strip()
 FACTBOOK_FETCH_PROXY_TOKEN = os.getenv("FACTBOOK_FETCH_PROXY_TOKEN", "").strip()
-FACTBOOK_FETCH_MIN_INTERVAL_SECONDS = float(os.getenv("FACTBOOK_FETCH_MIN_INTERVAL_SECONDS", "0") or "0")
+FACTBOOK_FETCH_MIN_INTERVAL_SECONDS = float(os.getenv("FACTBOOK_FETCH_MIN_INTERVAL_SECONDS", "3.2") or "3.2")
+
+# In-process daily scheduler (runs inside the Railway backend, no GitHub Actions needed).
+FACTBOOK_SCHEDULER_ENABLED = os.getenv("FACTBOOK_SCHEDULER_ENABLED", "true").lower() == "true"
+FACTBOOK_SCHEDULER_TIMES = os.getenv("FACTBOOK_SCHEDULER_TIMES", "08:30,14:00")  # local FACTBOOK_TIMEZONE
+FACTBOOK_CATCHUP_DAYS = int(os.getenv("FACTBOOK_CATCHUP_DAYS", "3"))
 
 # Current Affairs MCQ Sync
 CURRENT_AFFAIRS_SYNC_TOKEN = os.getenv("CURRENT_AFFAIRS_SYNC_TOKEN")

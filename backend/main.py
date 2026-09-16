@@ -83,3 +83,16 @@ async def warm_subject_cache():
         logger.info(f"Warmed subject cache: {len(subjects)} subjects available")
     except Exception as e:
         logger.warning(f"Failed to warm subject cache: {e}")
+
+
+@app.on_event("startup")
+async def start_factbook_scheduler():
+    import asyncio
+
+    from backend.ingest.factbook_scheduler import factbook_scheduler_loop
+
+    try:
+        asyncio.create_task(factbook_scheduler_loop())
+        logger.info("Fact Book daily scheduler task created")
+    except Exception as e:
+        logger.warning(f"Failed to start Fact Book scheduler: {e}")
