@@ -14,6 +14,7 @@ from backend.api.routes import (
     factbook,
     ingest,
     ocr,
+    psych,
     users,
     quiz,
     essay,
@@ -58,6 +59,7 @@ app.include_router(conversations.router)
 app.include_router(factbook.router)
 app.include_router(ingest.router)
 app.include_router(ocr.router)
+app.include_router(psych.router)
 app.include_router(users.router)
 app.include_router(quiz.router)
 app.include_router(essay.router)
