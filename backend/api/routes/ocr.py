@@ -8,9 +8,11 @@ import json
 import os
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client
+
+from backend.utils.report_brand import resolve_brand
 
 import time
 import logging
@@ -175,21 +177,29 @@ async def get_progress(request_id: str) -> JSONResponse:
 
 @router.post("/submit")
 async def submit_job(
+    request: Request,
     file: UploadFile = File(...),
     user_id: str = Form(...),
     subject: str = Form(...),
+    brand: Optional[str] = Form(None),
 ) -> JSONResponse:
     """
     Submit an OCR job for background processing.
-    
+
     Returns job ID immediately, processing happens in background.
     """
     data = await file.read()
     _ensure_pdf(file, data)
-    
+
     subject = (subject or "").strip()
     if not subject:
         raise HTTPException(status_code=400, detail="Subject selection is required.")
+
+    report_brand = resolve_brand(
+        brand,
+        origin=request.headers.get("origin", ""),
+        referer=request.headers.get("referer", ""),
+    )
     
     # Note: OCR limit checking should be done before calling this endpoint
     
@@ -205,6 +215,7 @@ async def submit_job(
         user_id=user_id,
         filename=file.filename,
         subject=subject,
+        brand=report_brand,
     )
     
     # Store input PDF in results directory

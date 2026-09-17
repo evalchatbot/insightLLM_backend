@@ -217,7 +217,14 @@ def process_ocr_job(job: OCRJob, job_manager: OCRJobManager) -> None:
         job_manager: Job manager instance (for cancellation checks)
     """
     import tempfile
-    
+
+    # Brand the report (LCA vs rubric) for this job, on this worker thread.
+    try:
+        from backend.utils.report_cover import set_report_brand
+        set_report_brand(getattr(job, "brand", "rubric"))
+    except Exception:
+        pass
+
     # Check if cancelled before starting
     if job_manager.is_job_cancelled(job.job_id):
         return

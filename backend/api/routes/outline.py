@@ -1,5 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, FileResponse
+from typing import Optional
+from backend.utils.report_brand import resolve_brand
 import logging
 import os
 import shutil
@@ -97,8 +99,14 @@ def _process_outline_job(
     file_path: str,
     user_id: str,
     original_filename: str,
+    brand: str = "rubric",
 ):
     """Background task for outline grading."""
+    try:
+        from backend.utils.report_cover import set_report_brand
+        set_report_brand(brand)
+    except Exception:
+        pass
     tracker = OCRProgressTracker(logs_dir=_get_logs_dir())
 
     _cleanup_old_results()
@@ -177,10 +185,12 @@ def _process_outline_job(
 
 @router.post("/submit")
 async def submit_outline(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: str = Form(...),
     pipeline: str = Form(""),
+    brand: Optional[str] = Form(None),
 ):
     if (pipeline or "").strip().lower() != "outline":
         raise HTTPException(
@@ -201,7 +211,13 @@ async def submit_outline(
     with open(input_pdf_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    job = _job_manager.create_job(request_id, user_id, file.filename, "English Essay Outline")
+    report_brand = resolve_brand(
+        brand,
+        origin=request.headers.get("origin", ""),
+        referer=request.headers.get("referer", ""),
+    )
+
+    job = _job_manager.create_job(request_id, user_id, file.filename, "English Essay Outline", brand=report_brand)
     job_id = job.job_id
 
     background_tasks.add_task(
@@ -212,6 +228,7 @@ async def submit_outline(
         input_pdf_path,
         user_id,
         file.filename,
+        report_brand,
     )
 
     return {"jobId": job_id, "requestId": request_id}

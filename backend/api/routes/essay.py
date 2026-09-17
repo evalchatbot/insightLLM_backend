@@ -1,5 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, FileResponse
+from typing import Optional
+from backend.utils.report_brand import resolve_brand
 import logging
 import os
 import shutil
@@ -130,10 +132,16 @@ def _cleanup_old_results(max_age_hours: int = 24):
     except Exception as e:
         logger.warning(f"Failed to clean up old results: {e}")
 
-def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: str, user_id: str, original_filename: str):
+def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: str, user_id: str, original_filename: str, brand: str = "rubric"):
     """
     Background task wrapper for essay grading
     """
+    # Brand the report (LCA vs rubric) on this worker thread before rendering.
+    try:
+        from backend.utils.report_cover import set_report_brand
+        set_report_brand(brand)
+    except Exception:
+        pass
     # Use standard logs dir so /api/ocr/progress/{id} can find it
     tracker = OCRProgressTracker(logs_dir=_get_logs_dir())
     
@@ -228,12 +236,20 @@ def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: s
 
 @router.post("/submit")
 async def submit_essay(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    brand: Optional[str] = Form(None),
 ):
     if not file.filename.lower().endswith(".pdf"):
          raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    report_brand = resolve_brand(
+        brand,
+        origin=request.headers.get("origin", ""),
+        referer=request.headers.get("referer", ""),
+    )
     
     job_id = str(uuid.uuid4()) # Temporary job_id for temp dir creation, actual job_id comes from manager
     request_id = str(uuid.uuid4())
@@ -254,7 +270,7 @@ async def submit_essay(
     # So we should pass request_id, user_id, filename, subject.
     # And then get the job_id from the returned job object.
     
-    job = _job_manager.create_job(request_id, user_id, file.filename, "English Essay")
+    job = _job_manager.create_job(request_id, user_id, file.filename, "English Essay", brand=report_brand)
     # Reset job_id to the one controlled by the manager for consistency
     job_id = job.job_id
     
@@ -267,7 +283,8 @@ async def submit_essay(
         temp_dir,
         input_pdf_path,
         user_id,
-        file.filename
+        file.filename,
+        report_brand,
     )
     
     return {"jobId": job_id, "requestId": request_id}

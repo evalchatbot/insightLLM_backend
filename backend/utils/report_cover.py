@@ -34,6 +34,22 @@ from PIL import Image
 _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_assets")
 _FONTS_DIR = os.path.join(_ASSETS_DIR, "fonts")
 _LOGO_SVG = os.path.join(_ASSETS_DIR, "rubric_logo.svg")
+_LCA_LOGO = os.path.join(_ASSETS_DIR, "lahore-css-academy-mark.png")
+
+# Per-request report brand: "lca" for the Lahore CSS Academy standalone app,
+# "rubric" (default) otherwise. The job worker sets this before rendering; it is
+# thread-local so concurrent jobs (e.g. bulk) from different apps never cross brands.
+import threading as _threading
+_brand_state = _threading.local()
+
+
+def set_report_brand(brand) -> None:
+    """Set the brand for reports rendered on the current (worker) thread."""
+    _brand_state.value = (str(brand or "rubric").strip().lower() or "rubric")
+
+
+def current_report_brand() -> str:
+    return getattr(_brand_state, "value", "rubric")
 
 # Logical font alias -> ttf file name.
 _FONT_FILES = {
@@ -226,9 +242,23 @@ def _draw_logo(canvas: _Canvas, bx: float, by: float, s: float) -> None:
 
 def _draw_topbar(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, y: float, k: float) -> float:
     mark = _px(22) * k
-    _draw_logo(canvas, x0, y, mark)
+    brand = str(model.get("brand") or current_report_brand()).lower()
     tx = x0 + mark + _px(8) * k
-    canvas.text(tx, y + _px(1) * k, "Rubric.ai", "sans-semi", _px(12) * k, INK)
+    if brand == "lca":
+        drew = False
+        try:
+            canvas.page.insert_image(
+                fitz.Rect(x0, y, x0 + mark, y + mark), filename=_LCA_LOGO, keep_proportion=True
+            )
+            drew = True
+        except Exception:
+            pass
+        if not drew:
+            _draw_logo(canvas, x0, y, mark)
+        canvas.text(tx, y + _px(1) * k, "Lahore CSS Academy", "sans-semi", _px(11) * k, INK)
+    else:
+        _draw_logo(canvas, x0, y, mark)
+        canvas.text(tx, y + _px(1) * k, "Rubric.ai", "sans-semi", _px(12) * k, INK)
     canvas.text(
         tx, y + _px(13) * k, "SMART PREPARATION", "sans-light", _px(8.2) * k, GREY,
         letter_spacing=_px(1) * k,
@@ -470,7 +500,8 @@ def _draw_footer(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, p
     fy += _px(10) * k
     note = str(model.get("footer_note", ""))
     canvas.text(x0, fy, note, "sans-light", _px(9) * k, INK)
-    url = str(model.get("footer_url", "rubric.ai"))
+    brand = str(model.get("brand") or current_report_brand()).lower()
+    url = "lca-portal.org" if brand == "lca" else str(model.get("footer_url", "rubric.ai"))
     uw = canvas.text_len(url, "mono", _px(9) * k)
     canvas.text(x1 - uw, fy, url, "mono", _px(9) * k, RED)
 
