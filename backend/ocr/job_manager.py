@@ -41,6 +41,7 @@ class OCRJob:
     result_pdf_path: Optional[str]
     result_json_path: Optional[str]
     cancelled: bool = False
+    brand: str = "rubric"  # "lca" for the Lahore CSS Academy app, else "rubric"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert job to dictionary."""
@@ -129,6 +130,7 @@ class OCRJobManager:
         user_id: Optional[str],
         filename: str,
         subject: str,
+        brand: str = "rubric",
     ) -> OCRJob:
         """
         Create a new OCR job.
@@ -158,8 +160,9 @@ class OCRJobManager:
             result_pdf_path=None,
             result_json_path=None,
             cancelled=False,
+            brand=brand,
         )
-        
+
         self._save_job(job)
         return job
     
