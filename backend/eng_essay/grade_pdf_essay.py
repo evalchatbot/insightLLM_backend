@@ -2093,7 +2093,14 @@ def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
         crit = str(c.get("criterion", "") or "").strip()
         if not crit:
             continue
-        rows.append({"category": crit, "remarks": str(c.get("key_comments", "") or "").strip()})
+        rows.append({
+            "category": crit,
+            "rating": str(c.get("rating", "") or "").strip() or "—",
+            "remarks": str(c.get("key_comments", "") or "").strip(),
+        })
+
+    overall_rating = str(grading.get("overall_rating", "") or "").strip() or "Average"
+    overall_remarks = str(grading.get("overall_remarks", "") or "").strip()
 
     reasons = [str(x).strip() for x in (grading.get("reasons_for_low_score") or []) if str(x).strip()][:6] \
         or ["No specific weaknesses identified."]
@@ -2108,20 +2115,21 @@ def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
             [("Subject", "English Essay"), ("Type", "CSS / FPSC")],
             [("Date", _dt.datetime.now().strftime("%B %Y")), ("", "AI-Powered Evaluation")],
         ],
-        "score_value": score_value,
-        "score_denom": "Total Marks / 100",
-        "score_pct": pct,
-        "score_caption": _cover.score_caption(pct),
+        # Qualitative assessment instead of a numeric total (essays are not marked out of a total here).
+        "rating_value": overall_rating,
+        "rating_label": "Overall Assessment",
         "question_label": "Essay Topic",
         "question": topic,
+        "question_sub": overall_remarks,
         "table_label": "Criterion Feedback",
         "columns": [
-            {"title": "Criterion", "key": "category", "w": 0.32, "align": "left", "kind": "cat"},
-            {"title": "Key Comments", "key": "remarks", "w": 0.68, "align": "left", "kind": "text"},
+            {"title": "Criterion", "key": "category", "w": 0.34, "align": "left", "kind": "cat"},
+            {"title": "Rating", "key": "rating", "w": 0.14, "align": "left", "kind": "cat"},
+            {"title": "Key Comments", "key": "remarks", "w": 0.52, "align": "left", "kind": "text"},
         ],
         "rows": rows,
-        "left_section": {"label": "Reasons for Low Score", "accent": "red", "items": reasons},
-        "right_section": {"label": "How to Reach 70+", "accent": "green", "items": improves},
+        "left_section": {"label": "Key Gaps", "accent": "red", "items": reasons},
+        "right_section": {"label": "How to Improve", "accent": "green", "items": improves},
         "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
         "footer_url": "rubric.ai",
     }
@@ -2194,19 +2202,20 @@ def _render_essay_report_legacy(
         page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         y += header_size * 1.4
     
-    # Add proper gap between Topic and Total Marks
+    # Add proper gap between Topic and the overall assessment
     y += 15  # Extra spacing
-    
-    # Total marks - bigger font and red color
-    total_marks_size = header_size * 1.5  # 50% bigger
+
+    # Overall qualitative assessment (no numeric marks for essays)
+    rating = str(grading.get("overall_rating", "") or "").strip() or "Average"
+    assess_size = header_size * 1.35
     page.insert_text(
         (margin, y),
-        f"Total Marks (Range): {total_range}/100",
+        f"Overall Assessment: {rating}",
         fontname="hebo",
-        fontsize=total_marks_size,
-        color=(1, 0, 0)  # Red color
+        fontsize=assess_size,
+        color=(0.7, 0.13, 0.13)  # brand red
     )
-    y += total_marks_size * 1.8  # More spacing after total marks
+    y += assess_size * 1.8  # More spacing after the assessment line
     
     # Table header - only Criterion and Key Comments
     table_x = margin
