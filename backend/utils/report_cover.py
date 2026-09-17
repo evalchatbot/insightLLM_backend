@@ -60,6 +60,7 @@ LINE = (0.910, 0.910, 0.910)       # #E8E8E8  soft rules
 LINE_LT = (0.941, 0.941, 0.941)    # #F0F0F0  row rules
 LINE_XLT = (0.957, 0.957, 0.957)   # #F4F4F4  list rules
 GREEN = (0.176, 0.478, 0.310)      # #2D7A4F  "how to improve"
+AMBER = (0.760, 0.400, 0.020)      # #C26605  "average" band accent
 CREAM = (0.894, 0.886, 0.867)      # #e4e2dd  logo mark
 ZERO_GREY = (0.800, 0.800, 0.800)  # #cccccc  zero-score numerals
 OK_GREY = (0.333, 0.333, 0.333)    # #555555  full-score numerals
@@ -262,26 +263,39 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
     score_block_w = _px(132) * k
     top = y
 
-    # --- score block ---
-    num = str(model.get("score_value", ""))
-    num_sz = _px(48) * k
-    # shrink an over-wide score (e.g. a range like "55-60") to fit its column
-    while num and canvas.text_len(num, "mono-med", num_sz) > score_block_w and num_sz > _px(22) * k:
-        num_sz -= _px(2) * k
-    canvas.text(x0, top, num, "mono-med", num_sz, RED)
-    ny = top + num_sz + _px(4) * k
-    canvas.text(x0, ny, str(model.get("score_denom", "")), "sans-light", _px(10) * k, GREY)
-    ny += _px(15) * k
-    # bar
-    bar_w = _px(100) * k
-    bar_h = _px(2.4) * k
-    canvas.rect(x0, ny, x0 + bar_w, ny + bar_h, fill=LINE, radius=0.5)
-    pct = max(0.0, min(1.0, float(model.get("score_pct", 0.0) or 0.0)))
-    if pct > 0:
-        canvas.rect(x0, ny, x0 + max(bar_w * pct, bar_h), ny + bar_h, fill=RED, radius=0.5)
-    ny += bar_h + _px(5) * k
-    canvas.text(x0, ny, str(model.get("score_caption", "")), "sans-light", _px(9) * k, GREY)
-    score_bottom = ny + _px(9) * k
+    # --- score block: a qualitative rating (no marks) if rating_value is given,
+    #     otherwise the numeric score. ---
+    rating_value = str(model.get("rating_value", "")).strip()
+    if rating_value:
+        band = rating_value.lower()
+        band_col = GREEN if band in ("excellent", "good") else (AMBER if band == "average" else RED)
+        rsz = _px(30) * k
+        while canvas.text_len(rating_value, "sans-semi", rsz) > score_block_w and rsz > _px(15) * k:
+            rsz -= _px(2) * k
+        canvas.text(x0, top, rating_value, "sans-semi", rsz, band_col)
+        ny = top + rsz + _px(7) * k
+        canvas.text(x0, ny, str(model.get("rating_label", "Overall Assessment")), "sans-light", _px(10) * k, GREY)
+        score_bottom = ny + _px(12) * k
+    else:
+        num = str(model.get("score_value", ""))
+        num_sz = _px(48) * k
+        # shrink an over-wide score (e.g. a range like "55-60") to fit its column
+        while num and canvas.text_len(num, "mono-med", num_sz) > score_block_w and num_sz > _px(22) * k:
+            num_sz -= _px(2) * k
+        canvas.text(x0, top, num, "mono-med", num_sz, RED)
+        ny = top + num_sz + _px(4) * k
+        canvas.text(x0, ny, str(model.get("score_denom", "")), "sans-light", _px(10) * k, GREY)
+        ny += _px(15) * k
+        # bar
+        bar_w = _px(100) * k
+        bar_h = _px(2.4) * k
+        canvas.rect(x0, ny, x0 + bar_w, ny + bar_h, fill=LINE, radius=0.5)
+        pct = max(0.0, min(1.0, float(model.get("score_pct", 0.0) or 0.0)))
+        if pct > 0:
+            canvas.rect(x0, ny, x0 + max(bar_w * pct, bar_h), ny + bar_h, fill=RED, radius=0.5)
+        ny += bar_h + _px(5) * k
+        canvas.text(x0, ny, str(model.get("score_caption", "")), "sans-light", _px(9) * k, GREY)
+        score_bottom = ny + _px(9) * k
 
     # --- divider ---
     div_x = x0 + score_block_w
@@ -301,6 +315,14 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
     for ln in q_lines:
         canvas.text(qx, qy, ln, "sans-light", q_sz, GREY_MID)
         qy += line_h
+    # optional sub-line under the question (e.g. examiner's overall remark)
+    sub = str(model.get("question_sub", "")).strip()
+    if sub:
+        qy += _px(3) * k
+        s_sz = _px(9) * k
+        for ln in _wrap(canvas, sub, "sans-light", s_sz, x1 - qx):
+            canvas.text(qx, qy, ln, "sans-light", s_sz, GREY)
+            qy += s_sz * 1.5
     block_bottom = max(score_bottom, qy)
 
     canvas.hline(x0, x1, block_bottom + _px(4) * k, LINE, 0.8)
