@@ -408,6 +408,11 @@ def process_ocr_job(job: OCRJob, job_manager: OCRJobManager) -> None:
         )
         raise
     finally:
+        try:
+            from backend.utils.report_cover import set_report_brand
+            set_report_brand("rubric")  # clear brand so a reused thread never carries it over
+        except Exception:
+            pass
         # Cleanup temp files
         for path in [input_pdf_path]:
             if os.path.exists(path):

@@ -549,22 +549,20 @@ def _estimate_overflow(model: Dict[str, Any], k: float) -> float:
 
 def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     """Build the 1-page cover, auto-shrinking fonts so content fits one A4 page."""
-    # Lock this report's brand into its own model, then reset the thread-local
-    # afterwards so a reused worker thread can NEVER carry a brand into the next
-    # report (rubric.ai and LCA can't cross, even under bulk/concurrent load).
+    # Lock this report's brand into its own model so the multi-pass render is
+    # consistent. The thread-local is NOT reset here (the annotated answer pages
+    # render after the cover and must see the same brand); the job worker resets
+    # it when the whole evaluation finishes.
     if not model.get("brand"):
         model["brand"] = current_report_brand()
-    try:
-        footer_top = PAGE_H - _px(34)
-        k = 1.0
-        for _ in range(14):
-            bottom = _estimate_overflow(model, k)
-            if bottom <= footer_top or k <= 0.62:
-                break
-            k = max(0.62, k - 0.04)
-        return _render_page(model, k)
-    finally:
-        set_report_brand("rubric")
+    footer_top = PAGE_H - _px(34)
+    k = 1.0
+    for _ in range(14):
+        bottom = _estimate_overflow(model, k)
+        if bottom <= footer_top or k <= 0.62:
+            break
+        k = max(0.62, k - 0.04)
+    return _render_page(model, k)
 
 
 def render_cover_pdf(model: Dict[str, Any], out_path: str) -> None:
