@@ -549,6 +549,12 @@ def _estimate_overflow(model: Dict[str, Any], k: float) -> float:
 
 def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     """Build the 1-page cover, auto-shrinking fonts so content fits one A4 page."""
+    # Lock this report's brand into its own model so the multi-pass render is
+    # consistent. The thread-local is NOT reset here (the annotated answer pages
+    # render after the cover and must see the same brand); the job worker resets
+    # it when the whole evaluation finishes.
+    if not model.get("brand"):
+        model["brand"] = current_report_brand()
     footer_top = PAGE_H - _px(34)
     k = 1.0
     for _ in range(14):

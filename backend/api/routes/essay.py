@@ -228,6 +228,11 @@ def _process_essay_job(job_id: str, request_id: str, temp_dir: str, file_path: s
         )
         _job_manager.fail_job(job_id, str(e))
     finally:
+        try:
+            from backend.utils.report_cover import set_report_brand
+            set_report_brand("rubric")  # clear brand so a reused thread never carries it over
+        except Exception:
+            pass
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
             logger.info(f"Essay job {job_id} - Cleaned up temp dir: {temp_dir}")
