@@ -2934,9 +2934,12 @@ def run_essay_grading(
     t_compress = time.perf_counter()
     compression_performed = compress_pdf_if_needed(
         pdf_path=output_pdf_path,
-        # Quality-preserving: only compress genuinely huge reports, keep high JPEG quality,
-        # and DON'T downscale — shrinking the ~2977px pages to 2000/1500px was the pixelation.
-        target_size_mb=24.0,
+        # Cap at 10MB, but quality-preserving: the compressor steps JPEG quality
+        # DOWN (90 -> 40) instead of shrinking resolution, so most reports (which
+        # fit under 10MB at quality 90 already) are untouched; only oversized
+        # reports get a gentle quality reduction, never the old blur-inducing
+        # 2000px downscale.
+        target_size_mb=10.0,
         max_quality=90,
         max_dimension=4500,
     )
@@ -3192,8 +3195,8 @@ def main():
     t_compress = time.perf_counter()
     compression_performed = compress_pdf_if_needed(
         pdf_path=args.output_pdf,
-        # Quality-preserving (see server path): high threshold + quality, no downscaling.
-        target_size_mb=24.0,
+        # Cap at 10MB (see server path): quality-stepping, not downscaling.
+        target_size_mb=10.0,
         max_quality=90,
         max_dimension=4500,
     )

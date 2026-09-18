@@ -33,15 +33,18 @@
 #   - If compression failed: Restore the original file from the backup
 #
 # OPTIONAL RETRY:
-#   - If the compressed file is still too large (>= 10MB), try again with:
-#     * Lower JPEG quality (more compression)
-#     * Smaller maximum image size (more resizing)
-#   - This is called "aggressive compression"
+#   - If the compressed file is still too large, retry at a LOWER JPEG QUALITY only
+#     (90 -> 78 -> 66 -> ... down to a floor). Resolution is NEVER reduced in this
+#     loop -- shrinking pixel dimensions is what caused visible pixelation before.
+#   - Only if quality alone can't get under the target (extremely long/dense
+#     reports) does it fall back to a gentle one-time dimension reduction.
 #
 # RESULT:
-#   - The PDF file is now smaller (ideally 5-8MB)
-#   - The original file is safely preserved if compression fails
-#   - Image quality may be slightly reduced, but the PDF remains readable
+#   - Most reports (cover + a normal answer script) fit under target_size_mb at
+#     max_quality untouched -- compression is skipped entirely, so quality stays
+#     exactly as rendered.
+#   - Oversized reports get a quality-only step-down, still full resolution.
+#   - The original file is safely preserved if compression fails.
 
 import os
 import tempfile
@@ -51,153 +54,136 @@ from PIL import Image
 import io
 
 
+def _rasterize_pdf_at(
+    doc: "fitz.Document", quality: int, max_dimension: int
+) -> "fitz.Document":
+    """Build a fresh PDF, one JPEG-encoded page per source page, at `quality`.
+    Only shrinks a page if it exceeds `max_dimension` (kept high by callers so
+    this is normally a no-op -- resolution stays native)."""
+    new_doc = fitz.open()
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        rect = page.rect
+        page_width, page_height = rect.width, rect.height
+
+        scale = 1.0
+        if page_width > max_dimension or page_height > max_dimension:
+            scale = min(max_dimension / page_width, max_dimension / page_height)
+
+        mat = fitz.Matrix(scale, scale)
+        pix = page.get_pixmap(matrix=mat)
+        pil_image = Image.open(io.BytesIO(pix.tobytes("png")))
+
+        if pil_image.mode in ("RGBA", "LA", "P"):
+            rgb_image = Image.new("RGB", pil_image.size, (255, 255, 255))
+            if pil_image.mode == "P":
+                pil_image = pil_image.convert("RGBA")
+            rgb_image.paste(pil_image, mask=pil_image.split()[3] if pil_image.mode == "RGBA" else None)
+            pil_image = rgb_image
+        elif pil_image.mode != "RGB":
+            pil_image = pil_image.convert("RGB")
+
+        img_buffer = io.BytesIO()
+        pil_image.save(img_buffer, format="JPEG", quality=quality, optimize=True)
+        img_buffer.seek(0)
+
+        new_page = new_doc.new_page(width=page_width, height=page_height)
+        new_page.insert_image(fitz.Rect(0, 0, page_width, page_height), stream=img_buffer.getvalue())
+
+        pix = None
+        pil_image = None
+        img_buffer.close()
+    return new_doc
+
+
 def compress_pdf_if_needed(
     pdf_path: str,
     target_size_mb: float = 10.0,
-    max_quality: int = 75,
-    max_dimension: int = 2000,
-    aggressive: bool = False,
+    max_quality: int = 90,
+    max_dimension: int = 4500,
+    quality_floor: int = 40,
+    quality_step: int = 12,
+    aggressive: bool = False,  # kept for backward compatibility; unused (quality-stepping replaces it)
 ) -> bool:
     """
-    Compress a PDF file if its size is >= target_size_mb.
-    
+    Compress a PDF file only if its size is >= target_size_mb, by stepping the
+    JPEG quality DOWN (max_quality -> quality_floor) until it fits -- resolution
+    is left untouched (max_dimension is kept above normal page sizes on purpose),
+    so a report that fits at max_quality is returned byte-for-byte at that quality,
+    and an oversized report gets progressively (but gently) re-compressed rather
+    than downscaled and softened.
+
     Args:
         pdf_path: Path to the PDF file to compress
         target_size_mb: File size threshold in MB to trigger compression (default: 10.0)
-        max_quality: JPEG quality for image compression (1-100, default: 75)
-        max_dimension: Maximum width/height in pixels for compressed images (default: 2000)
-        aggressive: If True, use more aggressive compression settings (default: False)
-    
+        max_quality: JPEG quality to try first (default: 90)
+        max_dimension: Max width/height in pixels before any resolution shrink
+            (default: 4500, above a typical rendered page -- effectively "never shrink")
+        quality_floor: Lowest JPEG quality this will step down to (default: 40)
+        quality_step: How much to lower quality per retry (default: 12)
+
     Returns:
-        True if compression was performed, False otherwise
+        True if compression was performed (file was rewritten), False otherwise
     """
     if not os.path.exists(pdf_path):
         print(f"  Warning: PDF file not found: {pdf_path}")
         return False
-    
-    # Check file size
+
     file_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
     print(f"  PDF file size: {file_size_mb:.2f} MB")
-    
+
     if file_size_mb < target_size_mb:
         print(f"  PDF size ({file_size_mb:.2f} MB) is below threshold ({target_size_mb} MB). No compression needed.")
         return False
-    
+
     print(f"  PDF size ({file_size_mb:.2f} MB) exceeds threshold ({target_size_mb} MB). Starting compression...")
-    
-    # Adjust compression settings if aggressive mode is enabled
-    quality = max_quality
-    dimension = max_dimension
-    if aggressive:
-        quality = max(30, max_quality - 20)  # Lower quality
-        dimension = max(1500, max_dimension - 500)  # Smaller dimension
-        print(f"  Using aggressive compression settings: quality={quality}, max_dimension={dimension}")
-    
-    # Create temporary backup file
+
     temp_backup = pdf_path + ".tmp"
     try:
-        # Backup original PDF
         os.rename(pdf_path, temp_backup)
         print(f"  Backed up original PDF to: {temp_backup}")
-        
-        # Open the backup PDF
+
         doc = fitz.open(temp_backup)
-        
-        # Create new PDF document for compressed output
-        new_doc = fitz.open()
-        
-        # Process each page
         total_pages = len(doc)
-        print(f"  Compressing {total_pages} pages...")
-        
-        for page_num in range(total_pages):
-            page = doc[page_num]
-            
-            # Get page dimensions
-            rect = page.rect
-            page_width = rect.width
-            page_height = rect.height
-            
-            # Calculate scale factor if page exceeds max_dimension
-            scale = 1.0
-            if page_width > max_dimension or page_height > max_dimension:
-                scale = min(max_dimension / page_width, max_dimension / page_height)
-                new_width = int(page_width * scale)
-                new_height = int(page_height * scale)
-            else:
-                new_width = int(page_width)
-                new_height = int(page_height)
-            
-            # Rasterize page to image (matrix for scaling)
-            mat = fitz.Matrix(scale, scale)
-            pix = page.get_pixmap(matrix=mat)
-            
-            # Convert to PIL Image
-            img_data = pix.tobytes("png")
-            pil_image = Image.open(io.BytesIO(img_data))
-            
-            # Convert to RGB if necessary (JPEG doesn't support transparency)
-            if pil_image.mode in ("RGBA", "LA", "P"):
-                rgb_image = Image.new("RGB", pil_image.size, (255, 255, 255))
-                if pil_image.mode == "P":
-                    pil_image = pil_image.convert("RGBA")
-                rgb_image.paste(pil_image, mask=pil_image.split()[3] if pil_image.mode == "RGBA" else None)
-                pil_image = rgb_image
-            elif pil_image.mode != "RGB":
-                pil_image = pil_image.convert("RGB")
-            
-            # Compress image to JPEG
-            img_buffer = io.BytesIO()
-            pil_image.save(img_buffer, format="JPEG", quality=quality, optimize=True)
-            img_buffer.seek(0)
-            
-            # Create new page in output document with compressed image
-            new_page = new_doc.new_page(width=page_width, height=page_height)
-            
-            # Insert compressed image
-            img_rect = fitz.Rect(0, 0, page_width, page_height)
-            new_page.insert_image(img_rect, stream=img_buffer.getvalue())
-            
-            # Clean up
-            pix = None
-            pil_image = None
-            img_buffer.close()
-            
-            if (page_num + 1) % 10 == 0:
-                print(f"    Processed {page_num + 1}/{total_pages} pages...")
-        
-        # Save compressed PDF to original path
-        new_doc.save(pdf_path)
-        new_doc.close()
+
+        quality = max_quality
+        dimension = max_dimension
+        new_size_mb = file_size_mb
+        while True:
+            print(f"  Compressing {total_pages} pages at quality={quality}, max_dimension={dimension}...")
+            new_doc = _rasterize_pdf_at(doc, quality=quality, max_dimension=dimension)
+            new_doc.save(pdf_path)
+            new_doc.close()
+
+            new_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
+            print(f"    -> {new_size_mb:.2f} MB")
+
+            if new_size_mb < target_size_mb:
+                break
+            if quality <= quality_floor:
+                # Quality alone couldn't get there (very long/dense report). As a last
+                # resort, shrink resolution modestly (not the old hard 2000px cap) and
+                # try once more at the floor quality.
+                if dimension > 3000:
+                    dimension = 3000
+                    print(f"  Still over target at floor quality; shrinking resolution once as a last resort.")
+                    continue
+                print(f"  Reached quality floor ({quality_floor}) and resolution floor; keeping best result ({new_size_mb:.2f} MB).")
+                break
+            quality = max(quality_floor, quality - quality_step)
+
         doc.close()
-        
-        # Check new file size
-        new_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
+
         compression_ratio = (1 - (new_size_mb / file_size_mb)) * 100
-        
         print(f"  Compression complete!")
         print(f"    Original size: {file_size_mb:.2f} MB")
         print(f"    Compressed size: {new_size_mb:.2f} MB")
         print(f"    Compression ratio: {compression_ratio:.1f}%")
-        
-        # If still too large and not already in aggressive mode, retry with aggressive settings
-        if new_size_mb >= target_size_mb and not aggressive:
-            print(f"  Compressed PDF ({new_size_mb:.2f} MB) still exceeds threshold. Retrying with aggressive settings...")
-            # Clean up and retry
-            os.remove(temp_backup)
-            return compress_pdf_if_needed(
-                pdf_path=pdf_path,
-                target_size_mb=target_size_mb,
-                max_quality=max_quality,
-                max_dimension=max_dimension,
-                aggressive=True,
-            )
-        
-        # Success: delete backup
+
         os.remove(temp_backup)
         print(f"  Cleaned up temporary backup file.")
         return True
-        
+
     except Exception as e:
         print(f"  Error during compression: {e}")
         # Restore original from backup
