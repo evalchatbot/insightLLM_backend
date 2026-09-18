@@ -2450,7 +2450,10 @@ def pil_images_to_pdf_bytes(pages: List[Image.Image]) -> bytes:
     if not pages:
         return b""
     pages_rgb = [p.convert("RGB") for p in pages]
-    pages_rgb[0].save(out, format="PDF", save_all=True, append_images=pages_rgb[1:])
+    # High JPEG quality so report/answer text stays crisp (PIL's PDF default is 75, which softens text).
+    pages_rgb[0].save(
+        out, format="PDF", save_all=True, append_images=pages_rgb[1:], quality=95,
+    )
     return out.getvalue()
 
 
@@ -2940,9 +2943,11 @@ def run_essay_grading(
     t_compress = time.perf_counter()
     compression_performed = compress_pdf_if_needed(
         pdf_path=output_pdf_path,
-        target_size_mb=10.0,
-        max_quality=75,
-        max_dimension=2000,
+        # Quality-preserving: only compress genuinely huge reports, keep high JPEG quality,
+        # and DON'T downscale — shrinking the ~2977px pages to 2000/1500px was the pixelation.
+        target_size_mb=24.0,
+        max_quality=90,
+        max_dimension=4500,
     )
     timings["PDF Compression"] = time.perf_counter() - t_compress
     if compression_performed:
@@ -3196,9 +3201,10 @@ def main():
     t_compress = time.perf_counter()
     compression_performed = compress_pdf_if_needed(
         pdf_path=args.output_pdf,
-        target_size_mb=10.0,
-        max_quality=75,
-        max_dimension=2000,
+        # Quality-preserving (see server path): high threshold + quality, no downscaling.
+        target_size_mb=24.0,
+        max_quality=90,
+        max_dimension=4500,
     )
     timings["PDF Compression"] = time.perf_counter() - t_compress
     if compression_performed:
