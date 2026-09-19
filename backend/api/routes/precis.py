@@ -125,7 +125,14 @@ def _process_precis_job(
         )
         logger.info(f"Precis job {job_id} progress: {pct:.1f}% - {msg}")
 
+    slot_acquired = False
+    gate = None
     try:
+        from backend.utils.eval_queue import get_eval_gate
+        gate = get_eval_gate()
+        # Wait for a concurrency slot; the job stays PENDING ("queued") until one frees.
+        gate.acquire()
+        slot_acquired = True
         logger.info(f"Starting precis job {job_id} for user {user_id}, file: {original_filename}")
         _job_manager.update_job_status(job_id, JobStatus.RUNNING, started_at=time.time())
         progress_callback(0, "Starting your precis evaluation...")
@@ -197,6 +204,9 @@ def _process_precis_job(
         )
         _job_manager.fail_job(job_id, str(e))
     finally:
+        # Release the concurrency slot for the next queued job.
+        if slot_acquired and gate is not None:
+            gate.release()
         try:
             from backend.utils.report_cover import set_report_brand
             set_report_brand("rubric")  # clear brand so a reused thread never carries it over

@@ -26,6 +26,7 @@ import tempfile
 import time
 import traceback
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -405,10 +406,60 @@ def _convert_spell_errors_to_annotations(
         }
         
         annotations.append(annotation)
-    
+
     return annotations
 
 
+def _compute_spell_annotations(
+    pdf_path: str,
+    grok_key: str,
+    ocr_data: Dict[str, Any],
+    request_id: str,
+    log_path: str,
+) -> List[Dict[str, Any]]:
+    """Run the Azure-OCR + Grok spelling/grammar pass and return annotations.
+
+    This is independent of the grading chain (it only needs the PDF and the
+    already-computed Google OCR data), so the pipeline launches it concurrently
+    with grading and merges the result before rendering annotated pages. Returns
+    [] on any failure -- it must never raise into the caller's future.result()."""
+    if detect_spelling_grammar_errors is None or run_ocr_on_pdf_azure is None or _filter_spell_errors is None:
+        print("  ✗ Spelling/grammar checking DISABLED (spell module not loaded)")
+        _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=module_not_loaded")
+        return []
+    try:
+        load_dotenv()  # ensure latest Azure creds
+        azure_endpoint = os.getenv("AZURE_ENDPOINT")
+        azure_key = os.getenv("AZURE_KEY")
+        if not azure_endpoint or not azure_key:
+            print("  ✗ Spelling/grammar checking DISABLED (Azure credentials missing)")
+            _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=azure_credentials_missing")
+            return []
+
+        from azure.ai.formrecognizer import DocumentAnalysisClient
+        from azure.core.credentials import AzureKeyCredential
+
+        azure_client = DocumentAnalysisClient(
+            endpoint=azure_endpoint, credential=AzureKeyCredential(azure_key)
+        )
+        print("  → [parallel] Azure OCR for word-level spelling/grammar detection...")
+        azure_ocr_data = run_ocr_on_pdf_azure(azure_client, pdf_path)
+        _append_log(log_path, "INFO", f"request={request_id} step=9.5 azure_ocr_pages={len(azure_ocr_data.get('pages', []))}")
+
+        spell_errors = detect_spelling_grammar_errors(grok_key, azure_ocr_data)
+        _append_log(log_path, "INFO", f"request={request_id} step=9.5 initial_spell_errors={len(spell_errors)}")
+
+        spell_errors = _filter_spell_errors(spell_errors)
+        _append_log(log_path, "INFO", f"request={request_id} step=9.5 filtered_spell_errors={len(spell_errors)}")
+
+        spell_annotations = _convert_spell_errors_to_annotations(spell_errors, ocr_data)
+        _append_log(log_path, "INFO", f"request={request_id} step=9.5 spell_annotations_created={len(spell_annotations)}")
+        print(f"  ✓ [parallel] spelling pass produced {len(spell_annotations)} annotation(s)")
+        return spell_annotations
+    except Exception as e:
+        print(f"  ✗ Spell checking failed: {e}")
+        _append_log(log_path, "ERROR", f"request={request_id} step=9.5 spell_check_error={str(e)}")
+        return []
 
 
 
@@ -3662,6 +3713,22 @@ def grade_pdf_answer(
                 message="OCR processing complete",
             )
 
+        # Kick off the spelling/grammar pass (Azure OCR + Grok) NOW so it runs
+        # concurrently with the grading chain below. It only needs the PDF and the
+        # Google OCR data (read-only after this point), and its result is merged in
+        # at Step 9.5 -- overlapping it shaves the whole Azure+Grok pass off the
+        # critical path. A daemon thread means a mid-pipeline failure can never
+        # leave it hanging the process.
+        _spell_result: Dict[str, Any] = {"annotations": []}
+
+        def _spell_worker():
+            _spell_result["annotations"] = _compute_spell_annotations(
+                pdf_path, grok_key, ocr_data, request_id, log_path
+            )
+
+        _spell_thread = threading.Thread(target=_spell_worker, daemon=True)
+        _spell_thread.start()
+
         print("Step 3: Detecting sections/headings with Grok...")
         if progress_tracker:
             progress_tracker.update_progress(
@@ -3981,83 +4048,20 @@ def grade_pdf_answer(
         annotations = refined_result.get("annotations", []) or []
         refined_summary = refined_result.get("refined_rubric_summary", []) or []
 
-        # NEW: Step 9.5: Run OCR spell correction for spelling/grammar checking
+        # Step 9.5: collect the spelling/grammar pass that has been running in
+        # parallel with grading (submitted right after Step 2).
         print("\n" + "="*60)
-        print("Step 9.5: Running OCR-based spelling and grammar checking...")
+        print("Step 9.5: Collecting spelling/grammar results (ran in parallel)...")
         print("="*60)
-        spell_annotations = []
-        
-        if detect_spelling_grammar_errors is None or run_ocr_on_pdf_azure is None or _filter_spell_errors is None:
-            print("  ✗ OCR spell correction functions not available")
-            print("  ✗ Spelling/grammar checking DISABLED")
-            _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=module_not_loaded")
-        else:
-            try:
-                # Get Azure credentials from environment
-                load_dotenv()  # Reload to ensure latest values
-                azure_endpoint = os.getenv("AZURE_ENDPOINT")
-                azure_key = os.getenv("AZURE_KEY")
-                
-                print(f"  Azure Endpoint: {'✓ Found' if azure_endpoint else '✗ Missing'}")
-                print(f"  Azure Key: {'✓ Found' if azure_key else '✗ Missing'}")
-                
-                if not azure_endpoint or not azure_key:
-                    print("  ✗ Azure credentials not found in .env file")
-                    print("  ✗ Spelling/grammar checking DISABLED")
-                    print("  Hint: Add AZURE_ENDPOINT and AZURE_KEY to your .env file")
-                    _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_check_disabled=true reason=azure_credentials_missing")
-                else:
-                    from azure.ai.formrecognizer import DocumentAnalysisClient
-                    from azure.core.credentials import AzureKeyCredential
-                    
-                    print("  ✓ Azure credentials loaded successfully")
-                    azure_client = DocumentAnalysisClient(
-                        endpoint=azure_endpoint,
-                        credential=AzureKeyCredential(azure_key)
-                    )
-                    
-                    # Run Azure OCR (specialized for spell checking)
-                    print("  → Running Azure OCR for precise word-level detection...")
-                    azure_ocr_data = run_ocr_on_pdf_azure(azure_client, pdf_path)
-                    print(f"  ✓ Azure OCR complete: {len(azure_ocr_data.get('pages', []))} pages processed")
-                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 azure_ocr_pages={len(azure_ocr_data.get('pages', []))}")
-                    
-                    # Detect spelling/grammar errors using Grok
-                    print("  → Detecting spelling and grammar errors with Grok...")
-                    spell_errors = detect_spelling_grammar_errors(grok_key, azure_ocr_data)
-                    print(f"  ✓ Initial detection: {len(spell_errors)} potential errors found")
-                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 initial_spell_errors={len(spell_errors)}")
-                    
-                    # Filter OCR-like confusions
-                    print("  → Filtering OCR artifacts and visual confusions...")
-                    spell_errors = _filter_spell_errors(spell_errors)
-                    print(f"  ✓ After filtering: {len(spell_errors)} genuine spelling/grammar errors")
-                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 filtered_spell_errors={len(spell_errors)}")
-                    
-                    if spell_errors:
-                        # Show sample errors
-                        print("  Sample errors detected:")
-                        for i, err in enumerate(spell_errors[:3]):
-                            print(f"    {i+1}. Page {err.get('page')}: '{err.get('error_text')}' → '{err.get('correction')}'")
-                        if len(spell_errors) > 3:
-                            print(f"    ... and {len(spell_errors) - 3} more")
-                    
-                    # Convert to annotation format
-                    print("  → Converting errors to annotation format...")
-                    spell_annotations = _convert_spell_errors_to_annotations(spell_errors, ocr_data)
-                    print(f"  ✓ Converted to {len(spell_annotations)} annotations")
-                    _append_log(log_path, "INFO", f"request={request_id} step=9.5 spell_annotations_created={len(spell_annotations)}")
-                    
-                    if len(spell_annotations) != len(spell_errors):
-                        print(f"  ⚠ Warning: {len(spell_errors) - len(spell_annotations)} errors could not be converted")
-                        _append_log(log_path, "WARN", f"request={request_id} step=9.5 conversion_failures={len(spell_errors) - len(spell_annotations)}")
-                    
-            except Exception as e:
-                print(f"  ✗ ERROR: Spell checking failed: {e}")
-                print(f"  Traceback: {traceback.format_exc()}")
-                _append_log(log_path, "ERROR", f"request={request_id} step=9.5 spell_check_error={str(e)}")
-                spell_annotations = []
-        
+        try:
+            _spell_thread.join()
+            spell_annotations = _spell_result.get("annotations", []) or []
+            print(f"  ✓ Spelling pass complete: {len(spell_annotations)} annotation(s)")
+        except Exception as e:
+            print(f"  ✗ ERROR: Spell checking failed: {e}")
+            _append_log(log_path, "ERROR", f"request={request_id} step=9.5 spell_check_error={str(e)}")
+            spell_annotations = []
+
         # Merge spell annotations with refined annotations
         if spell_annotations:
             print(f"\n  → Merging {len(spell_annotations)} spell annotations with {len(annotations)} refined annotations")

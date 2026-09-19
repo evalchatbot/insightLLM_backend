@@ -180,38 +180,55 @@ class OCRJobManager:
         """
         def job_worker():
             """Background worker thread."""
+            from backend.utils.eval_queue import get_eval_gate
+
             with self._lock:
                 self._active_jobs[job.job_id] = threading.current_thread()
                 self._job_cancellation_flags[job.job_id] = False
-            
+
+            gate = get_eval_gate()
+            slot_acquired = False
             try:
-                # Update status to running
-                job.status = JobStatus.RUNNING
-                job.started_at = time.time()
-                self._save_job(job)
-                
-                # Check if cancelled before starting
+                # Cancelled before we even queued? Bail immediately.
                 if self._job_cancellation_flags.get(job.job_id, False):
                     job.status = JobStatus.CANCELLED
                     job.completed_at = time.time()
                     self._save_job(job)
                     return
-                
+
+                # Wait for a concurrency slot. The job stays PENDING ("queued")
+                # until one frees, so many simultaneous submissions line up rather
+                # than all running at once.
+                gate.acquire()
+                slot_acquired = True
+
+                # Cancelled while it was waiting in the queue?
+                if self._job_cancellation_flags.get(job.job_id, False):
+                    job.status = JobStatus.CANCELLED
+                    job.completed_at = time.time()
+                    self._save_job(job)
+                    return
+
+                # Update status to running
+                job.status = JobStatus.RUNNING
+                job.started_at = time.time()
+                self._save_job(job)
+
                 # Process the job
                 process_func(job)
-                
+
                 # Check if cancelled after processing
                 if self._job_cancellation_flags.get(job.job_id, False):
                     job.status = JobStatus.CANCELLED
                     job.completed_at = time.time()
                     self._save_job(job)
                     return
-                
+
                 # Mark as completed
                 job.status = JobStatus.COMPLETED
                 job.completed_at = time.time()
                 self._save_job(job)
-                
+
             except Exception as e:
                 # Mark as failed
                 job.status = JobStatus.FAILED
@@ -219,6 +236,9 @@ class OCRJobManager:
                 job.completed_at = time.time()
                 self._save_job(job)
             finally:
+                # Release the concurrency slot for the next queued job.
+                if slot_acquired:
+                    gate.release()
                 # Clean up
                 with self._lock:
                     self._active_jobs.pop(job.job_id, None)
