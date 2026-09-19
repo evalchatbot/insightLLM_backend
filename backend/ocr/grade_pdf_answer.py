@@ -4054,9 +4054,20 @@ def grade_pdf_answer(
         print("Step 9.5: Collecting spelling/grammar results (ran in parallel)...")
         print("="*60)
         try:
-            _spell_thread.join()
-            spell_annotations = _spell_result.get("annotations", []) or []
-            print(f"  ✓ Spelling pass complete: {len(spell_annotations)} annotation(s)")
+            spell_timeout = float(os.getenv("SPELL_PASS_TIMEOUT_SEC", "120"))
+        except (TypeError, ValueError):
+            spell_timeout = 120.0
+        try:
+            _spell_thread.join(timeout=spell_timeout)
+            if _spell_thread.is_alive():
+                # Never let a slow/hung spelling pass hold up the whole report; finish
+                # without spelling annotations (the daemon thread dies with the worker).
+                print(f"  ⚠ Spelling pass exceeded {spell_timeout:.0f}s; finishing report WITHOUT spelling annotations.")
+                _append_log(log_path, "WARN", f"request={request_id} step=9.5 spell_pass_timeout_sec={spell_timeout}")
+                spell_annotations = []
+            else:
+                spell_annotations = _spell_result.get("annotations", []) or []
+                print(f"  ✓ Spelling pass complete: {len(spell_annotations)} annotation(s)")
         except Exception as e:
             print(f"  ✗ ERROR: Spell checking failed: {e}")
             _append_log(log_path, "ERROR", f"request={request_id} step=9.5 spell_check_error={str(e)}")
