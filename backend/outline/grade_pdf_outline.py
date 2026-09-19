@@ -704,9 +704,9 @@ def draw_outline_report_signoff(
     ink = (0.102, 0.102, 0.102)
 
     # signature, bottom-right
-    sig_h = layout.row_height * 1.15
+    sig_h = layout.row_height * 1.5
     sig_w = sig_h * _signature_ratio()
-    sig_bottom = H - m * 0.6
+    sig_bottom = H - m * 0.95
     sig_top = sig_bottom - sig_h
     try:
         page.insert_image(
@@ -730,8 +730,8 @@ def draw_outline_report_signoff(
     except Exception:
         hand_font = None
 
-    fsz = float(layout.header_font_size) * 1.15
-    max_w = (W - 2 * m) * 0.72
+    fsz = float(layout.header_font_size) * 1.45
+    max_w = (W - 2 * m) * 0.76
 
     def _tlen(sz: float) -> float:
         if hand_font is not None:
@@ -742,7 +742,7 @@ def draw_outline_report_signoff(
         fsz -= 0.5
     tw = _tlen(fsz)
     cx = m + ((W - 2 * m) - tw) / 2.0
-    ry = sig_top - fsz * 0.6
+    ry = sig_top - fsz * 1.1
     try:
         page.insert_text((cx, ry), remark, fontname=fname, fontsize=fsz, color=ink)
     except Exception:

@@ -537,9 +537,9 @@ def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, 
     and the digital signature (bottom-right). Applied to every subject's report card."""
     footer_line_y = page_h - _px(28) * k
 
-    # --- signature, bottom-right, just above the footer rule ---
-    sig_bottom = footer_line_y - _px(8) * k
-    sig_h = _px(30) * k
+    # --- signature, bottom-right, a little above the footer rule ---
+    sig_bottom = footer_line_y - _px(14) * k
+    sig_h = _px(38) * k
     sig_top = sig_bottom - sig_h
     sig_w = sig_h * _signature_ratio()
     try:
@@ -552,12 +552,12 @@ def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, 
     # --- handwritten one-line remark, horizontally centred, above the signature ---
     remark = str(model.get("signoff_remark", "")).strip()
     if remark:
-        rsz = _px(13) * k
-        max_w = (x1 - x0) * 0.72
-        remark, rsz = _fit_one_line(canvas, remark, "hand", rsz, max_w, _px(8) * k)
+        rsz = _px(16) * k
+        max_w = (x1 - x0) * 0.76
+        remark, rsz = _fit_one_line(canvas, remark, "hand", rsz, max_w, _px(9) * k)
         tw = canvas.text_len(remark, "hand", rsz)
         cx = x0 + ((x1 - x0) - tw) / 2.0
-        ry = sig_top - _px(15) * k
+        ry = sig_top - _px(22) * k
         canvas.text(cx, ry, remark, "hand", rsz, INK)
 
 
@@ -624,7 +624,7 @@ def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     if not model.get("brand"):
         model["brand"] = current_report_brand()
     # Reserve a band above the footer for the sign-off (handwritten remark + signature).
-    footer_top = PAGE_H - _px(34) - _px(58)
+    footer_top = PAGE_H - _px(34) - _px(74)
     k = 1.0
     for _ in range(14):
         bottom = _estimate_overflow(model, k)
