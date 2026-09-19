@@ -1082,7 +1082,7 @@ def call_grok_for_essay_grading_strict_range(
         "criteria": [
             {
                 "id": "outline_topic_interpretation",
-                "criterion": "Essay Outline & Topic Interpretation/Clarity",
+                "criterion": "Comprehension of the Subject Issue",
                 "marks_allocated": 40,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1090,7 +1090,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "introduction",
-                "criterion": "Introduction",
+                "criterion": "Articulation of Stance",
                 "marks_allocated": 15,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1098,7 +1098,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "relevance_focus",
-                "criterion": "Relevance & Focus (Adherence to Topic)",
+                "criterion": "Adherence to the Given Topic",
                 "marks_allocated": 5,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1106,7 +1106,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "content_depth_originality",
-                "criterion": "Content Depth & Originality",
+                "criterion": "Arguments Supported by Relevant Data and Examples",
                 "marks_allocated": 10,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1114,7 +1114,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "argumentation_critical_analysis",
-                "criterion": "Argumentation & Critical Analysis",
+                "criterion": "Valid Arguments and Clear Ideas",
                 "marks_allocated": 10,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1122,7 +1122,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "organization_coherence_transitions",
-                "criterion": "Organization, Coherence & Transitions",
+                "criterion": "Coherence of a Comprehensive Essay",
                 "marks_allocated": 5,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1130,7 +1130,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "expression_grammar_vocab_style",
-                "criterion": "Expression, Grammar, Vocabulary & Style",
+                "criterion": "Articulation, Expression and Technical Treatment of the Essay",
                 "marks_allocated": 10,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1138,7 +1138,7 @@ def call_grok_for_essay_grading_strict_range(
             },
             {
                 "id": "conclusion_overall_impression",
-                "criterion": "Conclusion & Overall Impression",
+                "criterion": "Reinforcement of Stance to Close the Essay",
                 "marks_allocated": 5,
                 "marks_awarded_range": "0-0",
                 "rating": "Weak",
@@ -1149,6 +1149,7 @@ def call_grok_for_essay_grading_strict_range(
         "reasons_for_low_score": ["..."],
         "suggested_improvements_for_higher_score_70_plus": ["..."],
         "overall_remarks": "string",
+        "one_line_remark": "string",
     }
 
     instructions = (
@@ -1169,30 +1170,22 @@ def call_grok_for_essay_grading_strict_range(
     "- Headings/section markers may exist; evaluate only what is visible; do not invent content.\n"
     "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention used in the outline or essay body. "
     "Focus only on the substance and content quality, not how points are numbered or listed.\n"
-    "Issue Identification Rules (Strict):\n"
-    "- For EACH criterion, list ONLY concrete deficiencies observed in the essay.\n"
-    "- Each issue must clearly explain why marks were lost.\n"
-    "- Use simple, direct language so the student understands exactly what went wrong.\n"
-    "- Avoid vague or generic phrases (e.g., 'needs improvement', 'lacks depth', 'weak analysis').\n"
-    "- State precise problems (e.g., 'no clear thesis in introduction', 'arguments listed without explanation', "
-    "'claims unsupported by evidence', 'irrelevant paragraphs', 'repetition of same example', "
-    "'frequent grammar errors in introduction and conclusion').\n"
-    "- Reasons for low score must be directly drawn from the essay (structure, argument gaps, evidence, relevance, language).\n"
-    "Reasons for Low Score (ELABORATE):\n"
-    "- Each reason in 'reasons_for_low_score' MUST be a detailed, well-explained sentence (2-3 lines minimum).\n"
-    "- Do NOT write short or vague reasons like 'weak introduction' or 'lack of depth'.\n"
-    "- Instead, explain specifically WHAT is wrong and WHY it costs marks. For example:\n"
-    "  'The introduction fails to present a clear thesis statement or define the scope of discussion, "
-    "which means the reader has no roadmap for the essay and the examiner cannot assess topic interpretation.'\n"
-    "  'Body paragraphs repeat the same example of economic impact three times without introducing "
-    "new evidence or perspectives, which shows limited research and reduces content depth marks.'\n"
-    "- Each reason must reference specific parts of the essay (introduction, body paragraph, conclusion, outline) "
-    "and explain the exact deficiency with its impact on the score.\n"
-    "Suggested Improvements (if required by schema):\n"
-    "- Provide ONLY targeted, actionable fixes directly linked to the identified issues.\n"
-    "- Keep suggestions specific and exam-oriented (e.g., 'state a one-sentence thesis in the introduction', "
-    "'add factual evidence to support claim X', 'remove repeated example in body paragraph 3').\n"
-    "- Do NOT give general writing advice or motivational comments.\n"
+    "Crisp Feedback Format (report card — apply to every criterion, gap and fix):\n"
+    "- key_comments for each criterion: exactly ONE sentence, <=18 words. State the flaw directly; "
+    "do NOT write 'should do X but instead does Y, which means Z'.\n"
+    "- Stay specific: cite a location (page/paragraph), a named claim from the essay, or a count "
+    "(e.g. 'repeated 3x'). Never write generic feedback that could apply to any essay.\n"
+    "- Avoid vague phrases ('needs improvement', 'lacks depth', 'weak analysis'); name the precise problem.\n"
+    "- No praise, no hedging ('might', 'could consider', 'perhaps'), no preamble or closing note.\n"
+    "reasons_for_low_score (Key Gaps):\n"
+    "- Each item: ONE clause, <=15 words, action-neutral, naming the specific gap and where it occurs.\n"
+    "- Draw directly from the essay (structure, argument gaps, evidence, relevance, language); no motivational lines.\n"
+    "suggested_improvements_for_higher_score_70_plus (How to Improve):\n"
+    "- Each item: <=15 words, imperative verb first (State, Add, Remove, Cite, Replace) with the exact fix and location.\n"
+    "- Targeted and exam-oriented; no general writing advice or motivational comments.\n"
+    "overall_remarks: ONE sentence, <=20 words, summarising the essay's standing.\n"
+    "one_line_remark: a single encouraging closing line to the student, <=18 words, specific to this essay, "
+    "no heading (e.g. 'Tighten your structure and back each claim with evidence to move into the 60s').\n"
     "Other Constraints:\n"
     "- Never leave any field blank.\n"
     "- If unsure, choose the lower bound.\n"
@@ -1424,51 +1417,32 @@ def _compact_ocr_page(page: Dict[str, Any]) -> Dict[str, Any]:
 
 
 ESSAY_PAGE_SUGGESTIONS_PROMPT = (
-    "PAGE SUGGESTIONS RULES (CRITICAL):\n\n"
-    "- page_suggestions: 2-4 items for this page only.\n"
-    "- Each suggestion MUST be an object with two fields:\n"
-    "    1) \"suggestion\" (the improvement text)\n"
-    "    2) \"anchor_quote\" (EXACT contiguous substring from OCR_PAGE_TEXT that this suggestion refers to).\n\n"
+    "PAGE SUGGESTIONS — FEEDBACK FORMAT RULES (CRITICAL):\n\n"
+    "- page_suggestions: 2-4 items for THIS page only. ONE issue per item — never combine multiple issues; split them.\n"
+    "- Each item MUST be an object with THREE fields:\n"
+    "    1) \"issue\"    — one short sentence, MAX 12 words, naming what is missing or weak. "
+    "Do NOT restate what the student did well; do NOT repeat the student's original wording.\n"
+    "    2) \"improved\" — one rewritten sentence, MAX 25 words, in formal academic tone, usable as-is "
+    "(or with minor edits). It must be a concrete rewrite, NOT vague advice like 'add more detail'.\n"
+    "    3) \"anchor_quote\" — an EXACT contiguous substring copied from OCR_PAGE_TEXT that this item refers to.\n\n"
     "ANCHOR REQUIREMENTS:\n"
-    "- The anchor_quote MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT.\n"
-    "- Do NOT paraphrase the anchor.\n"
-    "- The anchor_quote links the suggestion directly to the specific part of the essay being improved.\n\n"
-    "CORE REQUIREMENT (MANDATORY REWRITE RULE):\n"
-    "- Each suggestion MUST include a FULLY WRITTEN improved version of the referenced text.\n"
-    "- Do NOT only describe the problem or explain how to improve it.\n"
-    "- You MUST demonstrate the improved version exactly as it should appear in the essay.\n"
-    "- The improved version must be written in full sentences and in formal academic tone.\n"
-    "-Use simple sentences. Avoid Using complex sentences.\n"
-    "- The improved version must preserve the original intent but increase analytical depth, specificity, precision, and argument strength.\n\n"
-    "SUGGESTION STRUCTURE:\n"
-    "Each suggestion must:\n"
-    "1) Briefly identify the issue (1–2 clear sentences).\n"
-    "2) Provide the improved version in quotation marks, clearly introduced as:\n"
-    "   Improved version: \"...\"\n\n"
-    "WHAT TO IMPROVE:\n"
-    "- If the thesis is vague → Rewrite it into a clear, analytical, arguable thesis.\n"
-    "- If an outline point is broad → Rewrite it into a precise, argument-driven claim.\n"
-    "- If a claim lacks evidence → Replace it with a more specific and evidence-based version.\n"
-    "- If a topic sentence is weak → Rewrite it as a strong argumentative topic sentence.\n"
-    "- If reasoning lacks causation or evaluation → Rewrite it to include analytical depth (cause, consequence, qualification, comparison, or evaluation).\n\n"
-    "QUALITY STANDARD:\n"
-    "- The improved version must demonstrate higher-order thinking (analysis, causation, evaluation, or qualification), not just clearer wording.\n"
-    "- Avoid generic advice such as \"add more detail\" or \"improve clarity.\"\n"
-    "- Every suggestion must contain a concrete rewritten sample.\n"
-    "- Suggestions must focus only on content, structure, argumentation, evidence, and relevance.\n\n"
+    "- anchor_quote MUST be an EXACT contiguous substring of OCR_PAGE_TEXT; do NOT paraphrase it.\n"
+    "- It links the item to the specific part of the essay being improved.\n\n"
+    "DO NOT:\n"
+    "- Write more than 2 sentences total per item.\n"
+    "- Repeat the student's original wording before critiquing it.\n"
+    "- Use hedging language ('might', 'could consider', 'perhaps') — be direct.\n"
+    "- Combine multiple issues into one item; split them into separate items instead.\n"
+    "- Give generic advice ('add more detail', 'improve clarity') — the improved line must be concrete and usable.\n\n"
+    "WHAT TO IMPROVE (content only — thesis, argument, evidence, relevance, structure):\n"
+    "- Vague thesis → a clear, arguable thesis.  Broad outline point → a precise, argument-driven claim.\n"
+    "- Unsupported claim → a specific, evidence-based version.  Weak topic sentence → a strong argumentative one.\n"
+    "- Reasoning without causation/evaluation → a version adding cause, consequence, or qualification.\n\n"
     "RESTRICTIONS:\n"
     "- Do NOT include grammar or spelling corrections (handled separately).\n"
     "- Do NOT comment on numbering format, numeral structure, or point-listing style.\n"
     "- Do NOT mention OCR, scan quality, handwriting, or legibility.\n"
-    "- Do NOT produce generic or repetitive suggestions.\n"
-    "- Ensure variation in suggestions (e.g., thesis strength, argument depth, evidence precision, structural coherence).\n\n"
-    "STYLE:\n"
-    "- Use clear, complete sentences for readability.\n"
-    "- Maintain academic tone appropriate for high-level competitive examinations.\n\n"
-    "LENGTH RULE (MANDATORY):\n"
-    "- Keep each suggestion concise: 22 to 45 words total.\n"
-    "- Do not exceed 45 words in a single suggestion.\n"
-    "- Keep the 'Improved version' compact but complete.\n\n"
+    "- Ensure variety across items (thesis strength, argument depth, evidence precision, structural coherence).\n\n"
     "Return JSON only matching schema."
 )
 
@@ -1878,16 +1852,31 @@ def _process_suggestion_page(
             for item in raw_suggestions:
                 if not isinstance(item, dict):
                     continue
-                suggestion = str(item.get("suggestion", "")).strip()
                 anchor = str(item.get("anchor_quote", "")).strip()
+                issue = str(item.get("issue", "")).strip()
+                improved = str(item.get("improved", "")).strip().strip('"').strip()
+                if issue or improved:
+                    # New structured format: compose the "issue + improved" string the
+                    # annotation renderer draws in the side margin.
+                    suggestion = issue
+                    if improved:
+                        suggestion = (issue + ' Improved: "' + improved + '"').strip() if issue else f'Improved: "{improved}"'
+                else:
+                    # Back-compat: a plain single-string suggestion.
+                    suggestion = str(item.get("suggestion", "")).strip()
                 if not suggestion or not anchor:
                     continue
                 if not _anchor_is_valid(anchor, ocr_page_text):
                     continue
                 wc = _word_count(suggestion)
-                if wc < 12 or wc > 50:
+                if wc < 5 or wc > 45:
                     continue
-                cleaned.append({"suggestion": suggestion, "anchor_quote": anchor})
+                cleaned.append({
+                    "suggestion": suggestion,
+                    "anchor_quote": anchor,
+                    "issue": issue,
+                    "improved": improved,
+                })
 
             return page_num, cleaned[:4], None
         except Exception as e:
@@ -1922,7 +1911,8 @@ def call_grok_for_essay_page_suggestions(
         "page": 1,
         "page_suggestions": [
             {
-                "suggestion": "Issue + rewrite guidance. Improved version: \"...\"",
+                "issue": "Max 12 words naming the gap.",
+                "improved": "Max 25 words: a concrete rewritten sentence.",
                 "anchor_quote": "EXACT contiguous substring from OCR_PAGE_TEXT"
             }
         ],
@@ -2095,11 +2085,9 @@ def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
             continue
         rows.append({
             "category": crit,
-            "rating": str(c.get("rating", "") or "").strip() or "—",
             "remarks": str(c.get("key_comments", "") or "").strip(),
         })
 
-    overall_rating = str(grading.get("overall_rating", "") or "").strip() or "Average"
     overall_remarks = str(grading.get("overall_remarks", "") or "").strip()
 
     reasons = [str(x).strip() for x in (grading.get("reasons_for_low_score") or []) if str(x).strip()][:6] \
@@ -2115,21 +2103,20 @@ def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
             [("Subject", "English Essay"), ("Type", "CSS / FPSC")],
             [("Date", _dt.datetime.now().strftime("%B %Y")), ("", "AI-Powered Evaluation")],
         ],
-        # Qualitative assessment instead of a numeric total (essays are not marked out of a total here).
-        "rating_value": overall_rating,
-        "rating_label": "Overall Assessment",
+        # No numeric total and no "Overall Assessment" badge for essays: the topic
+        # spans the full width and the criterion table carries the feedback.
         "question_label": "Essay Topic",
         "question": topic,
         "question_sub": overall_remarks,
         "table_label": "Criterion Feedback",
         "columns": [
-            {"title": "Criterion", "key": "category", "w": 0.34, "align": "left", "kind": "cat"},
-            {"title": "Rating", "key": "rating", "w": 0.14, "align": "left", "kind": "cat"},
-            {"title": "Key Comments", "key": "remarks", "w": 0.52, "align": "left", "kind": "text"},
+            {"title": "Criterion", "key": "category", "w": 0.40, "align": "left", "kind": "cat"},
+            {"title": "Key Comments", "key": "remarks", "w": 0.60, "align": "left", "kind": "text"},
         ],
         "rows": rows,
         "left_section": {"label": "Key Gaps", "accent": "red", "items": reasons},
         "right_section": {"label": "How to Improve", "accent": "green", "items": improves},
+        "signoff_remark": _cover.one_line_remark(grading, "one_line_remark", "overall_remarks"),
         "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
         "footer_url": "rubric.ai",
     }
@@ -2202,21 +2189,10 @@ def _render_essay_report_legacy(
         page.insert_text((margin, y), topic_line.strip(), fontname="hebo", fontsize=header_size, color=(0, 0, 0))
         y += header_size * 1.4
     
-    # Add proper gap between Topic and the overall assessment
-    y += 15  # Extra spacing
+    # No "Overall Assessment" badge and no numeric total for essays; go straight to
+    # the criterion feedback table.
+    y += 20  # spacing before the table
 
-    # Overall qualitative assessment (no numeric marks for essays)
-    rating = str(grading.get("overall_rating", "") or "").strip() or "Average"
-    assess_size = header_size * 1.35
-    page.insert_text(
-        (margin, y),
-        f"Overall Assessment: {rating}",
-        fontname="hebo",
-        fontsize=assess_size,
-        color=(0.7, 0.13, 0.13)  # brand red
-    )
-    y += assess_size * 1.8  # More spacing after the assessment line
-    
     # Table header - only Criterion and Key Comments
     table_x = margin
     table_w = table_width

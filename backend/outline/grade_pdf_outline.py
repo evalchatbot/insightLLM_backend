@@ -680,6 +680,75 @@ def draw_outline_suggested_improvements_section(
     return y
 
 
+def draw_outline_report_signoff(
+    page: fitz.Page,
+    layout: OutlineReportLayout,
+    grading: Dict[str, Any],
+) -> None:
+    """Examiner sign-off on the outline report page: a handwritten one-line remark
+    (centred) and the digital signature (bottom-right) — matching the other subjects."""
+    import os as _os
+    try:
+        from backend.utils.report_cover import (
+            _SIGNATURE,
+            _signature_ratio,
+            _FONTS_DIR,
+            one_line_remark,
+        )
+    except Exception:
+        return
+
+    W = layout.page_width_pt
+    H = layout.page_height_pt
+    m = layout.margin
+    ink = (0.102, 0.102, 0.102)
+
+    # signature, bottom-right
+    sig_h = layout.row_height * 1.15
+    sig_w = sig_h * _signature_ratio()
+    sig_bottom = H - m * 0.6
+    sig_top = sig_bottom - sig_h
+    try:
+        page.insert_image(
+            fitz.Rect(W - m - sig_w, sig_top, W - m, sig_bottom),
+            filename=_SIGNATURE,
+            keep_proportion=True,
+        )
+    except Exception:
+        pass
+
+    # handwritten one-line remark, centred above the signature
+    remark = one_line_remark(grading, "one_line_remark", "overall_comment")
+    if not remark:
+        return
+    hand_path = _os.path.join(_FONTS_DIR, "PlaywriteUSTrad.ttf")
+    fname = "helv"
+    try:
+        page.insert_font(fontname="pwhand", fontfile=hand_path)
+        hand_font = fitz.Font(fontfile=hand_path)
+        fname = "pwhand"
+    except Exception:
+        hand_font = None
+
+    fsz = float(layout.header_font_size) * 1.15
+    max_w = (W - 2 * m) * 0.72
+
+    def _tlen(sz: float) -> float:
+        if hand_font is not None:
+            return hand_font.text_length(remark, fontsize=sz)
+        return fitz.get_text_length(remark, fontname="helv", fontsize=sz)
+
+    while _tlen(fsz) > max_w and fsz > 8:
+        fsz -= 0.5
+    tw = _tlen(fsz)
+    cx = m + ((W - 2 * m) - tw) / 2.0
+    ry = sig_top - fsz * 0.6
+    try:
+        page.insert_text((cx, ry), remark, fontname=fname, fontsize=fsz, color=ink)
+    except Exception:
+        pass
+
+
 def convert_outline_report_page_to_pil_image(
     page: fitz.Page,
     dpi: Optional[int] = None,
@@ -755,6 +824,7 @@ def get_outline_grading_schema_hint() -> Dict[str, Any]:
         "reasons_for_low_score": ["..."],
         "suggested_improvements_for_higher_score": ["..."],
         "overall_comment": "string",
+        "one_line_remark": "string",
     }
 
 
@@ -773,13 +843,15 @@ def get_outline_grading_instructions() -> str:
         "- total_outline_marks is 30; keep totals conservative and exam realistic.\n"
         "- overall_rating must be one of: Excellent, Good, Average, Weak.\n"
         "\n"
-        "Reasoning rules:\n"
-        "- For each criterion, key_comments must list concrete, exam-style reasons why marks were lost.\n"
+        "Reasoning rules (crisp feedback — shown on the report card):\n"
+        "- For each criterion, key_comments: ONE sentence, <=18 words, stating the exact problem in the outline; no hedging or praise.\n"
         "- Avoid vague phrases like 'needs improvement' or 'lacks depth'; specify EXACT problems in the outline.\n"
         "- Examples: 'missing any points about X', 'points under Y are repeated', "
         "'no clear thesis branch stated at the top', 'sections are out of logical order'.\n"
-        "- reasons_for_low_score should summarize the main structural weaknesses that kept the outline score low.\n"
-        "- suggested_improvements_for_higher_score must be specific actions the candidate could take to fix the outline.\n"
+        "- reasons_for_low_score: each item ONE clause, <=15 words, a concrete structural weakness.\n"
+        "- suggested_improvements_for_higher_score: each item <=15 words, imperative verb first, a specific fix.\n"
+        "- overall_comment: ONE sentence, <=20 words.\n"
+        "- one_line_remark: a single encouraging closing line to the student, <=18 words, specific to this outline, no heading.\n"
         "\n"
         "Constraints:\n"
         "- Judge only what is written in the outline; do not imagine missing points.\n"
@@ -2877,6 +2949,7 @@ def run_outline_grading(
     y = draw_outline_grading_table(report_page, layout, grading, y)
     y = draw_outline_reasons_section(report_page, layout, grading, y)
     _ = draw_outline_suggested_improvements_section(report_page, layout, grading, y)
+    draw_outline_report_signoff(report_page, layout, grading)
 
     # Convert the report PDF page to a PIL image at target DPI.
     report_image = convert_outline_report_page_to_pil_image(report_page, dpi=OUTLINE_CONFIG.report_dpi)

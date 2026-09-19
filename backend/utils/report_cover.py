@@ -35,6 +35,8 @@ _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_a
 _FONTS_DIR = os.path.join(_ASSETS_DIR, "fonts")
 _LOGO_SVG = os.path.join(_ASSETS_DIR, "rubric_logo.svg")
 _LCA_LOGO = os.path.join(_ASSETS_DIR, "lahore-css-academy-mark.png")
+# Examiner sign-off applied to every report card (all subjects, both brands).
+_SIGNATURE = os.path.join(_ASSETS_DIR, "signature.png")
 
 # Per-request report brand: "lca" for the Lahore CSS Academy standalone app,
 # "rubric" (default) otherwise. The job worker sets this before rendering; it is
@@ -59,7 +61,22 @@ _FONT_FILES = {
     "sans-semi": "IBMPlexSans-SemiBold.ttf",
     "mono": "IBMPlexMono-Regular.ttf",
     "mono-med": "IBMPlexMono-Medium.ttf",
+    "hand": "PlaywriteUSTrad.ttf",  # handwritten final remark
 }
+
+# Aspect ratio (w/h) of the signature PNG, computed once and cached.
+_SIG_RATIO: Optional[float] = None
+
+
+def _signature_ratio() -> float:
+    global _SIG_RATIO
+    if _SIG_RATIO is None:
+        try:
+            with Image.open(_SIGNATURE) as im:
+                _SIG_RATIO = im.width / float(im.height)
+        except Exception:
+            _SIG_RATIO = 2.4
+    return _SIG_RATIO
 
 # ---------------------------------------------------------------------------
 # Palette (matches the mockup; red aligned to the real #b22222 brand mark)
@@ -294,8 +311,13 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
     top = y
 
     # --- score block: a qualitative rating (no marks) if rating_value is given,
-    #     otherwise the numeric score. ---
+    #     the numeric score if score_value is given, or nothing at all (essay:
+    #     no total / no overall-assessment badge) in which case the question
+    #     block spans the full width. ---
     rating_value = str(model.get("rating_value", "")).strip()
+    score_value = str(model.get("score_value", "")).strip()
+    has_score_block = bool(rating_value) or bool(score_value)
+    score_bottom = top
     if rating_value:
         band = rating_value.lower()
         band_col = GREEN if band in ("excellent", "good") else (AMBER if band == "average" else RED)
@@ -306,8 +328,8 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
         ny = top + rsz + _px(7) * k
         canvas.text(x0, ny, str(model.get("rating_label", "Overall Assessment")), "sans-light", _px(10) * k, GREY)
         score_bottom = ny + _px(12) * k
-    else:
-        num = str(model.get("score_value", ""))
+    elif score_value:
+        num = score_value
         num_sz = _px(48) * k
         # shrink an over-wide score (e.g. a range like "55-60") to fit its column
         while num and canvas.text_len(num, "mono-med", num_sz) > score_block_w and num_sz > _px(22) * k:
@@ -327,12 +349,13 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
         canvas.text(x0, ny, str(model.get("score_caption", "")), "sans-light", _px(9) * k, GREY)
         score_bottom = ny + _px(9) * k
 
-    # --- divider ---
-    div_x = x0 + score_block_w
-    canvas.vline(div_x, top + _px(2) * k, top + _px(54) * k, LINE, 1.0)
-
-    # --- question block ---
-    qx = div_x + _px(20) * k
+    # --- divider + question block (question spans full width when no score block) ---
+    if has_score_block:
+        div_x = x0 + score_block_w
+        canvas.vline(div_x, top + _px(2) * k, top + _px(54) * k, LINE, 1.0)
+        qx = div_x + _px(20) * k
+    else:
+        qx = x0
     qy = top
     canvas.text(
         qx, qy, str(model.get("question_label", "Question Statement")).upper(),
@@ -494,6 +517,50 @@ def _draw_two_columns(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: flo
     return max(yl, yr)
 
 
+def _fit_one_line(
+    canvas: _Canvas, text: str, alias: str, size: float, max_w: float, min_size: float
+) -> Tuple[str, float]:
+    """Shrink ``size`` so ``text`` fits ``max_w`` on one line; truncate with … if it still won't."""
+    while canvas.text_len(text, alias, size) > max_w and size > min_size:
+        size -= max(0.5, size * 0.06)
+    if canvas.text_len(text, alias, size) > max_w:
+        ell = "…"
+        t = text
+        while t and canvas.text_len(t + ell, alias, size) > max_w:
+            t = t[:-1]
+        text = (t.rstrip() + ell) if t else text
+    return text, size
+
+
+def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, page_h: float, k: float) -> None:
+    """Examiner sign-off above the footer: a handwritten one-line remark (centred)
+    and the digital signature (bottom-right). Applied to every subject's report card."""
+    footer_line_y = page_h - _px(28) * k
+
+    # --- signature, bottom-right, just above the footer rule ---
+    sig_bottom = footer_line_y - _px(8) * k
+    sig_h = _px(30) * k
+    sig_top = sig_bottom - sig_h
+    sig_w = sig_h * _signature_ratio()
+    try:
+        canvas.page.insert_image(
+            fitz.Rect(x1 - sig_w, sig_top, x1, sig_bottom), filename=_SIGNATURE, keep_proportion=True
+        )
+    except Exception:
+        pass
+
+    # --- handwritten one-line remark, horizontally centred, above the signature ---
+    remark = str(model.get("signoff_remark", "")).strip()
+    if remark:
+        rsz = _px(13) * k
+        max_w = (x1 - x0) * 0.72
+        remark, rsz = _fit_one_line(canvas, remark, "hand", rsz, max_w, _px(8) * k)
+        tw = canvas.text_len(remark, "hand", rsz)
+        cx = x0 + ((x1 - x0) - tw) / 2.0
+        ry = sig_top - _px(15) * k
+        canvas.text(cx, ry, remark, "hand", rsz, INK)
+
+
 def _draw_footer(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, page_h: float, k: float) -> None:
     fy = page_h - _px(28) * k
     canvas.hline(x0, x1, fy, LINE, 0.8)
@@ -526,6 +593,7 @@ def _render_page(model: Dict[str, Any], k: float) -> fitz.Document:
     y = _draw_score_question(canvas, model, x0, x1, y, k)
     y = _draw_table(canvas, model, x0, x1, y, k)
     _draw_two_columns(canvas, model, x0, x1, y, k)
+    _draw_signoff(canvas, model, x0, x1, PAGE_H, k)
     _draw_footer(canvas, model, x0, x1, PAGE_H, k)
     return doc
 
@@ -555,7 +623,8 @@ def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     # it when the whole evaluation finishes.
     if not model.get("brand"):
         model["brand"] = current_report_brand()
-    footer_top = PAGE_H - _px(34)
+    # Reserve a band above the footer for the sign-off (handwritten remark + signature).
+    footer_top = PAGE_H - _px(34) - _px(58)
     k = 1.0
     for _ in range(14):
         bottom = _estimate_overflow(model, k)
@@ -594,6 +663,35 @@ def render_cover_images(
 # ---------------------------------------------------------------------------
 # Small shared helpers for module adapters
 # ---------------------------------------------------------------------------
+
+
+def one_line_remark(grading: Dict[str, Any], *fields: str, max_words: int = 22) -> str:
+    """Pick the handwritten sign-off remark from the first non-empty of ``fields``,
+    reduced to a single sentence/clause of at most ``max_words`` words."""
+    def _ok(s: str) -> bool:
+        s = s.strip()
+        return bool(s) and s.lower() not in ("string", "...", "n/a", "none")
+
+    text = ""
+    for f in fields:
+        v = grading.get(f)
+        if isinstance(v, str) and _ok(v):
+            text = v.strip()
+            break
+        if isinstance(v, (list, tuple)) and v and isinstance(v[0], str) and _ok(v[0]):
+            text = v[0].strip()
+            break
+    if not text:
+        return ""
+    for sep in (". ", "! ", "? "):
+        if sep in text:
+            text = text.split(sep)[0].strip()
+            break
+    text = text.rstrip(" .")
+    words = text.split()
+    if len(words) > max_words:
+        text = " ".join(words[:max_words]).rstrip(",;:") + "…"
+    return text
 
 
 def fmt_num(v: Any) -> str:

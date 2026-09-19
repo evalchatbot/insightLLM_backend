@@ -1209,6 +1209,7 @@ def call_grok_for_precis_grading(
             "text": "",
         },
         "overall_remarks": "",
+        "one_line_remark": "",
     }
 
     system = {
@@ -1232,6 +1233,11 @@ def call_grok_for_precis_grading(
         "- Overall obtainable score is capped at 12 out of 20.\n"
         "- For each criterion, give marks_awarded within [0, marks_allocated].\n"
         "- Add concise, evidence-based key_comments for each criterion.\n"
+        "Crisp feedback format (shown on the report card):\n"
+        "- key_comments: ONE sentence, <=18 words, state the flaw directly, cite a specific location or phrase; no hedging or praise.\n"
+        "- reasons_for_low_score: each item ONE clause, <=15 words, a concrete weakness (not praise).\n"
+        "- overall_remarks: ONE sentence, <=20 words.\n"
+        "- one_line_remark: a single encouraging closing line to the student, <=18 words, specific to this precis, no heading.\n"
         "- Provide total_awarded as the sum of marks_awarded values.\n"
         "- Provide overall_rating from: Excellent, Good, Average, Weak.\n"
         "- reasons_for_low_score must contain only concrete weaknesses, not praise.\n"
@@ -1720,6 +1726,7 @@ def _build_precis_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
         "rows": rows,
         "left_section": {"label": "Reasons for Low Score", "accent": "red", "items": reasons},
         "right_section": {"label": "Ideal Précis", "accent": "red", "title": ideal_title, "body": ideal_text},
+        "signoff_remark": _cover.one_line_remark(grading, "one_line_remark", "overall_remarks"),
         "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
         "footer_url": "rubric.ai",
     }

@@ -2157,20 +2157,22 @@ def call_grok_for_mark_deduction_analysis(
         "   - Write 5-7 suggestions, each 1-2 sentences\n"
         "   - Use simple language - explain what to do and why it helps\n"
         "   - Example: 'Add counterarguments with evidence in each section. This will turn description into critical analysis.'\n\n"
-        "IMPORTANT RULES:\n"
-        "- Write in SIMPLE, CLEAR language - no complex terms\n"
-        "- Keep each item SHORT (1-2 sentences)\n"
-        "- Make it EASY TO UNDERSTAND - the student should know exactly what was wrong\n"
-        "- Be STRICT but FAIR - point out all weaknesses clearly\n"
+        "CRISP FEEDBACK RULES (the report card shows these as Key Gaps + How to Improve):\n"
+        "- Write in SIMPLE, CLEAR language - no complex terms, no jargon\n"
+        "- Each Key Gap (overall_what_was_missing): ONE clause, <=15 words, naming the specific missing content and where.\n"
+        "- Each How to Improve (overall_how_to_improve): <=15 words, imperative verb first (Add, State, Cite, Remove, Explain) with the exact fix.\n"
+        "- Stay specific to THIS answer; never write generic lines that could fit any answer.\n"
+        "- No praise, no hedging ('might', 'could consider', 'perhaps'), no preamble or closing note.\n"
         "- Do NOT mention specific criteria names or mark counts - just explain what was wrong\n\n"
         "OUTPUT FORMAT:\n"
         "- Return ONLY valid JSON (no markdown, no code blocks)\n"
         "- Follow the exact schema provided in output_schema\n"
-        "- total_marks_analysis.overall_summary: 1-2 sentences explaining overall performance\n"
-        "- overall_why_marks_lost: 4-6 simple reasons for low score (1-2 sentences each)\n"
-        "- overall_what_was_missing: 6-8 items showing what was missing (1 sentence each)\n"
-        "- overall_how_to_improve: 5-7 suggestions for improvement (1-2 sentences each)\n"
+        "- total_marks_analysis.overall_summary: ONE sentence (<=20 words) on overall performance\n"
+        "- overall_why_marks_lost: 4-6 reasons, each ONE clause (<=15 words)\n"
+        "- overall_what_was_missing: 6-8 Key Gaps, each ONE clause (<=15 words)\n"
+        "- overall_how_to_improve: 5-7 fixes, each imperative and <=15 words\n"
         "- priority_improvements: Top 3 priority areas with simple explanations\n"
+        "- one_line_remark: a single encouraging closing line to the student (<=18 words), specific to this answer, no heading\n"
     )
 
     # Prepare data payload
@@ -2209,7 +2211,7 @@ def call_grok_for_mark_deduction_analysis(
                 "Simple 1 sentence explaining what was missing, written in clear language."
             ],
             "overall_how_to_improve": [
-                "Simple 1-2 sentence suggestion for improvement, written in clear language."
+                "Imperative fix, <=15 words, action verb first."
             ],
             "priority_improvements": [
                 {
@@ -2218,7 +2220,8 @@ def call_grok_for_mark_deduction_analysis(
                     "reason": "Why this is a priority overall",
                     "quick_wins": ["Action 1", "Action 2"]
                 }
-            ]
+            ],
+            "one_line_remark": "One encouraging closing line to the student, <=18 words."
         },
     }
 
@@ -2670,6 +2673,7 @@ def _build_subject_cover_model(grading_result: Dict[str, Any]) -> Dict[str, Any]
         "rows": rows,
         "left_section": {"label": "Key Gaps", "accent": "red", "items": gaps},
         "right_section": {"label": "How to Improve", "accent": "green", "items": improve},
+        "signoff_remark": _cover.one_line_remark(grading_result, "one_line_remark", "overall_remark"),
         "footer_note": "AI-generated evaluation report · For preparation purposes only · Not an official FPSC assessment",
         "footer_url": "rubric.ai",
     }
@@ -3807,7 +3811,8 @@ def grade_pdf_answer(
             grading_result["overall_what_was_missing"] = mark_deduction_analysis.get("overall_what_was_missing", [])
             grading_result["overall_how_to_improve"] = mark_deduction_analysis.get("overall_how_to_improve", [])
             grading_result["priority_improvements"] = mark_deduction_analysis.get("priority_improvements", [])
-            
+            grading_result["one_line_remark"] = mark_deduction_analysis.get("one_line_remark", "")
+
             # Save to Tests folder (only if SAVE_TEST_FILES is enabled)
             analysis_filepath = save_mark_deduction_analysis_to_tests(
                 analysis_result=mark_deduction_analysis,
