@@ -2208,13 +2208,7 @@ def call_grok_for_mark_deduction_analysis(
         "   - Write 5-7 suggestions, each 1-2 sentences\n"
         "   - Use simple language - explain what to do and why it helps\n"
         "   - Example: 'Add counterarguments with evidence in each section. This will turn description into critical analysis.'\n\n"
-        "CRISP FEEDBACK RULES (the report card shows these as Key Gaps + How to Improve):\n"
-        "- Write in SIMPLE, CLEAR language - no complex terms, no jargon\n"
-        "- Each Key Gap (overall_what_was_missing): ONE clause, <=15 words, naming the specific missing content and where.\n"
-        "- Each How to Improve (overall_how_to_improve): <=15 words, imperative verb first (Add, State, Cite, Remove, Explain) with the exact fix.\n"
-        "- Stay specific to THIS answer; never write generic lines that could fit any answer.\n"
-        "- No praise, no hedging ('might', 'could consider', 'perhaps'), no preamble or closing note.\n"
-        "- Do NOT mention specific criteria names or mark counts - just explain what was wrong\n\n"
+        "Be brief and to the point.\n\n"
         "OUTPUT FORMAT:\n"
         "- Return ONLY valid JSON (no markdown, no code blocks)\n"
         "- Follow the exact schema provided in output_schema\n"
@@ -2223,7 +2217,7 @@ def call_grok_for_mark_deduction_analysis(
         "- overall_what_was_missing: 6-8 Key Gaps, each ONE clause (<=15 words)\n"
         "- overall_how_to_improve: 5-7 fixes, each imperative and <=15 words\n"
         "- priority_improvements: Top 3 priority areas with simple explanations\n"
-        "- one_line_remark: a single encouraging closing line to the student (<=18 words), specific to this answer, no heading\n"
+        "- one_line_remark: be brief and to the point\n"
     )
 
     # Prepare data payload
