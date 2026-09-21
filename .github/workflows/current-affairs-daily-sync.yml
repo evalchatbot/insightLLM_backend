@@ -1,20 +1,20 @@
 name: Current Affairs Daily Sync
 
+# Manual trigger only. The daily sync runs inside the backend itself
+# (backend/ingest/current_affairs_scheduler.py); this job needs the sync URL/token
+# or Supabase + GROK_API repository secrets to run.
 on:
-  schedule:
-    # 20:30 UTC = 01:30 Asia/Karachi (next day)
-    - cron: "30 20 * * *"
   workflow_dispatch:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 

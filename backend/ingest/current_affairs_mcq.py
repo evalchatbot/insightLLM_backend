@@ -23,6 +23,7 @@ from backend.config import (
     CURRENT_AFFAIRS_DAWN_LATEST_URL,
     CURRENT_AFFAIRS_DAWN_PAKISTAN_URL,
     CURRENT_AFFAIRS_DAWN_WORLD_URL,
+    CURRENT_AFFAIRS_FETCH_PROXY_PREFIX,
     CURRENT_AFFAIRS_GENRE_ID,
     CURRENT_AFFAIRS_GROK_MODEL,
     CURRENT_AFFAIRS_MAX_CANDIDATE_LINKS_PER_SECTION,
@@ -31,9 +32,11 @@ from backend.config import (
     CURRENT_AFFAIRS_MIN_LLM_SCORE,
     CURRENT_AFFAIRS_MIN_RELEVANCE_SCORE,
     CURRENT_AFFAIRS_REQUEST_TIMEOUT_SECONDS,
+    FACTBOOK_FETCH_PROXY_TOKEN,
     GROK_API,
 )
 from backend.db.supabase_service import SupabaseService
+from backend.ingest.factbook_editorials import _throttle_fetch
 from backend.utils.grok_client import GrokClient, GrokMessage, extract_content_text
 from backend.utils.logging_config import get_logger
 
@@ -295,11 +298,23 @@ def _is_valid_news_link(resolved_url: str) -> bool:
 
 
 def _fetch_html(url: str) -> str:
+    # Dawn serves a Cloudflare challenge to non-browser clients, so go through the
+    # rendering proxy first (as the Fact Book does) and only then try a direct fetch.
+    if CURRENT_AFFAIRS_FETCH_PROXY_PREFIX:
+        try:
+            return _fetch_html_once(url, via_proxy=True)
+        except requests.RequestException as exc:
+            logger.warning(f"[CURRENT_AFFAIRS] Proxy fetch failed for {url}: {exc}; trying direct")
+    return _fetch_html_once(url, via_proxy=False)
+
+
+def _fetch_html_once(url: str, via_proxy: bool) -> str:
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "Mozilla/5.0 (compatible; rubric-ai-current-affairs/1.0)",
     ]
+    request_url = f"{CURRENT_AFFAIRS_FETCH_PROXY_PREFIX}{url}" if via_proxy else url
 
     last_error: Optional[Exception] = None
     for attempt in range(3):
@@ -308,9 +323,15 @@ def _fetch_html(url: str) -> str:
             "Accept-Language": "en-US,en;q=0.8",
             "Referer": "https://www.dawn.com",
         }
+        if via_proxy:
+            headers["X-Return-Format"] = "html"
+            if FACTBOOK_FETCH_PROXY_TOKEN:
+                headers["Authorization"] = f"Bearer {FACTBOOK_FETCH_PROXY_TOKEN}"
+            # Shared with the Fact Book so both jobs stay under the proxy's per-IP limit.
+            _throttle_fetch()
         try:
             response = requests.get(
-                url,
+                request_url,
                 timeout=max(8, CURRENT_AFFAIRS_REQUEST_TIMEOUT_SECONDS),
                 headers=headers,
             )

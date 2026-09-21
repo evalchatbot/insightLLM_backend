@@ -96,3 +96,16 @@ async def start_factbook_scheduler():
         logger.info("Fact Book daily scheduler task created")
     except Exception as e:
         logger.warning(f"Failed to start Fact Book scheduler: {e}")
+
+
+@app.on_event("startup")
+async def start_current_affairs_scheduler():
+    import asyncio
+
+    from backend.ingest.current_affairs_scheduler import current_affairs_scheduler_loop
+
+    try:
+        asyncio.create_task(current_affairs_scheduler_loop())
+        logger.info("Current Affairs daily scheduler task created")
+    except Exception as e:
+        logger.warning(f"Failed to start Current Affairs scheduler: {e}")

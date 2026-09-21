@@ -1,9 +1,9 @@
 name: Fact Book Daily Sync
 
+# Manual backfill tool only. The daily sync runs inside the backend itself
+# (backend/ingest/factbook_scheduler.py); this job needs SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY and GROK_API repository secrets to run.
 on:
-  schedule:
-    # 03:30 UTC = 08:30 Asia/Karachi (Dawn's editorials are online by then). Once a day.
-    - cron: "30 3 * * *"
   workflow_dispatch:
     inputs:
       start_date:
@@ -26,14 +26,14 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload progress log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: factbook-sync-progress
           path: factbook_sync_progress.jsonl

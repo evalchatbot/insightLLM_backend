@@ -54,6 +54,14 @@ CURRENT_AFFAIRS_MAX_SELECTED_HEADLINES = int(os.getenv("CURRENT_AFFAIRS_MAX_SELE
 CURRENT_AFFAIRS_MIN_RELEVANCE_SCORE = int(os.getenv("CURRENT_AFFAIRS_MIN_RELEVANCE_SCORE", "2"))
 CURRENT_AFFAIRS_MIN_LLM_SCORE = int(os.getenv("CURRENT_AFFAIRS_MIN_LLM_SCORE", "60"))
 CURRENT_AFFAIRS_MCQS_PER_DAY = int(os.getenv("CURRENT_AFFAIRS_MCQS_PER_DAY", "20"))
+# Dawn listing pages go through the same rendering proxy as the Fact Book (Cloudflare
+# challenge); falls back to a direct fetch if the proxy fails. "" = direct only.
+CURRENT_AFFAIRS_FETCH_PROXY_PREFIX = os.getenv("CURRENT_AFFAIRS_FETCH_PROXY_PREFIX", FACTBOOK_FETCH_PROXY_PREFIX).strip()
+# In-process daily scheduler (inside the Railway backend; no GitHub Actions/secrets needed).
+# Runs once a day for that day, and on startup if today's batch is missing and the
+# scheduled time has already passed (Railway restarts on every deploy). One run per day.
+CURRENT_AFFAIRS_SCHEDULER_ENABLED = os.getenv("CURRENT_AFFAIRS_SCHEDULER_ENABLED", "true").lower() == "true"
+CURRENT_AFFAIRS_SCHEDULER_TIMES = os.getenv("CURRENT_AFFAIRS_SCHEDULER_TIMES", "09:30")  # local FACTBOOK_TIMEZONE
 
 # LangSmith
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")

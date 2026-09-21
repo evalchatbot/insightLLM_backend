@@ -21,6 +21,7 @@ TEST_ENV = {
     "SUPABASE_KEY": "test-anon-key",
     "JWT_SECRET_KEY": "test-jwt-secret-not-for-production",
     "FACTBOOK_SCHEDULER_ENABLED": "false",
+    "CURRENT_AFFAIRS_SCHEDULER_ENABLED": "false",
     "FACTBOOK_SYNC_TOKEN": "factbook-test-token",
     "CURRENT_AFFAIRS_SYNC_TOKEN": "current-affairs-test-token",
     "FACTBOOK_FETCH_MIN_INTERVAL_SECONDS": "0",
