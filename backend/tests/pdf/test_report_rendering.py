@@ -73,7 +73,8 @@ def test_rubric_cover_is_single_a4_page_with_content():
     for expected in ("Rubric.ai", "rubric.ai", "12", "separation of powers", "Introduction", "Cite the Asma Jilani case.", "KEY GAPS"):
         assert expected in text
     assert "Lahore CSS Academy" not in text
-    assert doc[0].get_images() == []  # rubric mark is drawn as vector shapes
+    # The rubric mark is vector shapes; the only raster is the examiner signature.
+    assert len(doc[0].get_images()) == 1
 
 
 def test_lca_cover_uses_lca_name_logo_and_url():
@@ -82,7 +83,31 @@ def test_lca_cover_uses_lca_name_logo_and_url():
     assert "Lahore CSS Academy" in text
     assert "lca-portal.org" in text
     assert "Rubric.ai" not in text
-    assert len(doc[0].get_images()) == 1  # the academy mark PNG
+    assert len(doc[0].get_images()) == 2  # the academy mark PNG + the examiner signature
+
+
+@pytest.mark.parametrize("brand", ["rubric", "lca"])
+def test_signoff_signature_and_remark_on_every_cover(brand):
+    remark = "A promising answer that needs sharper case law."
+    doc = rc.build_cover_doc(cover_model(brand=brand, signoff_remark=remark))
+    assert len(doc) == 1
+    assert " ".join(_text(doc).split()).find(remark) != -1
+    # Signature sits in the bottom band, right of centre, above the footer.
+    sig = [r for xref, *_ in doc[0].get_images() for r in doc[0].get_image_rects(xref) if r.x0 > rc.PAGE_W / 2]
+    assert sig and all(r.y0 > rc.PAGE_H * 0.7 and r.y1 < rc.PAGE_H for r in sig)
+
+
+@pytest.mark.parametrize(
+    ("grading", "expected"),
+    [
+        ({"one_line_remark": "Good structure overall."}, "Good structure overall."),
+        ({"one_line_remark": "n/a", "overall_remarks": "Weak ending."}, "Weak ending."),
+        ({"one_line_remark": "string"}, ""),
+        ({}, ""),
+    ],
+)
+def test_one_line_remark_skips_placeholder_values(grading, expected):
+    assert rc.one_line_remark(grading, "one_line_remark", "overall_remarks") == expected
 
 
 def test_cover_takes_brand_from_worker_thread_when_model_has_none():
@@ -190,23 +215,45 @@ def test_essay_cover_renders_for_both_brands(essay, brand):
         "suggested_improvements_for_higher_score_70_plus": [],
     }
     model = essay._build_essay_cover_model(grading)
-    assert [r["category"] for r in model["rows"]] == ["Outline", "Expression"]
-    assert model["rows"][1]["rating"] == "—"
+    # Name + key comments only: no per-criterion rating column any more.
+    assert model["rows"] == [
+        {"category": "Outline", "remarks": "Logical flow"},
+        {"category": "Expression", "remarks": "Frequent errors"},
+    ]
+    assert [c["key"] for c in model["columns"]] == ["category", "remarks"]
     assert model["left_section"]["items"] == ["Weak conclusion"]
     assert model["right_section"]["items"] == ["No improvement suggestions provided."]
+    assert model["signoff_remark"] == "Argument drifts in the middle."
 
     model["brand"] = brand
     text = _text(rc.build_cover_doc(model))
     assert "Climate change is a threat multiplier" in text
-    assert "Average" in text
+    assert "Overall Assessment" not in text  # essays have no rating badge
     assert ("Lahore CSS Academy" in text) is (brand == "lca")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Articulation of Stance — 15", "Articulation of Stance"),
+        ("Clarity – 10", "Clarity"),
+        ("Grammar - 5", "Grammar"),
+        ("Grammar-5", "Grammar"),
+        ("Section 2 Analysis", "Section 2 Analysis"),
+    ],
+)
+def test_essay_criterion_column_strips_trailing_marks(essay, raw, expected):
+    model = essay._build_essay_cover_model({"criteria": [{"criterion": raw, "key_comments": "ok"}]})
+    assert model["rows"][0]["category"] == expected
 
 
 def test_essay_cover_defaults_for_empty_grading(essay):
     model = essay._build_essay_cover_model({})
     assert model["question"] == "No topic provided."
-    assert model["rating_value"] == "Average"
+    assert not model.get("rating_value")
     assert model["rows"] == []
+    assert model["left_section"]["items"] == ["No specific weaknesses identified."]
+    assert model["signoff_remark"] == ""
 
 
 def test_merge_report_and_answer_pages(essay, tmp_path):
