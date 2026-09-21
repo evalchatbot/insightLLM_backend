@@ -2044,6 +2044,9 @@ def _build_essay_cover_model(grading: Dict[str, Any]) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
     for c in grading.get("criteria", []) or []:
         crit = str(c.get("criterion", "") or "").strip()
+        # Safeguard: the Criterion column shows the name only. Strip any trailing
+        # marks the model may append (e.g. "Articulation of Stance — 15").
+        crit = re.sub(r"\s*[—–-]\s*\d+\s*$", "", crit).strip()
         if not crit:
             continue
         rows.append({
@@ -2176,7 +2179,7 @@ def _render_essay_report_legacy(
     
     # Table rows - only Criterion and Key Comments columns
     for idx, c in enumerate(criteria_list):
-        crit = c.get("criterion", "")
+        crit = re.sub(r"\s*[—–-]\s*\d+\s*$", "", str(c.get("criterion", "") or "")).strip()
         comments = str(c.get("key_comments", ""))
         
         # Estimate row height based on text wrapping - increased for better spacing
