@@ -42,6 +42,7 @@ backend/eng_essay/temp_essay_job_*/
 
 # Test and coverage
 htmlcov/
+reports/
 .coverage
 .tox/
 .pytest_cache/

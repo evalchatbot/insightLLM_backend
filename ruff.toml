@@ -1,0 +1,19 @@
+# Pragmatic lint gate: fail only on real errors (syntax errors, undefined names,
+# broken comparisons/returns). Style and modernisation rules are intentionally
+# NOT selected here; run `ruff check --select E4,E7,E9,F .` to see the wider list.
+target-version = "py313"
+extend-exclude = [".venv", "venv", "logs"]
+
+[lint]
+select = [
+    "E9",   # syntax / IO errors
+    "F63",  # invalid comparisons (is-literal, ...)
+    "F7",   # syntax errors in statements (break outside loop, return outside function, ...)
+    "F82",  # undefined names
+]
+
+[lint.per-file-ignores]
+# False positive: `cv_img` is rebound at the top of every page-loop iteration before
+# the nested drawing helpers are defined; ruff's flow analysis is confused by the
+# `if 'cv_img' in locals(): del cv_img; continue` early-exit branch.
+"backend/ocr/annotate_pdf_with_rubric.py" = ["F821"]

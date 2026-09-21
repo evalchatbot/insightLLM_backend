@@ -8,12 +8,18 @@ import asyncio
 import sys
 import os
 
+import pytest
+
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from backend.agents.chatbot_agent import ChatbotAgent
 
+# Calls the live Groq LLM and Supabase: runs only with RUN_INTEGRATION=1.
+pytestmark = pytest.mark.integration
 
+
+@pytest.mark.skip(reason="stale: asserts the removed RAG-tool architecture (capabilities is now async and reports agent_type=single_llm; no tool_used metadata)")
 async def test_direct_rag_processing():
     """Test direct RAG processing for all query types."""
 
@@ -45,6 +51,7 @@ async def test_direct_rag_processing():
             raise
 
 
+@pytest.mark.skip(reason="stale: asserts the removed RAG-tool architecture (capabilities is now async and reports agent_type=single_llm; no tool_used metadata)")
 async def test_agent_capabilities():
     """Test agent capabilities and initialization."""
     

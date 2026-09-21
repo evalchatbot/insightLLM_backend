@@ -4,7 +4,12 @@ Performance optimization tests for ChatbotAgent.
 import asyncio
 import time
 import os
+
+import pytest
 from backend.agents.chatbot_agent import ChatbotAgent
+
+# Calls the live Groq LLM and Supabase: runs only with RUN_INTEGRATION=1.
+pytestmark = pytest.mark.integration
 
 async def test_performance_modes():
     """Test different performance modes of the ChatbotAgent."""

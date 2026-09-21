@@ -1,6 +1,10 @@
 import asyncio
+
+import pytest
 from backend.rag.planning.subquestion_generator import SubquestionGenerator
 from backend.rag.planning.dependency_tracker import DependencyTracker
+
+pytestmark = pytest.mark.unit
 
 class MockLLM:
     async def generate(self, prompt: str, temperature: float = 0.0, max_tokens: int = 512) -> str:

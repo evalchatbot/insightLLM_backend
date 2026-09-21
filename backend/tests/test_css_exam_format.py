@@ -3,7 +3,12 @@ Test CSS exam format for ChatbotAgent responses.
 """
 import asyncio
 import re
+
+import pytest
 from backend.agents.chatbot_agent import ChatbotAgent
+
+# Calls the live Groq LLM and Supabase: runs only with RUN_INTEGRATION=1.
+pytestmark = pytest.mark.integration
 
 async def test_css_exam_format():
     """Test that ChatbotAgent provides responses in CSS exam format."""

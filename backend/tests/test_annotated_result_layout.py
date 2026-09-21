@@ -11,6 +11,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 # Ensure `backend` package imports resolve when running from repo root or backend/
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,6 +20,8 @@ if _BACKEND_ROOT not in sys.path:
     sys.path.insert(0, _BACKEND_ROOT)
 
 from backend.utils import annotated_result_layout as arl  # noqa: E402
+
+pytestmark = pytest.mark.unit
 
 
 def test_cream_canvas_matches_html():

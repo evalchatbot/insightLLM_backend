@@ -2,9 +2,18 @@
 Test question classification and smart routing functionality.
 """
 import asyncio
-from backend.agents.chatbot_agent import ChatbotAgent
-from backend.rag.classification.question_classifier import get_question_classifier, QuestionType
-from backend.rag.classification.generic_responses import get_generic_response_handler
+
+import pytest
+
+# Calls the live Groq LLM and Supabase: runs only with RUN_INTEGRATION=1.
+pytestmark = pytest.mark.integration
+
+# backend.rag.classification was removed from the codebase; skip instead of erroring at collection.
+pytest.importorskip("backend.rag.classification.question_classifier", reason="stale: backend.rag.classification no longer exists")
+
+from backend.agents.chatbot_agent import ChatbotAgent  # noqa: E402
+from backend.rag.classification.question_classifier import get_question_classifier, QuestionType  # noqa: E402
+from backend.rag.classification.generic_responses import get_generic_response_handler  # noqa: E402
 
 async def test_question_classification():
     """Test the question classification and routing system."""

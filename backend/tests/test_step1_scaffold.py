@@ -1,4 +1,6 @@
 import asyncio
+
+import pytest
 from backend.rag.config import get_rag_settings
 from backend.rag.models.schemas import ChatRequest, ChatResponse, StepTrace, Citation
 from backend.rag.memory.context_state import ContextState, EvidenceSnippet
@@ -6,6 +8,8 @@ from backend.rag.memory.dedupe import dedupe_docs
 from backend.rag.memory.cache import TTLCache
 from backend.rag.telemetry.tracing import span
 from backend.rag.telemetry.metrics import metrics
+
+pytestmark = pytest.mark.unit
 
 
 def test_config_and_env():

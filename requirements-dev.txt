@@ -1,0 +1,13 @@
+# Test / lint tooling. Install together with the app dependencies:
+#   python -m pip install -r requirements.txt -r requirements-dev.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+pytest-randomly==5.0.0
+pytest-socket==0.8.1
+pytest-timeout==2.4.0
+coverage==7.16.1
+ruff==0.16.8
+# IANA zone data for zoneinfo on hosts without /usr/share/zoneinfo (Windows, slim images);
+# the Fact Book code silently falls back to UTC without it.
+tzdata==2026.4

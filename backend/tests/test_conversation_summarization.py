@@ -2,9 +2,14 @@
 Test conversation summarization functionality.
 """
 import asyncio
+
+import pytest
 from backend.memory.short_term import ShortTermMemory
 from backend.memory.long_term import LongTermMemory
 from backend.memory.conversation_summarizer import ConversationSummarizer
+
+# Calls the live Groq LLM and Supabase: runs only with RUN_INTEGRATION=1.
+pytestmark = pytest.mark.integration
 
 async def test_conversation_summarization():
     """Test the conversation summarization workflow."""
