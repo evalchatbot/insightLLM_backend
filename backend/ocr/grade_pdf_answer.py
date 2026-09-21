@@ -2208,7 +2208,7 @@ def call_grok_for_mark_deduction_analysis(
         "   - Write 5-7 suggestions, each 1-2 sentences\n"
         "   - Use simple language - explain what to do and why it helps\n"
         "   - Example: 'Add counterarguments with evidence in each section. This will turn description into critical analysis.'\n\n"
-        "Be brief and to the point.\n\n"
+        "Keep every gap and fix mid-length — brief but substantive: a clear, specific sentence (about 15-30 words) naming the exact issue in this answer; good and useful, never one-word notes, vague filler, or long paragraphs.\n\n"
         "OUTPUT FORMAT:\n"
         "- Return ONLY valid JSON (no markdown, no code blocks)\n"
         "- Follow the exact schema provided in output_schema\n"
@@ -2217,7 +2217,7 @@ def call_grok_for_mark_deduction_analysis(
         "- overall_what_was_missing: 6-8 Key Gaps, each ONE clause (<=15 words)\n"
         "- overall_how_to_improve: 5-7 fixes, each imperative and <=15 words\n"
         "- priority_improvements: Top 3 priority areas with simple explanations\n"
-        "- one_line_remark: be brief and to the point\n"
+        "- one_line_remark: One or two sentences that serve as concluding final remarks telling the student what to focus on to improve score.\n"
     )
 
     # Prepare data payload
@@ -2266,7 +2266,7 @@ def call_grok_for_mark_deduction_analysis(
                     "quick_wins": ["Action 1", "Action 2"]
                 }
             ],
-            "one_line_remark": "One encouraging closing line to the student, <=18 words."
+            "one_line_remark": "One or two sentences of concluding remarks on what to focus on to improve score."
         },
     }
 

@@ -22,6 +22,7 @@ grading / annotation pipeline changes.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import fitz  # PyMuPDF
@@ -532,6 +533,49 @@ def _fit_one_line(
     return text, size
 
 
+def _wrap_lines(canvas: _Canvas, text: str, alias: str, size: float, max_w: float) -> List[str]:
+    """Greedy word-wrap ``text`` into lines that each fit within ``max_w``."""
+    lines: List[str] = []
+    cur = ""
+    for word in text.split():
+        trial = (cur + " " + word).strip()
+        if cur and canvas.text_len(trial, alias, size) > max_w:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _fit_wrapped(
+    canvas: _Canvas,
+    text: str,
+    alias: str,
+    size: float,
+    max_w: float,
+    min_size: float,
+    max_lines: int = 2,
+) -> Tuple[List[str], float]:
+    """Shrink ``size`` until ``text`` wraps into at most ``max_lines`` lines. If it
+    still overflows at ``min_size``, keep the first ``max_lines`` and ellipsise."""
+    size = max(size, min_size)
+    while size > min_size:
+        lines = _wrap_lines(canvas, text, alias, size, max_w)
+        if len(lines) <= max_lines:
+            return lines, size
+        size -= max(0.5, size * 0.06)
+    lines = _wrap_lines(canvas, text, alias, size, max_w)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last, ell = lines[-1], "…"
+        while last and canvas.text_len(last + ell, alias, size) > max_w:
+            last = last[:-1]
+        lines[-1] = (last.rstrip() + ell) if last else ell
+    return lines, size
+
+
 def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, page_h: float, k: float) -> None:
     """Examiner sign-off above the footer: a handwritten one-line remark (centred)
     and the digital signature (bottom-right). Applied to every subject's report card."""
@@ -549,16 +593,20 @@ def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, 
     except Exception:
         pass
 
-    # --- handwritten one-line remark, horizontally centred, above the signature ---
+    # --- handwritten concluding remark (1-2 sentences), centred above the signature ---
     remark = str(model.get("signoff_remark", "")).strip()
     if remark:
         rsz = _px(16) * k
-        max_w = (x1 - x0) * 0.76
-        remark, rsz = _fit_one_line(canvas, remark, "hand", rsz, max_w, _px(9) * k)
-        tw = canvas.text_len(remark, "hand", rsz)
-        cx = x0 + ((x1 - x0) - tw) / 2.0
-        ry = sig_top - _px(22) * k
-        canvas.text(cx, ry, remark, "hand", rsz, INK)
+        max_w = (x1 - x0) * 0.80
+        lines, rsz = _fit_wrapped(canvas, remark, "hand", rsz, max_w, _px(9) * k, max_lines=2)
+        line_h = rsz * 1.18
+        block_bottom = sig_top - _px(12) * k  # last line sits just above the signature
+        n = len(lines)
+        for i, ln in enumerate(lines):
+            tw = canvas.text_len(ln, "hand", rsz)
+            cx = x0 + ((x1 - x0) - tw) / 2.0
+            ry = block_bottom - (n - 1 - i) * line_h
+            canvas.text(cx, ry, ln, "hand", rsz, INK)
 
 
 def _draw_footer(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, page_h: float, k: float) -> None:
@@ -623,8 +671,8 @@ def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     # it when the whole evaluation finishes.
     if not model.get("brand"):
         model["brand"] = current_report_brand()
-    # Reserve a band above the footer for the sign-off (handwritten remark + signature).
-    footer_top = PAGE_H - _px(34) - _px(74)
+    # Reserve a band above the footer for the sign-off (up to 2 remark lines + signature).
+    footer_top = PAGE_H - _px(34) - _px(96)
     k = 1.0
     for _ in range(14):
         bottom = _estimate_overflow(model, k)
@@ -665,9 +713,9 @@ def render_cover_images(
 # ---------------------------------------------------------------------------
 
 
-def one_line_remark(grading: Dict[str, Any], *fields: str, max_words: int = 22) -> str:
+def one_line_remark(grading: Dict[str, Any], *fields: str, max_words: int = 34) -> str:
     """Pick the handwritten sign-off remark from the first non-empty of ``fields``,
-    reduced to a single sentence/clause of at most ``max_words`` words."""
+    kept to at most the first two sentences (and ``max_words`` words)."""
     def _ok(s: str) -> bool:
         s = s.strip()
         return bool(s) and s.lower() not in ("string", "...", "n/a", "none")
@@ -683,11 +731,10 @@ def one_line_remark(grading: Dict[str, Any], *fields: str, max_words: int = 22) 
             break
     if not text:
         return ""
-    for sep in (". ", "! ", "? "):
-        if sep in text:
-            text = text.split(sep)[0].strip()
-            break
-    text = text.rstrip(" .")
+    # Keep at most the first two sentences of the concluding remark.
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text) if p.strip()]
+    if parts:
+        text = " ".join(parts[:2]).strip()
     words = text.split()
     if len(words) > max_words:
         text = " ".join(words[:max_words]).rstrip(",;:") + "…"

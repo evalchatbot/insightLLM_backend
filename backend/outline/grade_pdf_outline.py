@@ -730,23 +730,45 @@ def draw_outline_report_signoff(
     except Exception:
         hand_font = None
 
-    fsz = float(layout.header_font_size) * 1.45
-    max_w = (W - 2 * m) * 0.76
+    fsz = float(layout.header_font_size) * 1.40
+    max_w = (W - 2 * m) * 0.80
 
-    def _tlen(sz: float) -> float:
+    def _tlen(s: str, sz: float) -> float:
         if hand_font is not None:
-            return hand_font.text_length(remark, fontsize=sz)
-        return fitz.get_text_length(remark, fontname="helv", fontsize=sz)
+            return hand_font.text_length(s, fontsize=sz)
+        return fitz.get_text_length(s, fontname="helv", fontsize=sz)
 
-    while _tlen(fsz) > max_w and fsz > 8:
+    def _wrap(sz: float) -> List[str]:
+        out: List[str] = []
+        cur = ""
+        for word in remark.split():
+            trial = (cur + " " + word).strip()
+            if cur and _tlen(trial, sz) > max_w:
+                out.append(cur)
+                cur = word
+            else:
+                cur = trial
+        if cur:
+            out.append(cur)
+        return out
+
+    lines = _wrap(fsz)
+    while len(lines) > 2 and fsz > 8:
         fsz -= 0.5
-    tw = _tlen(fsz)
-    cx = m + ((W - 2 * m) - tw) / 2.0
-    ry = sig_top - fsz * 1.1
-    try:
-        page.insert_text((cx, ry), remark, fontname=fname, fontsize=fsz, color=ink)
-    except Exception:
-        pass
+        lines = _wrap(fsz)
+    lines = lines[:2]
+
+    line_h = fsz * 1.2
+    block_bottom = sig_top - fsz * 0.9  # last line just above the signature
+    n = len(lines)
+    for i, ln in enumerate(lines):
+        tw = _tlen(ln, fsz)
+        cx = m + ((W - 2 * m) - tw) / 2.0
+        ry = block_bottom - (n - 1 - i) * line_h
+        try:
+            page.insert_text((cx, ry), ln, fontname=fname, fontsize=fsz, color=ink)
+        except Exception:
+            pass
 
 
 def convert_outline_report_page_to_pil_image(
@@ -843,7 +865,8 @@ def get_outline_grading_instructions() -> str:
         "- total_outline_marks is 30; keep totals conservative and exam realistic.\n"
         "- overall_rating must be one of: Excellent, Good, Average, Weak.\n"
         "\n"
-        "Be brief and to the point.\n"
+        "Keep every comment mid-length — brief but substantive: a clear, specific sentence (about 15-30 words) naming the exact issue in this outline; good and useful, never one-word notes, vague filler, or long paragraphs.\n"
+        "- one_line_remark: One or two sentences that serve as concluding final remarks telling the student what to focus on to improve score.\n"
         "\n"
         "Constraints:\n"
         "- Judge only what is written in the outline; do not imagine missing points.\n"
