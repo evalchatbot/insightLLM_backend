@@ -363,7 +363,7 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
         "sans-semi", _px(9) * k, RED, letter_spacing=_px(1.3) * k,
     )
     qy += _px(15) * k
-    q_sz = _px(10.5) * k
+    q_sz = _px(12) * k
     q_lines = _wrap(canvas, str(model.get("question", "")), "sans-light", q_sz, x1 - qx)
     line_h = q_sz * 1.55
     for ln in q_lines:
@@ -373,7 +373,7 @@ def _draw_score_question(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: 
     sub = str(model.get("question_sub", "")).strip()
     if sub:
         qy += _px(3) * k
-        s_sz = _px(9) * k
+        s_sz = _px(10) * k
         for ln in _wrap(canvas, sub, "sans-light", s_sz, x1 - qx):
             canvas.text(qx, qy, ln, "sans-light", s_sz, GREY)
             qy += s_sz * 1.5
@@ -402,9 +402,9 @@ def _draw_table(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, y:
         xs.append(xs[-1] + w)
 
     pad = _px(8) * k
-    head_sz = _px(9) * k
-    cell_sz = _px(10.5) * k
-    num_sz = _px(12) * k
+    head_sz = _px(9.5) * k
+    cell_sz = _px(12) * k
+    num_sz = _px(13.5) * k
 
     # header row
     hy = y
@@ -481,17 +481,17 @@ def _draw_section_column(
         # paragraph form (e.g. precis "Ideal Precis"): optional bold title + text
         title = str(sec.get("title", "")).strip()
         if title:
-            for ln in _wrap(canvas, title, "sans-semi", _px(10) * k, x1 - x0):
-                canvas.text(x0, y, ln, "sans-semi", _px(10) * k, INK)
-                y += _px(10) * k * 1.4
+            for ln in _wrap(canvas, title, "sans-semi", _px(11.5) * k, x1 - x0):
+                canvas.text(x0, y, ln, "sans-semi", _px(11.5) * k, INK)
+                y += _px(11.5) * k * 1.4
             y += _px(2) * k
-        for ln in _wrap(canvas, str(body), "sans-light", _px(9.5) * k, x1 - x0):
-            canvas.text(x0, y, ln, "sans-light", _px(9.5) * k, GREY_MID)
-            y += _px(9.5) * k * 1.5
+        for ln in _wrap(canvas, str(body), "sans-light", _px(11) * k, x1 - x0):
+            canvas.text(x0, y, ln, "sans-light", _px(11) * k, GREY_MID)
+            y += _px(11) * k * 1.5
         return y
 
     items: List[str] = sec.get("items", []) or []
-    it_sz = _px(10) * k
+    it_sz = _px(11.5) * k
     line_h = it_sz * 1.5
     text_x = x0 + _px(12) * k
     for item in items:
@@ -581,32 +581,34 @@ def _draw_signoff(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, 
     and the digital signature (bottom-right). Applied to every subject's report card."""
     footer_line_y = page_h - _px(28) * k
 
-    # --- signature, bottom-right, a little above the footer rule ---
-    sig_bottom = footer_line_y - _px(14) * k
-    sig_h = _px(38) * k
-    sig_top = sig_bottom - sig_h
+    # --- handwritten concluding remark (1-2 sentences), centred and lifted up ---
+    remark = str(model.get("signoff_remark", "")).strip()
+    remark_lines: List[str] = []
+    rsz = _px(20) * k
+    if remark:
+        max_w = (x1 - x0) * 0.84
+        remark_lines, rsz = _fit_wrapped(canvas, remark, "hand", rsz, max_w, _px(12) * k, max_lines=2)
+    line_h = rsz * 1.2
+    # Baseline of the LAST remark line, lifted well clear of the footer.
+    remark_bottom = footer_line_y - _px(80) * k
+    n = len(remark_lines)
+    for i, ln in enumerate(remark_lines):
+        tw = canvas.text_len(ln, "hand", rsz)
+        cx = x0 + ((x1 - x0) - tw) / 2.0
+        ry = remark_bottom - (n - 1 - i) * line_h
+        canvas.text(cx, ry, ln, "hand", rsz, INK)
+
+    # --- digital signature: immediately after the remark, on the right, enlarged ---
+    sig_h = _px(50) * k
     sig_w = sig_h * _signature_ratio()
+    sig_top = remark_bottom + _px(8) * k          # sits right under the remark
+    sig_bottom = sig_top + sig_h
     try:
         canvas.page.insert_image(
             fitz.Rect(x1 - sig_w, sig_top, x1, sig_bottom), filename=_SIGNATURE, keep_proportion=True
         )
     except Exception:
         pass
-
-    # --- handwritten concluding remark (1-2 sentences), centred above the signature ---
-    remark = str(model.get("signoff_remark", "")).strip()
-    if remark:
-        rsz = _px(16) * k
-        max_w = (x1 - x0) * 0.80
-        lines, rsz = _fit_wrapped(canvas, remark, "hand", rsz, max_w, _px(9) * k, max_lines=2)
-        line_h = rsz * 1.18
-        block_bottom = sig_top - _px(12) * k  # last line sits just above the signature
-        n = len(lines)
-        for i, ln in enumerate(lines):
-            tw = canvas.text_len(ln, "hand", rsz)
-            cx = x0 + ((x1 - x0) - tw) / 2.0
-            ry = block_bottom - (n - 1 - i) * line_h
-            canvas.text(cx, ry, ln, "hand", rsz, INK)
 
 
 def _draw_footer(canvas: _Canvas, model: Dict[str, Any], x0: float, x1: float, page_h: float, k: float) -> None:
@@ -671,8 +673,8 @@ def build_cover_doc(model: Dict[str, Any]) -> fitz.Document:
     # it when the whole evaluation finishes.
     if not model.get("brand"):
         model["brand"] = current_report_brand()
-    # Reserve a band above the footer for the sign-off (up to 2 remark lines + signature).
-    footer_top = PAGE_H - _px(34) - _px(96)
+    # Reserve a band above the footer for the sign-off (lifted remark + enlarged signature).
+    footer_top = PAGE_H - _px(34) - _px(120)
     k = 1.0
     for _ in range(14):
         bottom = _estimate_overflow(model, k)

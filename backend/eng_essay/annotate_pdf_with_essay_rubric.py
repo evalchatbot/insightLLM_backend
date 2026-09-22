@@ -1360,7 +1360,7 @@ def annotate_pdf_essay_pages(
         top_chrome = arl.content_top_offset(new_w)
         bottom_chrome = arl.content_bottom_reserve(new_w)
         y_offset = top_chrome
-        font_scale = max(0.85, min(orig_w, orig_h) / 1400.0)
+        font_scale = max(1.0, min(orig_w, orig_h) / 1200.0)
 
         canvas = arl.create_cream_canvas(new_w, y_offset + orig_h + bottom_chrome)
         canvas = arl.paste_script_with_shadow(

@@ -703,21 +703,7 @@ def draw_outline_report_signoff(
     m = layout.margin
     ink = (0.102, 0.102, 0.102)
 
-    # signature, bottom-right
-    sig_h = layout.row_height * 1.5
-    sig_w = sig_h * _signature_ratio()
-    sig_bottom = H - m * 0.95
-    sig_top = sig_bottom - sig_h
-    try:
-        page.insert_image(
-            fitz.Rect(W - m - sig_w, sig_top, W - m, sig_bottom),
-            filename=_SIGNATURE,
-            keep_proportion=True,
-        )
-    except Exception:
-        pass
-
-    # handwritten one-line remark, centred above the signature
+    # handwritten concluding remark first (positions the signature under it)
     remark = one_line_remark(grading, "one_line_remark", "overall_comment")
     if not remark:
         return
@@ -730,8 +716,8 @@ def draw_outline_report_signoff(
     except Exception:
         hand_font = None
 
-    fsz = float(layout.header_font_size) * 1.40
-    max_w = (W - 2 * m) * 0.80
+    fsz = float(layout.header_font_size) * 1.25  # bigger remark, shrinks to fit
+    max_w = (W - 2 * m) * 0.84
 
     def _tlen(s: str, sz: float) -> float:
         if hand_font is not None:
@@ -756,19 +742,38 @@ def draw_outline_report_signoff(
     while len(lines) > 2 and fsz > 8:
         fsz -= 0.5
         lines = _wrap(fsz)
-    lines = lines[:2]
+    if len(lines) > 2:
+        lines = lines[:2]
+        last, ell = lines[-1], "…"
+        while last and _tlen(last + ell, fsz) > max_w:
+            last = last[:-1]
+        lines[-1] = (last.rstrip() + ell) if last else last
 
     line_h = fsz * 1.2
-    block_bottom = sig_top - fsz * 0.9  # last line just above the signature
+    remark_bottom = H - m - layout.row_height * 2.3  # last line baseline, lifted up
     n = len(lines)
     for i, ln in enumerate(lines):
         tw = _tlen(ln, fsz)
         cx = m + ((W - 2 * m) - tw) / 2.0
-        ry = block_bottom - (n - 1 - i) * line_h
+        ry = remark_bottom - (n - 1 - i) * line_h
         try:
             page.insert_text((cx, ry), ln, fontname=fname, fontsize=fsz, color=ink)
         except Exception:
             pass
+
+    # digital signature: immediately after the remark, on the right, enlarged
+    sig_h = layout.row_height * 1.9
+    sig_w = sig_h * _signature_ratio()
+    sig_top = remark_bottom + fsz * 0.45
+    sig_bottom = sig_top + sig_h
+    try:
+        page.insert_image(
+            fitz.Rect(W - m - sig_w, sig_top, W - m, sig_bottom),
+            filename=_SIGNATURE,
+            keep_proportion=True,
+        )
+    except Exception:
+        pass
 
 
 def convert_outline_report_page_to_pil_image(
