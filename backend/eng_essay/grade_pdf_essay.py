@@ -1615,7 +1615,7 @@ def call_grok_for_essay_annotations(
                 "anchor_quote": "EXACT substring from OCR_PAGE_TEXT (full relevant sentence/phrase)",
                 "correction": "string",
                 "comment": "string",
-                "improved": "OPTIONAL concrete improved rewrite of the student's text; empty string when not needed",
+                "improved": "Concrete improved/corrected version showing how it should be done (model sentence or corrected structure); fill it for structural/content issues, empty only when not needed",
             }
         ],
     }
@@ -1627,7 +1627,7 @@ def call_grok_for_essay_annotations(
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
-        "- improved: give an improved version only where needed, so only necessary places have an improved rewrite. When a concrete rewrite of the student's text genuinely helps, put it in 'improved' (usable as-is); otherwise leave 'improved' as an empty string.\n"
+        "- improved: give a concrete improved/corrected version for MOST annotations, and ALWAYS when the problem is structural or content-based (outline/introduction/conclusion quality, adherence to topic, paragraph flow, organization/coherence, argumentation depth, relevance). Show how it SHOULD be done: a model sentence, a corrected structure, or a clear directive the student can apply directly (usable as-is, and it must be correct). Only leave 'improved' empty for a pure grammar/spelling fix already covered by 'correction', or a minor note where a rewrite genuinely adds nothing. Prefer giving a helpful improved version over leaving it blank.\n"
         "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention "
         "used in the outline or essay body. Focus only on the substance and content quality, not how points are numbered or listed.\n"
         "\n"
