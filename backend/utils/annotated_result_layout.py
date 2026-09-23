@@ -29,6 +29,7 @@ PAPER_BGR: Tuple[int, int, int] = (249, 253, 255)       # #FFFDF9
 CITE_BGR: Tuple[int, int, int] = (121, 133, 138)        # #8a8579
 LINE_BGR: Tuple[int, int, int] = (214, 214, 214)        # ~rgba(26,26,26,.14) on cream
 STRENGTH_BGR: Tuple[int, int, int] = (107, 138, 122)    # #7a8a6b
+DARK_GREEN_BGR: Tuple[int, int, int] = (31, 84, 7)      # #07541F deep green (improved-version text)
 SHADOW_BGR: Tuple[int, int, int] = (200, 205, 210)
 WHITE_BGR: Tuple[int, int, int] = (255, 255, 255)
 
@@ -719,7 +720,9 @@ def suggestion_card_content(suggestion_text: str, index: Optional[int] = None) -
     )
 
 
-def annotation_card_content(header: str, body: str, index: Optional[int] = None) -> CardContent:
+def annotation_card_content(
+    header: str, body: str, index: Optional[int] = None, improved: str = ""
+) -> CardContent:
     category, title = split_header_title(header)
     if not title:
         title = category
@@ -737,6 +740,13 @@ def annotation_card_content(header: str, body: str, index: Optional[int] = None)
                 cite = cite + " " + seg.text
             else:
                 cite = seg.text
+    # Optional concrete "improved version", shown in deep green. Only present when
+    # the model deemed a rewrite necessary for this annotation.
+    improved = (improved or "").strip()
+    if improved:
+        body_segs.append(
+            TextSegment(text="\nImproved: " + improved, color=DARK_GREEN_BGR)
+        )
     return CardContent(
         category=category,
         title=title,

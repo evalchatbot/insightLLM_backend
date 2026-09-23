@@ -1487,6 +1487,7 @@ def annotate_pdf_essay_pages(
             comment = (a.get("comment") or "").strip()
             correction = (a.get("correction") or "").strip()
             anchor_quote = (a.get("anchor_quote") or "").strip()
+            improved = (a.get("improved") or "").strip()
 
             # For outline_quality and introduction_quality, use clean type names as headers instead of full rubric_point
             if a_type == "outline_quality":
@@ -1561,6 +1562,7 @@ def annotate_pdf_essay_pages(
                 "ann": a,
                 "header": header,
                 "body": body,
+                "improved": improved,
                 "cands": uniq,
                 "has_anchor": bool(anchor_quote),
                 "primary_candidate_preview": candidates[0] if candidates else "",
@@ -1604,6 +1606,7 @@ def annotate_pdf_essay_pages(
                 "rect": final_rect,
                 "header": header2,
                 "body": item["body"],
+                "improved": item.get("improved", ""),
                 "y_sort": final_rect[1] if final_rect else 10**9,
                 "score": chosen_score,
                 "page_level": is_page_level,
@@ -1629,8 +1632,9 @@ def annotate_pdf_essay_pages(
             rect = item["rect"]
             header = _sanitize_text_for_render(item["header"])
             body = _sanitize_text_for_render(item["body"])
+            improved = _sanitize_text_for_render(item.get("improved", ""))
 
-            card = arl.annotation_card_content(header, body, index=left_count + r_idx)
+            card = arl.annotation_card_content(header, body, index=left_count + r_idx, improved=improved)
             box_h = arl.measure_card_height(card, box_w, font_scale)
 
             bx1 = left_width + orig_w + margin_px

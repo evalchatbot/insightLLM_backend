@@ -1562,7 +1562,7 @@ def _process_annotation_page(
             for a in valid_ann:
                 if not isinstance(a.get("page"), int):
                     a["page"] = page_num
-                for k in ["type", "rubric_point", "anchor_quote", "target_word_or_sentence", "context_before", "context_after", "correction", "comment"]:
+                for k in ["type", "rubric_point", "anchor_quote", "target_word_or_sentence", "context_before", "context_after", "correction", "comment", "improved"]:
                     if k not in a:
                         a[k] = ""
                 cleaned.append(a)
@@ -1615,6 +1615,7 @@ def call_grok_for_essay_annotations(
                 "anchor_quote": "EXACT substring from OCR_PAGE_TEXT (full relevant sentence/phrase)",
                 "correction": "string",
                 "comment": "string",
+                "improved": "OPTIONAL concrete improved rewrite of the student's text; empty string when not needed",
             }
         ],
     }
@@ -1626,6 +1627,7 @@ def call_grok_for_essay_annotations(
         "- Prefer 2-5 annotations per page.\n"
         "- Every annotation MUST be LOCATABLE on the page.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
+        "- improved: give an improved version only where needed, so only necessary places have an improved rewrite. When a concrete rewrite of the student's text genuinely helps, put it in 'improved' (usable as-is); otherwise leave 'improved' as an empty string.\n"
         "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention "
         "used in the outline or essay body. Focus only on the substance and content quality, not how points are numbered or listed.\n"
         "\n"
