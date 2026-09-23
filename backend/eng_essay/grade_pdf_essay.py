@@ -1406,6 +1406,9 @@ ESSAY_PAGE_SUGGESTIONS_PROMPT = (
     "Be brief and to the point.\n"
     "- anchor_quote MUST be an EXACT contiguous substring copied from OCR_PAGE_TEXT (needed to place the note on the page).\n"
     "- Do NOT include grammar or spelling corrections (handled separately).\n"
+    "- In the improved rewrite, NEVER use meta or self-announcing phrases such as 'This essay discusses', "
+    "'In this essay we will discuss', 'This essay will explore/highlight/examine', or 'The purpose of this essay is'. "
+    "Write the actual thesis/argument directly, not a description of what the essay does.\n"
     "Return JSON only matching schema."
 )
 
@@ -1628,6 +1631,9 @@ def call_grok_for_essay_annotations(
         "- Every annotation MUST be LOCATABLE on the page.\n"
         "- Annotations = rubric-point issues; keep each comment to ONE concise line that states the problem and fix (no multi-line paragraphs).\n"
         "- improved: give a concrete improved/corrected version for MOST annotations, and ALWAYS when the problem is structural or content-based (outline/introduction/conclusion quality, adherence to topic, paragraph flow, organization/coherence, argumentation depth, relevance). Show how it SHOULD be done: a model sentence, a corrected structure, or a clear directive the student can apply directly (usable as-is, and it must be correct). Only leave 'improved' empty for a pure grammar/spelling fix already covered by 'correction', or a minor note where a rewrite genuinely adds nothing. Prefer giving a helpful improved version over leaving it blank.\n"
+        "- In any improved/corrected text, NEVER use meta or self-announcing phrases such as "
+        "'This essay discusses', 'In this essay we will discuss', 'This essay will explore/highlight/examine', "
+        "or 'The purpose of this essay is'. Write the actual thesis/argument directly, not a description of what the essay does.\n"
         "- Do NOT comment on the numbering format, numeral structure, bullet style, or point-numbering convention "
         "used in the outline or essay body. Focus only on the substance and content quality, not how points are numbered or listed.\n"
         "\n"
