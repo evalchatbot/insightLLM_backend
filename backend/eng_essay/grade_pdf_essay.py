@@ -13,7 +13,7 @@
 #   - PDF: report pages + annotated essay pages
 #
 # Env (.env):
-#   Grok_API=...
+#   OPENAI_API_KEY=...
 #   AZURE_ENDPOINT=...
 #   AZURE_KEY=...
 #
@@ -166,12 +166,12 @@ def _load_docx_text(path: str) -> str:
 
 def load_environment() -> Tuple[str, DocumentAnalysisClient]:
     load_dotenv()
-    grok_key = os.getenv("Grok_API")
+    grok_key = os.getenv("OPENAI_API_KEY")
     azure_endpoint = os.getenv("AZURE_ENDPOINT")
     azure_key = os.getenv("AZURE_KEY")
     missing = []
     if not grok_key:
-        missing.append("Grok_API")
+        missing.append("OPENAI_API_KEY")
     if not azure_endpoint:
         missing.append("AZURE_ENDPOINT")
     if not azure_key:
@@ -800,7 +800,7 @@ def _subset_page_images_for_grading(
 def _grok_chat(
     grok_api_key: str,
     messages: List[Dict[str, str]],
-    model: str = "grok-4-1-fast-reasoning",
+    model: str = "gpt-6-luna",
     temperature: float = 0.15,
     max_tokens: Optional[int] = None,
     timeout: int = 180,
@@ -808,16 +808,21 @@ def _grok_chat(
     backoff_base: float = 2.0,
     backoff_max: float = 60.0,
 ) -> Dict[str, Any]:
+    # OpenAI GPT-6 Luna by default; EVAL_LLM_* can point at another
+    # OpenAI-compatible provider without code changes.
+    api_url = os.getenv("EVAL_LLM_CHAT_URL", "https://api.openai.com/v1/chat/completions")
+    model = os.getenv("EVAL_LLM_MODEL") or model
+    grok_api_key = os.getenv("EVAL_LLM_API_KEY") or grok_api_key
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {grok_api_key}"}
-    payload = {"model": model, "messages": messages, "temperature": temperature}
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
+    # temperature / max_tokens are not sent: reasoning models like GPT-6 Luna only
+    # accept the default temperature and count reasoning toward the token cap.
+    payload = {"model": model, "messages": messages}
     last_err: Optional[Exception] = None
 
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                api_url,
                 headers=headers,
                 json=payload,
                 timeout=(30, timeout),

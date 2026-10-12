@@ -42,7 +42,11 @@ except ImportError:
 # UTILS & ENV
 # -----------------------------
 
-
+# Eval LLM: OpenAI GPT-6 Luna; EVAL_LLM_* can point at another OpenAI-compatible
+# provider. Payloads send no temperature / max_tokens: reasoning models like Luna only
+# accept the default temperature and count reasoning toward the token cap.
+GROK_CHAT_URL = os.getenv("EVAL_LLM_CHAT_URL", "https://api.openai.com/v1/chat/completions")
+GROK_MODEL = os.getenv("EVAL_LLM_MODEL", "gpt-6-luna")
 
 
 def debug_dump_sections(
@@ -194,11 +198,11 @@ def validate_input_paths(pdf_path: str, output_json_path: str, output_pdf_path: 
 def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
 
     load_dotenv()
-    grok_key = os.getenv("Grok_API")
+    grok_key = os.getenv("EVAL_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     google_key = os.getenv("Google_cloud_key")
     missing = []
     if not grok_key:
-        missing.append("Grok_API")
+        missing.append("OPENAI_API_KEY")
     if not google_key:
         missing.append("Google_cloud_key")
     if missing:
@@ -210,7 +214,7 @@ def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
     # Validate API key formats
     if len(grok_key) < 20:
         raise ValueError(
-            f"Invalid Grok_API key format: key is too short ({len(grok_key)} characters). "
+            f"Invalid OPENAI_API_KEY key format: key is too short ({len(grok_key)} characters). "
             "Expected at least 20 characters."
         )
     if len(google_key) < 20:
@@ -714,10 +718,8 @@ def call_grok_for_section_detection(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.1,
-        "max_tokens": 4000,  # Sufficient for structure detection
     }
 
     max_retries = 3
@@ -729,7 +731,7 @@ def call_grok_for_section_detection(
 
         try:
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                GROK_CHAT_URL,
                 headers=headers,
                 json=payload,
                 timeout=120,
@@ -764,8 +766,8 @@ def call_grok_for_section_detection(
             # Check for truncation
             finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
             if finish_reason == "length" and attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
-                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
+                payload["max_completion_tokens"] = payload.get("max_completion_tokens", 4000) + 2000
+                print(f"Response truncated, increasing max_completion_tokens to {payload['max_completion_tokens']} and retrying...")
                 continue
 
             content = data["choices"][0]["message"]["content"]
@@ -907,7 +909,7 @@ def build_grok_payload_for_grading(
     }
 
     return {
-        "model": "grok-4-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [
             {
                 "role": "system",
@@ -926,8 +928,6 @@ def build_grok_payload_for_grading(
                 + json.dumps(content_payload, ensure_ascii=False),
             },
         ],
-        "temperature": 0.15,
-        "max_tokens": 8000,  # Increased to allow longer responses
     }
 
 
@@ -953,7 +953,7 @@ def call_grok_for_grading(
             print(f"Retry attempt {attempt + 1}/{max_retries} for Grok grading...")
 
         resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
+            GROK_CHAT_URL,
             headers=headers,
             json=payload,
             timeout=150,
@@ -994,8 +994,8 @@ def call_grok_for_grading(
             print(f"Response length: {len(content)} characters")
             if attempt < max_retries - 1:
                 # Increase max_tokens and retry
-                payload["max_tokens"] = payload.get("max_tokens", 8000) + 2000
-                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
+                payload["max_completion_tokens"] = payload.get("max_completion_tokens", 8000) + 2000
+                print(f"Increasing max_completion_tokens to {payload['max_completion_tokens']} and retrying...")
                 continue
 
         try:
@@ -1340,10 +1340,8 @@ def call_grok_for_refined_rubric_annotations(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.1,
-        "max_tokens": 6000,  # Increased for refined rubric annotations
     }
 
     def _save_refined_result(result: Dict[str, Any]) -> None:
@@ -1361,7 +1359,7 @@ def call_grok_for_refined_rubric_annotations(
             print(f"Retry attempt {attempt + 1}/{max_retries} for refined rubric annotations...")
 
         resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
+            GROK_CHAT_URL,
             headers=headers,
             json=payload,
             timeout=150,
@@ -1452,8 +1450,8 @@ def call_grok_for_refined_rubric_annotations(
         if finish_reason == "length":
             print(f"WARNING: Refined rubric response truncated!")
             if attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 6000) + 2000
-                print(f"Increasing max_tokens to {payload['max_tokens']} and retrying...")
+                payload["max_completion_tokens"] = payload.get("max_completion_tokens", 6000) + 2000
+                print(f"Increasing max_completion_tokens to {payload['max_completion_tokens']} and retrying...")
                 continue
 
         try:
@@ -1705,10 +1703,8 @@ def call_grok_for_page_wise_suggestions(
     }
 
     payload = {
-        "model": "grok-4-fast-reasoning",
+        "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.2,
-        "max_tokens": 4000,  # Sufficient for page suggestions
     }
 
     max_retries = 3
@@ -1720,7 +1716,7 @@ def call_grok_for_page_wise_suggestions(
 
         try:
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                GROK_CHAT_URL,
                 headers=headers,
                 json=payload,
                 timeout=150,
@@ -1745,8 +1741,8 @@ def call_grok_for_page_wise_suggestions(
             # Check for truncation
             finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
             if finish_reason == "length" and attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
-                print(f"Response truncated, increasing max_tokens to {payload['max_tokens']} and retrying...")
+                payload["max_completion_tokens"] = payload.get("max_completion_tokens", 4000) + 2000
+                print(f"Response truncated, increasing max_completion_tokens to {payload['max_completion_tokens']} and retrying...")
                 continue
 
             content = data["choices"][0]["message"]["content"]

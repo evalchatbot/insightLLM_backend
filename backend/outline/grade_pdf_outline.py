@@ -117,7 +117,7 @@ class OutlinePipelineConfig:
     Change values here to update environment variable names, rubric filenames, or default debug paths.
     """
 
-    grok_env_key: str = "Grok_API"
+    grok_env_key: str = "OPENAI_API_KEY"
     azure_endpoint_env_key: str = "AZURE_ENDPOINT"
     azure_key_env_key: str = "AZURE_KEY"
 
@@ -143,12 +143,12 @@ class OutlinePipelineConfig:
     grok_max_total_base64_chars: int = 240_000
 
     # Grok model settings.
-    grok_model_outline_structure: str = "grok-4-1-fast-reasoning"
+    grok_model_outline_structure: str = "gpt-6-luna"
     # Separate configs for outline grading, suggestions, and annotations so they
     # can be tuned independently if needed.
-    grok_model_outline_grading: str = "grok-4-1-fast-reasoning"
-    grok_model_outline_suggestions: str = "grok-4-1-fast-reasoning"
-    grok_model_outline_annotations: str = "grok-4-1-fast-reasoning"
+    grok_model_outline_grading: str = "gpt-6-luna"
+    grok_model_outline_suggestions: str = "gpt-6-luna"
+    grok_model_outline_annotations: str = "gpt-6-luna"
 
     grok_temperature_outline_grading: float = 0.12
     grok_temperature_outline_suggestions: float = 0.18
@@ -2343,21 +2343,26 @@ def _grok_chat(
     backoff_max: float = 30.0,
 ) -> Dict[str, Any]:
     """
-    Call the Grok chat completions API with basic retry handling.
+    Call the eval LLM (OpenAI GPT-6 Luna by default) with basic retry handling.
     """
     if model is None:
         model = OUTLINE_CONFIG.grok_model_outline_structure
     if timeout is None:
         timeout = OUTLINE_CONFIG.grok_request_timeout_seconds
 
+    # EVAL_LLM_* can point at another OpenAI-compatible provider without code changes.
+    api_url = os.getenv("EVAL_LLM_CHAT_URL", "https://api.openai.com/v1/chat/completions")
+    model = os.getenv("EVAL_LLM_MODEL") or model
+    grok_api_key = os.getenv("EVAL_LLM_API_KEY") or grok_api_key
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {grok_api_key}",
     }
+    # temperature / max_tokens are not sent: reasoning models like GPT-6 Luna only
+    # accept the default temperature and count reasoning toward the token cap.
     payload: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
     }
 
     last_error: Exception | None = None
@@ -2365,7 +2370,7 @@ def _grok_chat(
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                api_url,
                 headers=headers,
                 json=payload,
                 timeout=(30, timeout),

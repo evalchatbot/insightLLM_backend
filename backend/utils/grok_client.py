@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Lightweight Grok API client used for the new evaluation pipeline.
+Lightweight chat-completions client for Fact Book and Current Affairs, on OpenAI
+GPT-6 Luna (named for the xAI Grok API it used to call).
 """
 
 from __future__ import annotations
@@ -36,14 +37,14 @@ class GrokClient:
     """
 
     def __init__(self, api_key: Optional[str] = None, *, timeout: int = 150) -> None:
-        key = api_key or os.getenv("GROK_API") or os.getenv("Grok_API")
+        key = api_key or os.getenv("OPENAI_API_KEY")
         if not key:
             raise RuntimeError(
-                "Missing Grok API key. Set GROK_API or Grok_API in the environment."
+                "Missing OpenAI API key. Set OPENAI_API_KEY in the environment."
             )
         self.api_key = key
         self.timeout = timeout
-        self.base_url = os.getenv("GROK_API_BASE_URL", "https://api.x.ai/v1")
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
     def chat_completion(
         self,
@@ -54,15 +55,15 @@ class GrokClient:
         temperature: float = 0.1,
         max_output_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
+        # temperature / max_output_tokens are accepted but not sent: reasoning models
+        # like GPT-6 Luna only accept the default temperature and count reasoning
+        # toward the token cap (a small cap can leave no room for the answer).
         payload: Dict[str, Any] = {
             "model": model,
             "messages": [m.to_dict() for m in messages],
-            "temperature": temperature,
         }
         if response_format:
             payload["response_format"] = response_format
-        if max_output_tokens is not None:
-            payload["max_output_tokens"] = max_output_tokens
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

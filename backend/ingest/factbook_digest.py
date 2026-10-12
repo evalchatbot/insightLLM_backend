@@ -166,7 +166,7 @@ def generate_factbook_digest(
     if not editorials:
         raise ValueError("No editorials supplied for digest generation")
     if not GROK_API:
-        raise RuntimeError("GROK_API is not configured; cannot generate digest")
+        raise RuntimeError("OPENAI_API_KEY is not configured; cannot generate digest")
 
     date_range = _format_date_range([e.get("publication_date") or "" for e in editorials])
     slim = _slim_editorials(editorials)

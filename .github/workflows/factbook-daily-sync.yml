@@ -2,7 +2,7 @@ name: Fact Book Daily Sync
 
 # Manual backfill tool only. The daily sync runs inside the backend itself
 # (backend/ingest/factbook_scheduler.py); this job needs SUPABASE_URL,
-# SUPABASE_SERVICE_ROLE_KEY and GROK_API repository secrets to run.
+# SUPABASE_SERVICE_ROLE_KEY and OPENAI_API_KEY repository secrets to run.
 on:
   workflow_dispatch:
     inputs:
@@ -48,7 +48,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
-          GROK_API: ${{ secrets.GROK_API || vars.GROK_API }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || vars.OPENAI_API_KEY }}
           # Dawn is behind a Cloudflare challenge; fetch through a rendering proxy, paced under its 20 req/min anonymous limit.
           FACTBOOK_FETCH_PROXY_PREFIX: ${{ vars.FACTBOOK_FETCH_PROXY_PREFIX || 'https://r.jina.ai/' }}
           FACTBOOK_FETCH_PROXY_TOKEN: ${{ secrets.FACTBOOK_FETCH_PROXY_TOKEN }}
@@ -69,9 +69,9 @@ jobs:
             echo "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY"
             exit 1
           fi
-          if [ -z "${GROK_API:-}" ]; then
-            # Without GROK_API the sync would store low-quality fallback summaries that later runs treat as final.
-            echo "Missing GROK_API"
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            # Without OPENAI_API_KEY the sync would store low-quality fallback summaries that later runs treat as final.
+            echo "Missing OPENAI_API_KEY"
             exit 1
           fi
 

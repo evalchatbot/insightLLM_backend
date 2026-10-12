@@ -544,18 +544,18 @@ def validate_input_paths(pdf_path: str, output_json_path: str, output_pdf_path: 
 
 def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
     """
-    Load environment variables for Grok and Google Vision.
+    Load environment variables for the eval LLM (OpenAI) and Google Vision.
 
     .env must contain:
-      Grok_API=YOUR_GROK_KEY
+      OPENAI_API_KEY=YOUR_OPENAI_KEY
       Google_cloud_key=YOUR_GOOGLE_CLOUD_API_KEY
     """
     load_dotenv()
-    grok_key = os.getenv("Grok_API")
+    grok_key = os.getenv("OPENAI_API_KEY")
     google_key = os.getenv("Google_cloud_key")
     missing = []
     if not grok_key:
-        missing.append("Grok_API")
+        missing.append("OPENAI_API_KEY")
     if not google_key:
         missing.append("Google_cloud_key")
     if missing:
@@ -567,7 +567,7 @@ def load_environment() -> Tuple[str, vision.ImageAnnotatorClient]:
     # Validate API key formats
     if len(grok_key) < 20:
         raise ValueError(
-            f"Invalid Grok_API key format: key is too short ({len(grok_key)} characters). "
+            f"Invalid OPENAI_API_KEY key format: key is too short ({len(grok_key)} characters). "
             "Expected at least 20 characters."
         )
     if len(google_key) < 20:
@@ -1169,8 +1169,6 @@ def call_grok_for_section_detection(
     payload = {
         "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.1,
-        "max_tokens": 4000,  # Sufficient for structure detection
     }
 
     try:
@@ -1550,8 +1548,6 @@ def build_grok_payload_for_grading(
                 + json.dumps(content_payload, ensure_ascii=False),
             },
         ],
-        "temperature": 0.15,
-        "max_tokens": 8000,  # Increased to allow longer responses
     }
 
 
@@ -1889,8 +1885,6 @@ def call_grok_for_refined_rubric_annotations(
     payload = {
         "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.1,
-        "max_tokens": 6000,  # Increased for refined rubric annotations
     }
 
     _REFINED_FALLBACK_ANNOT = {
@@ -2106,8 +2100,6 @@ def call_grok_for_page_wise_suggestions(
     payload = {
         "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.2,
-        "max_tokens": 4000,  # Sufficient for page suggestions
     }
 
     try:
@@ -2278,8 +2270,6 @@ def call_grok_for_mark_deduction_analysis(
     payload = {
         "model": GROK_MODEL,
         "messages": [system_msg, user_msg],
-        "temperature": 0.2,
-        "max_tokens": 6000,
     }
 
     return call_grok_api(

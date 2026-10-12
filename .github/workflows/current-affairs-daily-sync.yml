@@ -2,7 +2,7 @@ name: Current Affairs Daily Sync
 
 # Manual trigger only. The daily sync runs inside the backend itself
 # (backend/ingest/current_affairs_scheduler.py); this job needs the sync URL/token
-# or Supabase + GROK_API repository secrets to run.
+# or Supabase + OPENAI_API_KEY repository secrets to run.
 on:
   workflow_dispatch:
 
@@ -25,7 +25,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || vars.SUPABASE_KEY }}
-          GROK_API: ${{ secrets.GROK_API || vars.GROK_API }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || vars.OPENAI_API_KEY }}
           CURRENT_AFFAIRS_BACKFILL_START_DATE: ${{ vars.CURRENT_AFFAIRS_BACKFILL_START_DATE || '2026-01-01' }}
           CURRENT_AFFAIRS_MAX_DAYS_PER_RUN: ${{ vars.CURRENT_AFFAIRS_MAX_DAYS_PER_RUN || '30' }}
         run: |

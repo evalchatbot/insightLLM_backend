@@ -15,12 +15,12 @@ load_dotenv()
 
 # Test 1: Check environment variables
 print("\n1. Checking environment variables...")
-grok_api = os.getenv("Grok_API")
+grok_api = os.getenv("OPENAI_API_KEY")
 azure_endpoint = os.getenv("AZURE_ENDPOINT")
 azure_key = os.getenv("AZURE_KEY")
 google_key = os.getenv("Google_cloud_key")
 
-print(f"   Grok_API: {'✓ Found' if grok_api else '✗ Missing'}")
+print(f"   OPENAI_API_KEY: {'✓ Found' if grok_api else '✗ Missing'}")
 print(f"   AZURE_ENDPOINT: {'✓ Found' if azure_endpoint else '✗ Missing'}")
 print(f"   AZURE_KEY: {'✓ Found' if azure_key else '✗ Missing'}")
 print(f"   Google_cloud_key: {'✓ Found' if google_key else '✗ Missing'}")
@@ -103,7 +103,7 @@ print("="*70)
 
 issues = []
 if not grok_api:
-    issues.append("Grok_API missing")
+    issues.append("OPENAI_API_KEY missing")
 if not azure_endpoint or not azure_key:
     issues.append("Azure credentials missing - spell checking will be disabled")
 if not found:

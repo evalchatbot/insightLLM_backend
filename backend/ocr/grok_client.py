@@ -1,15 +1,19 @@
 # grok_client.py
 #
-# Grok API HTTP client: call chat completions, retry, parse/repair JSON.
-# Used by grade_pdf_answer for all 5 Grok calls (section detection, grading,
+# Eval LLM HTTP client (OpenAI GPT-6 Luna; named for the xAI Grok API it used to
+# call): chat completions, retry, parse/repair JSON.
+# Used by grade_pdf_answer for all 5 LLM calls (section detection, grading,
 # refined rubric, page-wise suggestions, mark deduction analysis).
 #
-# Kept in grade_pdf_answer: payload-building and prompt logic.
+# Kept in grade_pdf_answer: payload-building and prompt logic. Payloads send no
+# temperature / max_tokens: reasoning models like Luna only accept the default
+# temperature and count reasoning toward the token cap.
 
 from __future__ import annotations
 
 import datetime
 import json
+import os
 import re
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -20,8 +24,9 @@ import requests
 # -----------------------------
 # CONSTANTS
 # -----------------------------
-GROK_CHAT_URL = "https://api.x.ai/v1/chat/completions"
-GROK_MODEL = "grok-4-1-fast-reasoning"
+# EVAL_LLM_* can point at another OpenAI-compatible provider without code changes.
+GROK_CHAT_URL = os.getenv("EVAL_LLM_CHAT_URL", "https://api.openai.com/v1/chat/completions")
+GROK_MODEL = os.getenv("EVAL_LLM_MODEL", "gpt-6-luna")
 GROK_REQUEST_TIMEOUT = 150
 
 
@@ -106,6 +111,7 @@ def call_grok_api(
     Callers that need a fallback should catch GrokAPIError and use
     .token_usage / .raw_content.
     """
+    grok_api_key = os.getenv("EVAL_LLM_API_KEY") or grok_api_key
     headers = {
         "Authorization": f"Bearer {grok_api_key}",
         "Content-Type": "application/json",
@@ -162,14 +168,14 @@ def call_grok_api(
         finish_reason = data.get("choices", [{}])[0].get("finish_reason", "unknown")
         if finish_reason == "length":
             if attempt < max_retries - 1:
-                payload["max_tokens"] = payload.get("max_tokens", 4000) + 2000
+                payload["max_completion_tokens"] = payload.get("max_completion_tokens", 4000) + 2000
                 print(
                     f"WARNING: Response truncated (finish_reason=length). "
-                    f"Increasing max_tokens to {payload['max_tokens']} and retrying..."
+                    f"Increasing max_completion_tokens to {payload['max_completion_tokens']} and retrying..."
                 )
                 continue
             raise GrokAPIError(
-                "Grok response truncated due to max_tokens and no retries left",
+                "Grok response truncated due to max_completion_tokens and no retries left",
                 token_usage=token_usage,
                 raw_content=content,
             )

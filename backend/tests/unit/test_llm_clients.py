@@ -1,7 +1,7 @@
 """
 HTTP boundaries of the three LLM clients:
-  * backend.utils.grok_client      (requests)  -- Fact Book + evaluation pipeline
-  * backend.ocr.grok_client        (requests)  -- retrying/repairing Grok caller for grading
+  * backend.utils.grok_client      (requests)  -- Fact Book + Current Affairs (OpenAI GPT-6 Luna)
+  * backend.ocr.grok_client        (requests)  -- retrying/repairing LLM caller for grading (GPT-6 Luna)
   * backend.rag.llm.streaming_client (httpx)   -- Groq SSE streaming for the chatbot
 No request leaves the process: requests.post is replaced and httpx gets a MockTransport.
 """
@@ -26,20 +26,34 @@ pytestmark = pytest.mark.unit
 
 
 def test_client_requires_key(monkeypatch):
-    with pytest.raises(RuntimeError, match="Missing Grok API key"):
+    with pytest.raises(RuntimeError, match="Missing OpenAI API key"):
         ug.GrokClient()
 
 
+def test_client_ignores_old_xai_key(monkeypatch):
+    monkeypatch.setenv("GROK_API", "xai-key")
+    monkeypatch.setenv("Grok_API", "xai-key")
+    with pytest.raises(RuntimeError, match="Set OPENAI_API_KEY"):
+        ug.GrokClient()
+
+
+def test_client_defaults_to_openai(monkeypatch):
+    post = RecordingPost(make_requests_response(200, grok_completion("hi")))
+    monkeypatch.setattr(ug.requests, "post", post)
+    ug.GrokClient(api_key="k").chat_completion(model="m", messages=[])
+    assert post.calls[0]["url"] == "https://api.openai.com/v1/chat/completions"
+
+
 def test_client_reads_key_and_base_url_from_env(monkeypatch):
-    monkeypatch.setenv("GROK_API", "env-key")
-    monkeypatch.setenv("GROK_API_BASE_URL", "https://grok.internal/v2/")
+    monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://llm.internal/v2/")
     client = ug.GrokClient(timeout=7)
     assert client.api_key == "env-key"
     assert client.timeout == 7
     post = RecordingPost(make_requests_response(200, grok_completion("hi")))
     monkeypatch.setattr(ug.requests, "post", post)
     client.chat_completion(model="m", messages=[ug.GrokMessage("user", "q")])
-    assert post.calls[0]["url"] == "https://grok.internal/v2/chat/completions"
+    assert post.calls[0]["url"] == "https://llm.internal/v2/chat/completions"
     assert post.calls[0]["timeout"] == 7
 
 
@@ -50,19 +64,18 @@ def test_chat_completion_payload_and_usage(monkeypatch):
     monkeypatch.setattr(ug.requests, "post", post)
     client = ug.GrokClient(api_key="k")
     data = client.chat_completion(
-        model="grok-x",
+        model="gpt-6-luna",
         messages=[ug.GrokMessage("system", "s"), ug.GrokMessage("user", [{"type": "text", "text": "q"}])],
         response_format={"type": "json_object"},
         temperature=0.3,
         max_output_tokens=500,
     )
     sent = json.loads(post.calls[0]["data"])
+    # temperature / max_output_tokens are accepted for callers but never sent (reasoning model).
     assert sent == {
-        "model": "grok-x",
+        "model": "gpt-6-luna",
         "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": [{"type": "text", "text": "q"}]}],
-        "temperature": 0.3,
         "response_format": {"type": "json_object"},
-        "max_output_tokens": 500,
     }
     assert post.calls[0]["headers"]["Authorization"] == "Bearer k"
     assert data["_token_usage"] == {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15}
@@ -74,7 +87,7 @@ def test_chat_completion_omits_optional_fields(monkeypatch):
     monkeypatch.setattr(ug.requests, "post", post)
     data = ug.GrokClient(api_key="k").chat_completion(model="m", messages=[])
     sent = json.loads(post.calls[0]["data"])
-    assert "response_format" not in sent and "max_output_tokens" not in sent
+    assert sent == {"model": "m", "messages": []}
     assert "_token_usage" not in data
 
 
@@ -148,9 +161,18 @@ def test_call_grok_api_success(monkeypatch):
     parsed, usage = ocr_grok.call_grok_api("key", {"model": "m", "messages": []})
     assert parsed == {"score": 12}
     assert usage == {"input_tokens": 10, "output_tokens": 5}
-    assert post.calls[0]["url"] == ocr_grok.GROK_CHAT_URL
+    assert post.calls[0]["url"] == ocr_grok.GROK_CHAT_URL == "https://api.openai.com/v1/chat/completions"
+    assert ocr_grok.GROK_MODEL == "gpt-6-luna"
     assert post.calls[0]["headers"]["Authorization"] == "Bearer key"
     assert post.calls[0]["json"] == {"model": "m", "messages": []}
+
+
+def test_call_grok_api_eval_key_override(monkeypatch):
+    monkeypatch.setenv("EVAL_LLM_API_KEY", "other-provider-key")
+    post = RecordingPost(ok('{"a": 1}'))
+    monkeypatch.setattr(ocr_grok.requests, "post", post)
+    ocr_grok.call_grok_api("key", {"model": "m", "messages": []})
+    assert post.calls[0]["headers"]["Authorization"] == "Bearer other-provider-key"
 
 
 def test_call_grok_api_retries_http_and_network_errors(monkeypatch, no_sleep):
@@ -177,10 +199,10 @@ def test_call_grok_api_network_failure(monkeypatch):
 def test_call_grok_api_truncation_raises_budget_then_succeeds(monkeypatch):
     post = RecordingPost(ok('{"partial": ', finish="length"), ok('{"done": 1}'))
     monkeypatch.setattr(ocr_grok.requests, "post", post)
-    payload = {"max_tokens": 4000}
+    payload = {"max_completion_tokens": 4000}
     parsed, _ = ocr_grok.call_grok_api("k", payload)
     assert parsed == {"done": 1}
-    assert payload["max_tokens"] == 6000
+    assert payload["max_completion_tokens"] == 6000
 
 
 def test_call_grok_api_truncated_on_last_attempt(monkeypatch):

@@ -308,7 +308,8 @@ def test_generate_digest_happy_path(grok_post):
     assert out["date_range"] == "01 Mar 2026 - 02 Mar 2026"
     payload = json.loads(post.calls[0]["data"])
     assert payload["model"] == fd.FACTBOOK_GROK_MODEL
-    assert payload["max_output_tokens"] == 6000
+    assert payload["response_format"] == {"type": "json_object"}
+    assert "max_output_tokens" not in payload and "temperature" not in payload
     assert payload["messages"][0]["content"] == fd.DIGEST_SYSTEM_PROMPT
 
 
@@ -316,7 +317,7 @@ def test_generate_digest_requires_input_and_key(monkeypatch):
     with pytest.raises(ValueError):
         fd.generate_factbook_digest([])
     monkeypatch.setattr(fd, "GROK_API", None)
-    with pytest.raises(RuntimeError, match="GROK_API is not configured"):
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY is not configured"):
         fd.generate_factbook_digest(EDITORIALS)
 
 

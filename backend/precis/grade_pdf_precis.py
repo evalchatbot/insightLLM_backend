@@ -77,9 +77,9 @@ DEFAULT_PRECIS_CRITERIA: List[Dict[str, Any]] = [
 ]
 
 DEFAULT_MODELS: Dict[str, Dict[str, Any]] = {
-    "grading": {"model": "grok-4-1-fast-reasoning", "temperature": 0.10},
-    "annotations": {"model": "grok-4-1-fast-reasoning", "temperature": 0.15},
-    "json_repair": {"model": "grok-4-1-fast-reasoning", "temperature": 0.00},
+    "grading": {"model": "gpt-6-luna", "temperature": 0.10},
+    "annotations": {"model": "gpt-6-luna", "temperature": 0.15},
+    "json_repair": {"model": "gpt-6-luna", "temperature": 0.00},
 }
 
 MAX_OBTAINABLE_PRECIS_SCORE = 12.0
@@ -150,29 +150,33 @@ def _extract_json_candidate(text: str) -> str:
 def _grok_chat(
     grok_api_key: str,
     messages: List[Dict[str, str]],
-    model: str = "grok-4-1-fast-reasoning",
+    model: str = "gpt-6-luna",
     temperature: float = 0.12,
     max_tokens: Optional[int] = None,
     timeout: int = 180,
     max_retries: int = 8,
 ) -> Dict[str, Any]:
+    # OpenAI GPT-6 Luna by default; EVAL_LLM_* can point at another
+    # OpenAI-compatible provider without code changes.
+    api_url = os.getenv("EVAL_LLM_CHAT_URL", "https://api.openai.com/v1/chat/completions")
+    model = os.getenv("EVAL_LLM_MODEL") or model
+    grok_api_key = os.getenv("EVAL_LLM_API_KEY") or grok_api_key
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {grok_api_key}",
     }
+    # temperature / max_tokens are not sent: reasoning models like GPT-6 Luna only
+    # accept the default temperature and count reasoning toward the token cap.
     payload: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
     }
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
 
     last_err: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
+                api_url,
                 headers=headers,
                 json=payload,
                 timeout=(30, timeout),
@@ -202,7 +206,7 @@ def parse_json_with_repair(
     *,
     debug_tag: str,
     max_fix_attempts: int = 2,
-    repair_model: str = "grok-4-1-fast-reasoning",
+    repair_model: str = "gpt-6-luna",
     repair_temperature: float = 0.0,
 ) -> Dict[str, Any]:
     os.makedirs(DEBUG_LLM_DIR, exist_ok=True)
@@ -381,13 +385,13 @@ def parse_precis_rubric_criteria(docx_path: str) -> List[Dict[str, Any]]:
 def load_environment(env_file: str) -> Tuple[str, DocumentAnalysisClient]:
     load_dotenv(env_file)
 
-    grok_key = os.getenv("Grok_API")
+    grok_key = os.getenv("OPENAI_API_KEY")
     azure_endpoint = os.getenv("AZURE_ENDPOINT")
     azure_key = os.getenv("AZURE_KEY")
 
     missing = []
     if not grok_key:
-        missing.append("Grok_API")
+        missing.append("OPENAI_API_KEY")
     if not azure_endpoint:
         missing.append("AZURE_ENDPOINT")
     if not azure_key:
@@ -1172,9 +1176,9 @@ def call_grok_for_precis_grading(
     ocr_data: Dict[str, Any],
     page_images: List[Dict[str, Any]],
     *,
-    model: str = "grok-4-1-fast-reasoning",
+    model: str = "gpt-6-luna",
     temperature: float = 0.10,
-    repair_model: str = "grok-4-1-fast-reasoning",
+    repair_model: str = "gpt-6-luna",
     repair_temperature: float = 0.0,
     deterministic_counts: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
@@ -1393,9 +1397,9 @@ def call_grok_for_precis_annotations(
     grading: Dict[str, Any],
     page_images: List[Dict[str, Any]],
     *,
-    model: str = "grok-4-1-fast-reasoning",
+    model: str = "gpt-6-luna",
     temperature: float = 0.15,
-    repair_model: str = "grok-4-1-fast-reasoning",
+    repair_model: str = "gpt-6-luna",
     repair_temperature: float = 0.0,
 ) -> Dict[str, Any]:
     """

@@ -33,6 +33,10 @@ CONFIG_VARS = [
     "FACTBOOK_CATCHUP_DAYS",
     "FACTBOOK_TOPIC_MODEL",
     "FACTBOOK_GROK_MODEL",
+    "CURRENT_AFFAIRS_GROK_MODEL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "Grok_API",
     "LANGSMITH_TRACING",
     "OCR_MAX_RETRIES",
     "CHATBOT_LLM_MODEL",
@@ -58,8 +62,9 @@ def test_config_defaults(clean_config_env):
     assert cfg.FACTBOOK_FETCH_PROXY_PREFIX == "https://r.jina.ai/"
     assert cfg.FACTBOOK_FETCH_MIN_INTERVAL_SECONDS == 3.2
     assert cfg.FACTBOOK_AUTO_SYNC_TODAY_ON_EMPTY is True
-    assert cfg.FACTBOOK_TOPIC_MODEL == cfg.FACTBOOK_GROK_MODEL == "grok-4-1-fast-reasoning"
-    assert cfg.GROK_API_BASE_URL == "https://api.x.ai/v1"
+    assert cfg.FACTBOOK_TOPIC_MODEL == cfg.FACTBOOK_GROK_MODEL == "gpt-6-luna"
+    assert cfg.CURRENT_AFFAIRS_GROK_MODEL == "gpt-6-luna"
+    assert cfg.GROK_API_BASE_URL == "https://api.openai.com/v1"
     assert cfg.SUPABASE_ISSUER == "/auth/v1"
     assert cfg.SUPABASE_AUDIENCE == "authenticated"
     assert cfg.LANGSMITH_TRACING == "false"
@@ -82,13 +87,15 @@ def test_empty_values_fall_back_or_disable(clean_config_env):
 
 
 def test_topic_model_follows_grok_model(clean_config_env):
-    clean_config_env.setenv("FACTBOOK_GROK_MODEL", "grok-5")
-    assert fresh_copy("backend/config.py").FACTBOOK_TOPIC_MODEL == "grok-5"
+    clean_config_env.setenv("FACTBOOK_GROK_MODEL", "gpt-6-sol")
+    assert fresh_copy("backend/config.py").FACTBOOK_TOPIC_MODEL == "gpt-6-sol"
 
 
-def test_grok_key_accepts_legacy_mixed_case_name(clean_config_env):
-    clean_config_env.setenv("Grok_API", "legacy-key")
-    assert fresh_copy("backend/config.py").GROK_API == "legacy-key"
+def test_llm_key_comes_from_openai_api_key(clean_config_env):
+    clean_config_env.setenv("Grok_API", "old-xai-key")  # xAI keys are no longer read
+    assert fresh_copy("backend/config.py").GROK_API is None
+    clean_config_env.setenv("OPENAI_API_KEY", "openai-key")
+    assert fresh_copy("backend/config.py").GROK_API == "openai-key"
 
 
 def test_suite_runs_with_scheduler_disabled_and_fake_supabase():

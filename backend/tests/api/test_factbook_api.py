@@ -301,7 +301,7 @@ def test_digest_without_grok_key_is_502(client, monkeypatch):
     monkeypatch.setattr(factbook_digest, "GROK_API", None)
     resp = client.post("/api/factbook/digest", json=DIGEST_BODY)
     assert resp.status_code == 502
-    assert "GROK_API is not configured" in resp.json()["detail"]
+    assert "OPENAI_API_KEY is not configured" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------- token-guarded sync
